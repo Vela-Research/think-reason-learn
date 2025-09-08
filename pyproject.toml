@@ -1,0 +1,22 @@
+[tool.poetry]
+name = "reasoning-forest"
+version = "0.1.0"
+description = "Interpretable tree/forest-style decision-making systems powered by LLMs"
+authors = ["Vela Research <researcher@vela.partners>"]
+license = "MIT"
+readme = "README.md"
+packages = [{include = "reasoning_forest"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+
+[tool.poetry.dev-dependencies]
+pytest = "*"
+pytest-asyncio = "*"
+ruff = "*"
+pyright = "*"
+sphinx = "*"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

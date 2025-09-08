@@ -16,6 +16,10 @@ classifiers = [
 
 [tool.poetry.dependencies]
 python = ">=3.13,<3.14"
+pydantic = "^2.11.7"
+pydantic-settings = "^2.10.1"
+google-genai = "^1.33.0"
+openai = "^1.106.1"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.4.2"

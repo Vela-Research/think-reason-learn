@@ -1,0 +1,782 @@
+[
+    {
+        "label": "runpy",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "runpy",
+        "description": "runpy",
+        "detail": "runpy",
+        "documentation": {}
+    },
+    {
+        "label": "annotations",
+        "importPath": "__future__",
+        "description": "__future__",
+        "isExtraImport": true,
+        "detail": "__future__",
+        "documentation": {}
+    },
+    {
+        "label": "annotations",
+        "importPath": "__future__",
+        "description": "__future__",
+        "isExtraImport": true,
+        "detail": "__future__",
+        "documentation": {}
+    },
+    {
+        "label": "annotations",
+        "importPath": "__future__",
+        "description": "__future__",
+        "isExtraImport": true,
+        "detail": "__future__",
+        "documentation": {}
+    },
+    {
+        "label": "annotations",
+        "importPath": "__future__",
+        "description": "__future__",
+        "isExtraImport": true,
+        "detail": "__future__",
+        "documentation": {}
+    },
+    {
+        "label": "annotations",
+        "importPath": "__future__",
+        "description": "__future__",
+        "isExtraImport": true,
+        "detail": "__future__",
+        "documentation": {}
+    },
+    {
+        "label": "annotations",
+        "importPath": "__future__",
+        "description": "__future__",
+        "isExtraImport": true,
+        "detail": "__future__",
+        "documentation": {}
+    },
+    {
+        "label": "annotations",
+        "importPath": "__future__",
+        "description": "__future__",
+        "isExtraImport": true,
+        "detail": "__future__",
+        "documentation": {}
+    },
+    {
+        "label": "annotations",
+        "importPath": "__future__",
+        "description": "__future__",
+        "isExtraImport": true,
+        "detail": "__future__",
+        "documentation": {}
+    },
+    {
+        "label": "annotations",
+        "importPath": "__future__",
+        "description": "__future__",
+        "isExtraImport": true,
+        "detail": "__future__",
+        "documentation": {}
+    },
+    {
+        "label": "annotations",
+        "importPath": "__future__",
+        "description": "__future__",
+        "isExtraImport": true,
+        "detail": "__future__",
+        "documentation": {}
+    },
+    {
+        "label": "annotations",
+        "importPath": "__future__",
+        "description": "__future__",
+        "isExtraImport": true,
+        "detail": "__future__",
+        "documentation": {}
+    },
+    {
+        "label": "os",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "os",
+        "description": "os",
+        "detail": "os",
+        "documentation": {}
+    },
+    {
+        "label": "site",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "site",
+        "description": "site",
+        "detail": "site",
+        "documentation": {}
+    },
+    {
+        "label": "sys",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "sys",
+        "description": "sys",
+        "detail": "sys",
+        "documentation": {}
+    },
+    {
+        "label": "Type",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "TypeAlias",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Literal",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Type",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "cast",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "TypeAlias",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Literal",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Type",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "TypeAlias",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Type",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "TypeAlias",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Literal",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "TypeVar",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Tuple",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Generic",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "List",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Type",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "List",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "TypeAlias",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Literal",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Dict",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Tuple",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Any",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "TypeVar",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "ClassVar",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Dict",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "SingletonMeta",
+        "importPath": "reasoning_forest.core._singleton",
+        "description": "reasoning_forest.core._singleton",
+        "isExtraImport": true,
+        "detail": "reasoning_forest.core._singleton",
+        "documentation": {}
+    },
+    {
+        "label": "SingletonMeta",
+        "importPath": "reasoning_forest.core._singleton",
+        "description": "reasoning_forest.core._singleton",
+        "isExtraImport": true,
+        "detail": "reasoning_forest.core._singleton",
+        "documentation": {}
+    },
+    {
+        "label": "SingletonMeta",
+        "importPath": "reasoning_forest.core._singleton",
+        "description": "reasoning_forest.core._singleton",
+        "isExtraImport": true,
+        "detail": "reasoning_forest.core._singleton",
+        "documentation": {}
+    },
+    {
+        "label": "SingletonMeta",
+        "importPath": "reasoning_forest.core._singleton",
+        "description": "reasoning_forest.core._singleton",
+        "isExtraImport": true,
+        "detail": "reasoning_forest.core._singleton",
+        "documentation": {}
+    },
+    {
+        "label": "SingletonMeta",
+        "importPath": "reasoning_forest.core._singleton",
+        "description": "reasoning_forest.core._singleton",
+        "isExtraImport": true,
+        "detail": "reasoning_forest.core._singleton",
+        "documentation": {}
+    },
+    {
+        "label": "datetime",
+        "importPath": "datetime",
+        "description": "datetime",
+        "isExtraImport": true,
+        "detail": "datetime",
+        "documentation": {}
+    },
+    {
+        "label": "timezone",
+        "importPath": "datetime",
+        "description": "datetime",
+        "isExtraImport": true,
+        "detail": "datetime",
+        "documentation": {}
+    },
+    {
+        "label": "datetime",
+        "importPath": "datetime",
+        "description": "datetime",
+        "isExtraImport": true,
+        "detail": "datetime",
+        "documentation": {}
+    },
+    {
+        "label": "BaseModel",
+        "importPath": "pydantic",
+        "description": "pydantic",
+        "isExtraImport": true,
+        "detail": "pydantic",
+        "documentation": {}
+    },
+    {
+        "label": "ValidationError",
+        "importPath": "pydantic",
+        "description": "pydantic",
+        "isExtraImport": true,
+        "detail": "pydantic",
+        "documentation": {}
+    },
+    {
+        "label": "BaseModel",
+        "importPath": "pydantic",
+        "description": "pydantic",
+        "isExtraImport": true,
+        "detail": "pydantic",
+        "documentation": {}
+    },
+    {
+        "label": "BaseModel",
+        "importPath": "pydantic",
+        "description": "pydantic",
+        "isExtraImport": true,
+        "detail": "pydantic",
+        "documentation": {}
+    },
+    {
+        "label": "model_validator",
+        "importPath": "pydantic",
+        "description": "pydantic",
+        "isExtraImport": true,
+        "detail": "pydantic",
+        "documentation": {}
+    },
+    {
+        "label": "genai",
+        "importPath": "google",
+        "description": "google",
+        "isExtraImport": true,
+        "detail": "google",
+        "documentation": {}
+    },
+    {
+        "label": "types",
+        "importPath": "google.genai",
+        "description": "google.genai",
+        "isExtraImport": true,
+        "detail": "google.genai",
+        "documentation": {}
+    },
+    {
+        "label": "ChatModel",
+        "importPath": "openai.types",
+        "description": "openai.types",
+        "isExtraImport": true,
+        "detail": "openai.types",
+        "documentation": {}
+    },
+    {
+        "label": "math",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "math",
+        "description": "math",
+        "detail": "math",
+        "documentation": {}
+    },
+    {
+        "label": "settings",
+        "importPath": "reasoning_forest.core._config",
+        "description": "reasoning_forest.core._config",
+        "isExtraImport": true,
+        "detail": "reasoning_forest.core._config",
+        "documentation": {}
+    },
+    {
+        "label": "BaseSettings",
+        "importPath": "pydantic_settings",
+        "description": "pydantic_settings",
+        "isExtraImport": true,
+        "detail": "pydantic_settings",
+        "documentation": {}
+    },
+    {
+        "label": "PydanticBaseSettingsSource",
+        "importPath": "pydantic_settings",
+        "description": "pydantic_settings",
+        "isExtraImport": true,
+        "detail": "pydantic_settings",
+        "documentation": {}
+    },
+    {
+        "label": "SettingsConfigDict",
+        "importPath": "pydantic_settings",
+        "description": "pydantic_settings",
+        "isExtraImport": true,
+        "detail": "pydantic_settings",
+        "documentation": {}
+    },
+    {
+        "label": "bin_dir",
+        "kind": 5,
+        "importPath": ".venv.bin.activate_this",
+        "description": ".venv.bin.activate_this",
+        "peekOfCode": "bin_dir = os.path.dirname(abs_file)\nbase = bin_dir[: -len('bin') - 1]  # strip away the bin part from the __file__, plus the path separator\n# prepend bin to PATH (this file is inside the bin directory)\nos.environ[\"PATH\"] = os.pathsep.join([bin_dir, *os.environ.get(\"PATH\", \"\").split(os.pathsep)])\nos.environ[\"VIRTUAL_ENV\"] = base  # virtual env is right above bin directory\nos.environ[\"VIRTUAL_ENV_PROMPT\"] = 'reasoning-forest-py3.13' or os.path.basename(base)\n# add the virtual environments libraries to the host python import mechanism\nprev_length = len(sys.path)\nfor lib in '../lib/python3.13/site-packages'.split(os.pathsep):\n    path = os.path.realpath(os.path.join(bin_dir, lib))",
+        "detail": ".venv.bin.activate_this",
+        "documentation": {}
+    },
+    {
+        "label": "base",
+        "kind": 5,
+        "importPath": ".venv.bin.activate_this",
+        "description": ".venv.bin.activate_this",
+        "peekOfCode": "base = bin_dir[: -len('bin') - 1]  # strip away the bin part from the __file__, plus the path separator\n# prepend bin to PATH (this file is inside the bin directory)\nos.environ[\"PATH\"] = os.pathsep.join([bin_dir, *os.environ.get(\"PATH\", \"\").split(os.pathsep)])\nos.environ[\"VIRTUAL_ENV\"] = base  # virtual env is right above bin directory\nos.environ[\"VIRTUAL_ENV_PROMPT\"] = 'reasoning-forest-py3.13' or os.path.basename(base)\n# add the virtual environments libraries to the host python import mechanism\nprev_length = len(sys.path)\nfor lib in '../lib/python3.13/site-packages'.split(os.pathsep):\n    path = os.path.realpath(os.path.join(bin_dir, lib))\n    site.addsitedir(path.decode(\"utf-8\") if '' else path)",
+        "detail": ".venv.bin.activate_this",
+        "documentation": {}
+    },
+    {
+        "label": "os.environ[\"PATH\"]",
+        "kind": 5,
+        "importPath": ".venv.bin.activate_this",
+        "description": ".venv.bin.activate_this",
+        "peekOfCode": "os.environ[\"PATH\"] = os.pathsep.join([bin_dir, *os.environ.get(\"PATH\", \"\").split(os.pathsep)])\nos.environ[\"VIRTUAL_ENV\"] = base  # virtual env is right above bin directory\nos.environ[\"VIRTUAL_ENV_PROMPT\"] = 'reasoning-forest-py3.13' or os.path.basename(base)\n# add the virtual environments libraries to the host python import mechanism\nprev_length = len(sys.path)\nfor lib in '../lib/python3.13/site-packages'.split(os.pathsep):\n    path = os.path.realpath(os.path.join(bin_dir, lib))\n    site.addsitedir(path.decode(\"utf-8\") if '' else path)\nsys.path[:] = sys.path[prev_length:] + sys.path[0:prev_length]\nsys.real_prefix = sys.prefix",
+        "detail": ".venv.bin.activate_this",
+        "documentation": {}
+    },
+    {
+        "label": "os.environ[\"VIRTUAL_ENV\"]",
+        "kind": 5,
+        "importPath": ".venv.bin.activate_this",
+        "description": ".venv.bin.activate_this",
+        "peekOfCode": "os.environ[\"VIRTUAL_ENV\"] = base  # virtual env is right above bin directory\nos.environ[\"VIRTUAL_ENV_PROMPT\"] = 'reasoning-forest-py3.13' or os.path.basename(base)\n# add the virtual environments libraries to the host python import mechanism\nprev_length = len(sys.path)\nfor lib in '../lib/python3.13/site-packages'.split(os.pathsep):\n    path = os.path.realpath(os.path.join(bin_dir, lib))\n    site.addsitedir(path.decode(\"utf-8\") if '' else path)\nsys.path[:] = sys.path[prev_length:] + sys.path[0:prev_length]\nsys.real_prefix = sys.prefix\nsys.prefix = base",
+        "detail": ".venv.bin.activate_this",
+        "documentation": {}
+    },
+    {
+        "label": "os.environ[\"VIRTUAL_ENV_PROMPT\"]",
+        "kind": 5,
+        "importPath": ".venv.bin.activate_this",
+        "description": ".venv.bin.activate_this",
+        "peekOfCode": "os.environ[\"VIRTUAL_ENV_PROMPT\"] = 'reasoning-forest-py3.13' or os.path.basename(base)\n# add the virtual environments libraries to the host python import mechanism\nprev_length = len(sys.path)\nfor lib in '../lib/python3.13/site-packages'.split(os.pathsep):\n    path = os.path.realpath(os.path.join(bin_dir, lib))\n    site.addsitedir(path.decode(\"utf-8\") if '' else path)\nsys.path[:] = sys.path[prev_length:] + sys.path[0:prev_length]\nsys.real_prefix = sys.prefix\nsys.prefix = base",
+        "detail": ".venv.bin.activate_this",
+        "documentation": {}
+    },
+    {
+        "label": "prev_length",
+        "kind": 5,
+        "importPath": ".venv.bin.activate_this",
+        "description": ".venv.bin.activate_this",
+        "peekOfCode": "prev_length = len(sys.path)\nfor lib in '../lib/python3.13/site-packages'.split(os.pathsep):\n    path = os.path.realpath(os.path.join(bin_dir, lib))\n    site.addsitedir(path.decode(\"utf-8\") if '' else path)\nsys.path[:] = sys.path[prev_length:] + sys.path[0:prev_length]\nsys.real_prefix = sys.prefix\nsys.prefix = base",
+        "detail": ".venv.bin.activate_this",
+        "documentation": {}
+    },
+    {
+        "label": "sys.path[:]",
+        "kind": 5,
+        "importPath": ".venv.bin.activate_this",
+        "description": ".venv.bin.activate_this",
+        "peekOfCode": "sys.path[:] = sys.path[prev_length:] + sys.path[0:prev_length]\nsys.real_prefix = sys.prefix\nsys.prefix = base",
+        "detail": ".venv.bin.activate_this",
+        "documentation": {}
+    },
+    {
+        "label": "sys.real_prefix",
+        "kind": 5,
+        "importPath": ".venv.bin.activate_this",
+        "description": ".venv.bin.activate_this",
+        "peekOfCode": "sys.real_prefix = sys.prefix\nsys.prefix = base",
+        "detail": ".venv.bin.activate_this",
+        "documentation": {}
+    },
+    {
+        "label": "sys.prefix",
+        "kind": 5,
+        "importPath": ".venv.bin.activate_this",
+        "description": ".venv.bin.activate_this",
+        "peekOfCode": "sys.prefix = base",
+        "detail": ".venv.bin.activate_this",
+        "documentation": {}
+    },
+    {
+        "label": "project",
+        "kind": 5,
+        "importPath": "docs.conf",
+        "description": "docs.conf",
+        "peekOfCode": "project = \"Reasoning Forest\"\ncopyright = \"[2025], Vela Research\"\nauthor = \"Vela Research\"\nrelease = \"0.1.0\"\nextensions = [\n    \"sphinx.ext.autodoc\",\n    \"sphinx.ext.napoleon\",\n    \"sphinx.ext.viewcode\",\n]\ntemplates_path = [\"_templates\"]",
+        "detail": "docs.conf",
+        "documentation": {}
+    },
+    {
+        "label": "copyright",
+        "kind": 5,
+        "importPath": "docs.conf",
+        "description": "docs.conf",
+        "peekOfCode": "copyright = \"[2025], Vela Research\"\nauthor = \"Vela Research\"\nrelease = \"0.1.0\"\nextensions = [\n    \"sphinx.ext.autodoc\",\n    \"sphinx.ext.napoleon\",\n    \"sphinx.ext.viewcode\",\n]\ntemplates_path = [\"_templates\"]\nexclude_patterns = [\"_build\", \"Thumbs.db\", \".DS_Store\"]",
+        "detail": "docs.conf",
+        "documentation": {}
+    },
+    {
+        "label": "author",
+        "kind": 5,
+        "importPath": "docs.conf",
+        "description": "docs.conf",
+        "peekOfCode": "author = \"Vela Research\"\nrelease = \"0.1.0\"\nextensions = [\n    \"sphinx.ext.autodoc\",\n    \"sphinx.ext.napoleon\",\n    \"sphinx.ext.viewcode\",\n]\ntemplates_path = [\"_templates\"]\nexclude_patterns = [\"_build\", \"Thumbs.db\", \".DS_Store\"]\nhtml_theme = \"alabaster\"",
+        "detail": "docs.conf",
+        "documentation": {}
+    },
+    {
+        "label": "release",
+        "kind": 5,
+        "importPath": "docs.conf",
+        "description": "docs.conf",
+        "peekOfCode": "release = \"0.1.0\"\nextensions = [\n    \"sphinx.ext.autodoc\",\n    \"sphinx.ext.napoleon\",\n    \"sphinx.ext.viewcode\",\n]\ntemplates_path = [\"_templates\"]\nexclude_patterns = [\"_build\", \"Thumbs.db\", \".DS_Store\"]\nhtml_theme = \"alabaster\"\nhtml_static_path = [\"_static\"]",
+        "detail": "docs.conf",
+        "documentation": {}
+    },
+    {
+        "label": "extensions",
+        "kind": 5,
+        "importPath": "docs.conf",
+        "description": "docs.conf",
+        "peekOfCode": "extensions = [\n    \"sphinx.ext.autodoc\",\n    \"sphinx.ext.napoleon\",\n    \"sphinx.ext.viewcode\",\n]\ntemplates_path = [\"_templates\"]\nexclude_patterns = [\"_build\", \"Thumbs.db\", \".DS_Store\"]\nhtml_theme = \"alabaster\"\nhtml_static_path = [\"_static\"]",
+        "detail": "docs.conf",
+        "documentation": {}
+    },
+    {
+        "label": "templates_path",
+        "kind": 5,
+        "importPath": "docs.conf",
+        "description": "docs.conf",
+        "peekOfCode": "templates_path = [\"_templates\"]\nexclude_patterns = [\"_build\", \"Thumbs.db\", \".DS_Store\"]\nhtml_theme = \"alabaster\"\nhtml_static_path = [\"_static\"]",
+        "detail": "docs.conf",
+        "documentation": {}
+    },
+    {
+        "label": "exclude_patterns",
+        "kind": 5,
+        "importPath": "docs.conf",
+        "description": "docs.conf",
+        "peekOfCode": "exclude_patterns = [\"_build\", \"Thumbs.db\", \".DS_Store\"]\nhtml_theme = \"alabaster\"\nhtml_static_path = [\"_static\"]",
+        "detail": "docs.conf",
+        "documentation": {}
+    },
+    {
+        "label": "html_theme",
+        "kind": 5,
+        "importPath": "docs.conf",
+        "description": "docs.conf",
+        "peekOfCode": "html_theme = \"alabaster\"\nhtml_static_path = [\"_static\"]",
+        "detail": "docs.conf",
+        "documentation": {}
+    },
+    {
+        "label": "html_static_path",
+        "kind": 5,
+        "importPath": "docs.conf",
+        "description": "docs.conf",
+        "peekOfCode": "html_static_path = [\"_static\"]",
+        "detail": "docs.conf",
+        "documentation": {}
+    },
+    {
+        "label": "AnthropicLLM",
+        "kind": 6,
+        "importPath": "reasoning_forest.core.llms._anthropic.ask",
+        "description": "reasoning_forest.core.llms._anthropic.ask",
+        "peekOfCode": "class AnthropicLLM(metaclass=SingletonMeta):\n    def __init__(self, api_key: str) -> None: ...\n    def respond(\n        self,\n        query: str,\n        model: AnthropicChatModel,\n        response_format: Type[T],\n        instructions: str | None = None,\n        temperature: float | None = None,\n        web_search: bool = False,",
+        "detail": "reasoning_forest.core.llms._anthropic.ask",
+        "documentation": {}
+    },
+    {
+        "label": "GeminiLLM",
+        "kind": 6,
+        "importPath": "reasoning_forest.core.llms._google.ask",
+        "description": "reasoning_forest.core.llms._google.ask",
+        "peekOfCode": "class GeminiLLM(metaclass=SingletonMeta):\n    def __init__(self, api_key: str) -> None:\n        self.client = genai.Client(api_key=api_key)\n    @classmethod\n    def get_ggrounding_tool(\n        cls,\n        time_range_start: datetime | None = None,\n        time_range_end: datetime | None = None,\n    ) -> gtypes.GoogleSearch:\n        time_range_start = time_range_start or datetime.min",
+        "detail": "reasoning_forest.core.llms._google.ask",
+        "documentation": {}
+    },
+    {
+        "label": "OpenAILLM",
+        "kind": 6,
+        "importPath": "reasoning_forest.core.llms._openai.ask",
+        "description": "reasoning_forest.core.llms._openai.ask",
+        "peekOfCode": "class OpenAILLM(metaclass=SingletonMeta):\n    def __init__(self, api_key: str) -> None: ...\n    def respond(\n        self,\n        query: str,\n        model: OpenAIChatModel,\n        response_format: Type[T],\n        instructions: str | None = None,\n        temperature: float | None = None,\n        web_search: bool = False,",
+        "detail": "reasoning_forest.core.llms._openai.ask",
+        "documentation": {}
+    },
+    {
+        "label": "xAILLM",
+        "kind": 6,
+        "importPath": "reasoning_forest.core.llms._xai.ask",
+        "description": "reasoning_forest.core.llms._xai.ask",
+        "peekOfCode": "class xAILLM(metaclass=SingletonMeta):\n    def __init__(self, api_key: str) -> None: ...\n    def respond(\n        self,\n        query: str,\n        model: xAIChatModel,\n        response_format: Type[T],\n        instructions: str | None = None,\n        temperature: float | None = None,\n        web_search: bool = False,",
+        "detail": "reasoning_forest.core.llms._xai.ask",
+        "documentation": {}
+    },
+    {
+        "label": "LLMResponse",
+        "kind": 6,
+        "importPath": "reasoning_forest.core.llms._response_schema",
+        "description": "reasoning_forest.core.llms._response_schema",
+        "peekOfCode": "class LLMResponse(BaseModel, Generic[T]):\n    response: T\n    logprobs: List[Tuple[str, float | None]]\n    total_tokens: int | None = None\n    @property\n    def average_confidence(self) -> float | None:\n        if not self.logprobs:\n            return\n        lps = [lp[1] for lp in self.logprobs if lp[1] is not None]\n        if not lps:",
+        "detail": "reasoning_forest.core.llms._response_schema",
+        "documentation": {}
+    },
+    {
+        "label": "T",
+        "kind": 5,
+        "importPath": "reasoning_forest.core.llms._response_schema",
+        "description": "reasoning_forest.core.llms._response_schema",
+        "peekOfCode": "T = TypeVar(\"T\", bound=BaseModel | str)\nclass LLMResponse(BaseModel, Generic[T]):\n    response: T\n    logprobs: List[Tuple[str, float | None]]\n    total_tokens: int | None = None\n    @property\n    def average_confidence(self) -> float | None:\n        if not self.logprobs:\n            return\n        lps = [lp[1] for lp in self.logprobs if lp[1] is not None]",
+        "detail": "reasoning_forest.core.llms._response_schema",
+        "documentation": {}
+    },
+    {
+        "label": "LLM",
+        "kind": 6,
+        "importPath": "reasoning_forest.core.llms.ask",
+        "description": "reasoning_forest.core.llms.ask",
+        "peekOfCode": "class LLM(metaclass=SingletonMeta):\n    def __init__(self) -> None:\n        self.anthropic_llm = get_anthropic_llm(settings.ANTHROPIC_API_KEY)\n        self.google_llm = get_google_llm(settings.GOOGLE_AI_API_KEY)\n        self.openai_llm = get_openai_llm(settings.OPENAI_API_KEY)\n        self.xai_llm = get_xai_llm(settings.XAI_API_KEY)\n    def _check_api_key_missing(self, priority: LLMPriority) -> None:\n        if getattr(self, f\"{priority.provider}_llm\") is None:\n            raise ValueError(\n                f\"Cannot use {priority.model}. {priority.provider.upper()}_API_KEY is not set! Please set it in the environment variables.\"",
+        "detail": "reasoning_forest.core.llms.ask",
+        "documentation": {}
+    },
+    {
+        "label": "LLMPriority",
+        "kind": 6,
+        "importPath": "reasoning_forest.core.llms.schamas",
+        "description": "reasoning_forest.core.llms.schamas",
+        "peekOfCode": "class LLMPriority(BaseModel):\n    provider: LLMProvider\n    model: LLMChatModel\n    @model_validator(mode=\"after\")\n    def validate_model_provider(self) -> LLMPriority:\n        provider_model: Dict[LLMProvider, Tuple[LLMChatModel, ...]] = {\n            \"anthropic\": AnthropicChatModel.__args__,\n            \"google\": GoogleChatModel.__args__,\n            \"openai\": OpenAIChatModel.__args__,\n            \"xai\": xAIChatModel.__args__,",
+        "detail": "reasoning_forest.core.llms.schamas",
+        "documentation": {}
+    },
+    {
+        "label": "Settings",
+        "kind": 6,
+        "importPath": "reasoning_forest.core._config",
+        "description": "reasoning_forest.core._config",
+        "peekOfCode": "class Settings(BaseSettings):\n    \"\"\"Class to store all the settings of the application.\"\"\"\n    OPENAI_API_KEY: str = \"\"\n    GOOGLE_AI_API_KEY: str = \"\"\n    XAI_API_KEY: str = \"\"\n    ANTHROPIC_API_KEY: str = \"\"\n    model_config = SettingsConfigDict(\n        case_sensitive=False,\n        env_file=\".env\",\n        env_file_encoding=\"utf-8\",",
+        "detail": "reasoning_forest.core._config",
+        "documentation": {}
+    },
+    {
+        "label": "settings",
+        "kind": 5,
+        "importPath": "reasoning_forest.core._config",
+        "description": "reasoning_forest.core._config",
+        "peekOfCode": "settings = Settings()  # type: ignore",
+        "detail": "reasoning_forest.core._config",
+        "documentation": {}
+    },
+    {
+        "label": "SingletonMeta",
+        "kind": 6,
+        "importPath": "reasoning_forest.core._singleton",
+        "description": "reasoning_forest.core._singleton",
+        "peekOfCode": "class SingletonMeta(type):\n    _instances: ClassVar[Dict[type, object]] = {}\n    def __call__(cls: type[T], *args: Any, **kwargs: Any) -> T:\n        if cls not in cls._instances:  # type: ignore\n            cls._instances[cls] = super().__call__(*args, **kwargs)  # type: ignore\n        return cls._instances[cls]  # type: ignore\n__all__ = [\"SingletonMeta\"]",
+        "detail": "reasoning_forest.core._singleton",
+        "documentation": {}
+    },
+    {
+        "label": "T",
+        "kind": 5,
+        "importPath": "reasoning_forest.core._singleton",
+        "description": "reasoning_forest.core._singleton",
+        "peekOfCode": "T = TypeVar(\"T\")\nclass SingletonMeta(type):\n    _instances: ClassVar[Dict[type, object]] = {}\n    def __call__(cls: type[T], *args: Any, **kwargs: Any) -> T:\n        if cls not in cls._instances:  # type: ignore\n            cls._instances[cls] = super().__call__(*args, **kwargs)  # type: ignore\n        return cls._instances[cls]  # type: ignore\n__all__ = [\"SingletonMeta\"]",
+        "detail": "reasoning_forest.core._singleton",
+        "documentation": {}
+    },
+    {
+        "label": "__all__",
+        "kind": 5,
+        "importPath": "reasoning_forest.core._singleton",
+        "description": "reasoning_forest.core._singleton",
+        "peekOfCode": "__all__ = [\"SingletonMeta\"]",
+        "detail": "reasoning_forest.core._singleton",
+        "documentation": {}
+    }
+]

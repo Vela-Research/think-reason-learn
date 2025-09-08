@@ -23,4 +23,10 @@ For more details, see [docs](docs/index.html).
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
-Based on research from Vela Research. For full details, see [llm_context.md](llm_context.md).
+## Research Papers
+
+This library unifies the following research contributions:
+
+- **GPTree**: Towards Explainable Decision-Making via LLM-powered Decision Trees [[arXiv:2411.08257](https://arxiv.org/abs/2411.08257)]
+- **GPT-HTree**: A Decision Tree Framework Integrating Hierarchical Clustering and Large Language Models for Explainable Classification [[arXiv:2501.13743v1](https://arxiv.org/abs/2501.13743v1)]
+- **Random Rule Forest (RRF)**: Interpretable Ensembles of LLM-Generated Questions for Predicting Startup Success [[arXiv:2505.24622](https://arxiv.org/abs/2505.24622)]

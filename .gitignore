@@ -42,3 +42,6 @@ docs/build/
 *.tmp
 .DS_Store
 Thumbs.db
+
+# Custom
+llm_context.md

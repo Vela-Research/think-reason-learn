@@ -1,6 +1,6 @@
-# Contributing to Reasoning Forest
+# Contributing to Think Reason Learn
 
-Thank you for considering contributing to Reasoning Forest! We welcome contributions from the community to help improve this open-source library.
+Thank you for considering contributing to think-reason-learn! We welcome contributions from the community to help improve this open-source library.
 
 ## How to Contribute
 

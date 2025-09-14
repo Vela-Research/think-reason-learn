@@ -3,7 +3,7 @@ import sys
 
 sys.path.insert(0, os.path.abspath(".."))
 
-project = "Reasoning Forest"
+project = "Think Reason Learn"
 copyright = "[2025], Vela Research"
 author = "Vela Research"
 release = "0.1.0"

@@ -33,70 +33,6 @@
         "documentation": {}
     },
     {
-        "label": "annotations",
-        "importPath": "__future__",
-        "description": "__future__",
-        "isExtraImport": true,
-        "detail": "__future__",
-        "documentation": {}
-    },
-    {
-        "label": "annotations",
-        "importPath": "__future__",
-        "description": "__future__",
-        "isExtraImport": true,
-        "detail": "__future__",
-        "documentation": {}
-    },
-    {
-        "label": "annotations",
-        "importPath": "__future__",
-        "description": "__future__",
-        "isExtraImport": true,
-        "detail": "__future__",
-        "documentation": {}
-    },
-    {
-        "label": "annotations",
-        "importPath": "__future__",
-        "description": "__future__",
-        "isExtraImport": true,
-        "detail": "__future__",
-        "documentation": {}
-    },
-    {
-        "label": "annotations",
-        "importPath": "__future__",
-        "description": "__future__",
-        "isExtraImport": true,
-        "detail": "__future__",
-        "documentation": {}
-    },
-    {
-        "label": "annotations",
-        "importPath": "__future__",
-        "description": "__future__",
-        "isExtraImport": true,
-        "detail": "__future__",
-        "documentation": {}
-    },
-    {
-        "label": "annotations",
-        "importPath": "__future__",
-        "description": "__future__",
-        "isExtraImport": true,
-        "detail": "__future__",
-        "documentation": {}
-    },
-    {
-        "label": "annotations",
-        "importPath": "__future__",
-        "description": "__future__",
-        "isExtraImport": true,
-        "detail": "__future__",
-        "documentation": {}
-    },
-    {
         "label": "os",
         "kind": 6,
         "isExtraImport": true,
@@ -124,7 +60,63 @@
         "documentation": {}
     },
     {
+        "label": "Path",
+        "importPath": "pathlib",
+        "description": "pathlib",
+        "isExtraImport": true,
+        "detail": "pathlib",
+        "documentation": {}
+    },
+    {
         "label": "Type",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Any",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "cast",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "List",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Dict",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Iterable",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "TypedDict",
         "importPath": "typing",
         "description": "typing",
         "isExtraImport": true,
@@ -148,7 +140,31 @@
         "documentation": {}
     },
     {
+        "label": "TypedDict",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
         "label": "Type",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Any",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Dict",
         "importPath": "typing",
         "description": "typing",
         "isExtraImport": true,
@@ -180,15 +196,7 @@
         "documentation": {}
     },
     {
-        "label": "Type",
-        "importPath": "typing",
-        "description": "typing",
-        "isExtraImport": true,
-        "detail": "typing",
-        "documentation": {}
-    },
-    {
-        "label": "TypeAlias",
+        "label": "TypedDict",
         "importPath": "typing",
         "description": "typing",
         "isExtraImport": true,
@@ -197,6 +205,30 @@
     },
     {
         "label": "Type",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Any",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "cast",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Dict",
         "importPath": "typing",
         "description": "typing",
         "isExtraImport": true,
@@ -213,6 +245,118 @@
     },
     {
         "label": "Literal",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "TypedDict",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Type",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "List",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Any",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "cast",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Dict",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "TypeAlias",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Literal",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "TypedDict",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Type",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "List",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Any",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "cast",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Dict",
         "importPath": "typing",
         "description": "typing",
         "isExtraImport": true,
@@ -252,22 +396,6 @@
         "documentation": {}
     },
     {
-        "label": "Type",
-        "importPath": "typing",
-        "description": "typing",
-        "isExtraImport": true,
-        "detail": "typing",
-        "documentation": {}
-    },
-    {
-        "label": "List",
-        "importPath": "typing",
-        "description": "typing",
-        "isExtraImport": true,
-        "detail": "typing",
-        "documentation": {}
-    },
-    {
         "label": "TypeAlias",
         "importPath": "typing",
         "description": "typing",
@@ -284,7 +412,7 @@
         "documentation": {}
     },
     {
-        "label": "Dict",
+        "label": "override",
         "importPath": "typing",
         "description": "typing",
         "isExtraImport": true,
@@ -292,7 +420,7 @@
         "documentation": {}
     },
     {
-        "label": "Tuple",
+        "label": "Union",
         "importPath": "typing",
         "description": "typing",
         "isExtraImport": true,
@@ -332,67 +460,28 @@
         "documentation": {}
     },
     {
-        "label": "SingletonMeta",
-        "importPath": "reasoning_forest.core._singleton",
-        "description": "reasoning_forest.core._singleton",
+        "label": "logging",
+        "kind": 6,
         "isExtraImport": true,
-        "detail": "reasoning_forest.core._singleton",
+        "importPath": "logging",
+        "description": "logging",
+        "detail": "logging",
         "documentation": {}
     },
     {
-        "label": "SingletonMeta",
-        "importPath": "reasoning_forest.core._singleton",
-        "description": "reasoning_forest.core._singleton",
+        "label": "BaseModel",
+        "importPath": "pydantic",
+        "description": "pydantic",
         "isExtraImport": true,
-        "detail": "reasoning_forest.core._singleton",
+        "detail": "pydantic",
         "documentation": {}
     },
     {
-        "label": "SingletonMeta",
-        "importPath": "reasoning_forest.core._singleton",
-        "description": "reasoning_forest.core._singleton",
+        "label": "BaseModel",
+        "importPath": "pydantic",
+        "description": "pydantic",
         "isExtraImport": true,
-        "detail": "reasoning_forest.core._singleton",
-        "documentation": {}
-    },
-    {
-        "label": "SingletonMeta",
-        "importPath": "reasoning_forest.core._singleton",
-        "description": "reasoning_forest.core._singleton",
-        "isExtraImport": true,
-        "detail": "reasoning_forest.core._singleton",
-        "documentation": {}
-    },
-    {
-        "label": "SingletonMeta",
-        "importPath": "reasoning_forest.core._singleton",
-        "description": "reasoning_forest.core._singleton",
-        "isExtraImport": true,
-        "detail": "reasoning_forest.core._singleton",
-        "documentation": {}
-    },
-    {
-        "label": "datetime",
-        "importPath": "datetime",
-        "description": "datetime",
-        "isExtraImport": true,
-        "detail": "datetime",
-        "documentation": {}
-    },
-    {
-        "label": "timezone",
-        "importPath": "datetime",
-        "description": "datetime",
-        "isExtraImport": true,
-        "detail": "datetime",
-        "documentation": {}
-    },
-    {
-        "label": "datetime",
-        "importPath": "datetime",
-        "description": "datetime",
-        "isExtraImport": true,
-        "detail": "datetime",
+        "detail": "pydantic",
         "documentation": {}
     },
     {
@@ -428,11 +517,156 @@
         "documentation": {}
     },
     {
-        "label": "model_validator",
+        "label": "BaseModel",
         "importPath": "pydantic",
         "description": "pydantic",
         "isExtraImport": true,
         "detail": "pydantic",
+        "documentation": {}
+    },
+    {
+        "label": "BaseModel",
+        "importPath": "pydantic",
+        "description": "pydantic",
+        "isExtraImport": true,
+        "detail": "pydantic",
+        "documentation": {}
+    },
+    {
+        "label": "BaseModel",
+        "importPath": "pydantic",
+        "description": "pydantic",
+        "isExtraImport": true,
+        "detail": "pydantic",
+        "documentation": {}
+    },
+    {
+        "label": "ValidationError",
+        "importPath": "pydantic",
+        "description": "pydantic",
+        "isExtraImport": true,
+        "detail": "pydantic",
+        "documentation": {}
+    },
+    {
+        "label": "BaseModel",
+        "importPath": "pydantic",
+        "description": "pydantic",
+        "isExtraImport": true,
+        "detail": "pydantic",
+        "documentation": {}
+    },
+    {
+        "label": "anthropic",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "anthropic",
+        "description": "anthropic",
+        "detail": "anthropic",
+        "documentation": {}
+    },
+    {
+        "label": "ToolChoiceParam",
+        "importPath": "anthropic.types",
+        "description": "anthropic.types",
+        "isExtraImport": true,
+        "detail": "anthropic.types",
+        "documentation": {}
+    },
+    {
+        "label": "ToolUnionParam",
+        "importPath": "anthropic.types",
+        "description": "anthropic.types",
+        "isExtraImport": true,
+        "detail": "anthropic.types",
+        "documentation": {}
+    },
+    {
+        "label": "MessageParam",
+        "importPath": "anthropic.types",
+        "description": "anthropic.types",
+        "isExtraImport": true,
+        "detail": "anthropic.types",
+        "documentation": {}
+    },
+    {
+        "label": "TextBlockParam",
+        "importPath": "anthropic.types",
+        "description": "anthropic.types",
+        "isExtraImport": true,
+        "detail": "anthropic.types",
+        "documentation": {}
+    },
+    {
+        "label": "Message",
+        "importPath": "anthropic.types",
+        "description": "anthropic.types",
+        "isExtraImport": true,
+        "detail": "anthropic.types",
+        "documentation": {}
+    },
+    {
+        "label": "Model",
+        "importPath": "anthropic.types",
+        "description": "anthropic.types",
+        "isExtraImport": true,
+        "detail": "anthropic.types",
+        "documentation": {}
+    },
+    {
+        "label": "SingletonMeta",
+        "importPath": "think_reason_learn.core._singleton",
+        "description": "think_reason_learn.core._singleton",
+        "isExtraImport": true,
+        "detail": "think_reason_learn.core._singleton",
+        "documentation": {}
+    },
+    {
+        "label": "SingletonMeta",
+        "importPath": "think_reason_learn.core._singleton",
+        "description": "think_reason_learn.core._singleton",
+        "isExtraImport": true,
+        "detail": "think_reason_learn.core._singleton",
+        "documentation": {}
+    },
+    {
+        "label": "SingletonMeta",
+        "importPath": "think_reason_learn.core._singleton",
+        "description": "think_reason_learn.core._singleton",
+        "isExtraImport": true,
+        "detail": "think_reason_learn.core._singleton",
+        "documentation": {}
+    },
+    {
+        "label": "SingletonMeta",
+        "importPath": "think_reason_learn.core._singleton",
+        "description": "think_reason_learn.core._singleton",
+        "isExtraImport": true,
+        "detail": "think_reason_learn.core._singleton",
+        "documentation": {}
+    },
+    {
+        "label": "SingletonMeta",
+        "importPath": "think_reason_learn.core._singleton",
+        "description": "think_reason_learn.core._singleton",
+        "isExtraImport": true,
+        "detail": "think_reason_learn.core._singleton",
+        "documentation": {}
+    },
+    {
+        "label": "NOT_GIVEN",
+        "importPath": "anthropic._types",
+        "description": "anthropic._types",
+        "isExtraImport": true,
+        "detail": "anthropic._types",
+        "documentation": {}
+    },
+    {
+        "label": "NotGiven",
+        "importPath": "anthropic._types",
+        "description": "anthropic._types",
+        "isExtraImport": true,
+        "detail": "anthropic._types",
         "documentation": {}
     },
     {
@@ -452,11 +686,99 @@
         "documentation": {}
     },
     {
+        "label": "AsyncOpenAI",
+        "importPath": "openai",
+        "description": "openai",
+        "isExtraImport": true,
+        "detail": "openai",
+        "documentation": {}
+    },
+    {
+        "label": "OpenAI",
+        "importPath": "openai",
+        "description": "openai",
+        "isExtraImport": true,
+        "detail": "openai",
+        "documentation": {}
+    },
+    {
+        "label": "Response",
+        "importPath": "openai.types.responses",
+        "description": "openai.types.responses",
+        "isExtraImport": true,
+        "detail": "openai.types.responses",
+        "documentation": {}
+    },
+    {
         "label": "ChatModel",
         "importPath": "openai.types",
         "description": "openai.types",
         "isExtraImport": true,
         "detail": "openai.types",
+        "documentation": {}
+    },
+    {
+        "label": "NOT_GIVEN",
+        "importPath": "openai._types",
+        "description": "openai._types",
+        "isExtraImport": true,
+        "detail": "openai._types",
+        "documentation": {}
+    },
+    {
+        "label": "NotGiven",
+        "importPath": "openai._types",
+        "description": "openai._types",
+        "isExtraImport": true,
+        "detail": "openai._types",
+        "documentation": {}
+    },
+    {
+        "label": "Client",
+        "importPath": "xai_sdk",
+        "description": "xai_sdk",
+        "isExtraImport": true,
+        "detail": "xai_sdk",
+        "documentation": {}
+    },
+    {
+        "label": "AsyncClient",
+        "importPath": "xai_sdk",
+        "description": "xai_sdk",
+        "isExtraImport": true,
+        "detail": "xai_sdk",
+        "documentation": {}
+    },
+    {
+        "label": "system",
+        "importPath": "xai_sdk.chat",
+        "description": "xai_sdk.chat",
+        "isExtraImport": true,
+        "detail": "xai_sdk.chat",
+        "documentation": {}
+    },
+    {
+        "label": "user",
+        "importPath": "xai_sdk.chat",
+        "description": "xai_sdk.chat",
+        "isExtraImport": true,
+        "detail": "xai_sdk.chat",
+        "documentation": {}
+    },
+    {
+        "label": "Message",
+        "importPath": "xai_sdk.proto.v6.chat_pb2",
+        "description": "xai_sdk.proto.v6.chat_pb2",
+        "isExtraImport": true,
+        "detail": "xai_sdk.proto.v6.chat_pb2",
+        "documentation": {}
+    },
+    {
+        "label": "settings",
+        "importPath": "think_reason_learn.core._config",
+        "description": "think_reason_learn.core._config",
+        "isExtraImport": true,
+        "detail": "think_reason_learn.core._config",
         "documentation": {}
     },
     {
@@ -466,14 +788,6 @@
         "importPath": "math",
         "description": "math",
         "detail": "math",
-        "documentation": {}
-    },
-    {
-        "label": "settings",
-        "importPath": "reasoning_forest.core._config",
-        "description": "reasoning_forest.core._config",
-        "isExtraImport": true,
-        "detail": "reasoning_forest.core._config",
         "documentation": {}
     },
     {
@@ -505,7 +819,7 @@
         "kind": 5,
         "importPath": ".venv.bin.activate_this",
         "description": ".venv.bin.activate_this",
-        "peekOfCode": "bin_dir = os.path.dirname(abs_file)\nbase = bin_dir[: -len('bin') - 1]  # strip away the bin part from the __file__, plus the path separator\n# prepend bin to PATH (this file is inside the bin directory)\nos.environ[\"PATH\"] = os.pathsep.join([bin_dir, *os.environ.get(\"PATH\", \"\").split(os.pathsep)])\nos.environ[\"VIRTUAL_ENV\"] = base  # virtual env is right above bin directory\nos.environ[\"VIRTUAL_ENV_PROMPT\"] = 'reasoning-forest-py3.13' or os.path.basename(base)\n# add the virtual environments libraries to the host python import mechanism\nprev_length = len(sys.path)\nfor lib in '../lib/python3.13/site-packages'.split(os.pathsep):\n    path = os.path.realpath(os.path.join(bin_dir, lib))",
+        "peekOfCode": "bin_dir = os.path.dirname(abs_file)\nbase = bin_dir[: -len('bin') - 1]  # strip away the bin part from the __file__, plus the path separator\n# prepend bin to PATH (this file is inside the bin directory)\nos.environ[\"PATH\"] = os.pathsep.join([bin_dir, *os.environ.get(\"PATH\", \"\").split(os.pathsep)])\nos.environ[\"VIRTUAL_ENV\"] = base  # virtual env is right above bin directory\nos.environ[\"VIRTUAL_ENV_PROMPT\"] = 'think-reason-learn-py3.13' or os.path.basename(base)\n# add the virtual environments libraries to the host python import mechanism\nprev_length = len(sys.path)\nfor lib in '../lib/python3.13/site-packages'.split(os.pathsep):\n    path = os.path.realpath(os.path.join(bin_dir, lib))",
         "detail": ".venv.bin.activate_this",
         "documentation": {}
     },
@@ -514,7 +828,7 @@
         "kind": 5,
         "importPath": ".venv.bin.activate_this",
         "description": ".venv.bin.activate_this",
-        "peekOfCode": "base = bin_dir[: -len('bin') - 1]  # strip away the bin part from the __file__, plus the path separator\n# prepend bin to PATH (this file is inside the bin directory)\nos.environ[\"PATH\"] = os.pathsep.join([bin_dir, *os.environ.get(\"PATH\", \"\").split(os.pathsep)])\nos.environ[\"VIRTUAL_ENV\"] = base  # virtual env is right above bin directory\nos.environ[\"VIRTUAL_ENV_PROMPT\"] = 'reasoning-forest-py3.13' or os.path.basename(base)\n# add the virtual environments libraries to the host python import mechanism\nprev_length = len(sys.path)\nfor lib in '../lib/python3.13/site-packages'.split(os.pathsep):\n    path = os.path.realpath(os.path.join(bin_dir, lib))\n    site.addsitedir(path.decode(\"utf-8\") if '' else path)",
+        "peekOfCode": "base = bin_dir[: -len('bin') - 1]  # strip away the bin part from the __file__, plus the path separator\n# prepend bin to PATH (this file is inside the bin directory)\nos.environ[\"PATH\"] = os.pathsep.join([bin_dir, *os.environ.get(\"PATH\", \"\").split(os.pathsep)])\nos.environ[\"VIRTUAL_ENV\"] = base  # virtual env is right above bin directory\nos.environ[\"VIRTUAL_ENV_PROMPT\"] = 'think-reason-learn-py3.13' or os.path.basename(base)\n# add the virtual environments libraries to the host python import mechanism\nprev_length = len(sys.path)\nfor lib in '../lib/python3.13/site-packages'.split(os.pathsep):\n    path = os.path.realpath(os.path.join(bin_dir, lib))\n    site.addsitedir(path.decode(\"utf-8\") if '' else path)",
         "detail": ".venv.bin.activate_this",
         "documentation": {}
     },
@@ -523,7 +837,7 @@
         "kind": 5,
         "importPath": ".venv.bin.activate_this",
         "description": ".venv.bin.activate_this",
-        "peekOfCode": "os.environ[\"PATH\"] = os.pathsep.join([bin_dir, *os.environ.get(\"PATH\", \"\").split(os.pathsep)])\nos.environ[\"VIRTUAL_ENV\"] = base  # virtual env is right above bin directory\nos.environ[\"VIRTUAL_ENV_PROMPT\"] = 'reasoning-forest-py3.13' or os.path.basename(base)\n# add the virtual environments libraries to the host python import mechanism\nprev_length = len(sys.path)\nfor lib in '../lib/python3.13/site-packages'.split(os.pathsep):\n    path = os.path.realpath(os.path.join(bin_dir, lib))\n    site.addsitedir(path.decode(\"utf-8\") if '' else path)\nsys.path[:] = sys.path[prev_length:] + sys.path[0:prev_length]\nsys.real_prefix = sys.prefix",
+        "peekOfCode": "os.environ[\"PATH\"] = os.pathsep.join([bin_dir, *os.environ.get(\"PATH\", \"\").split(os.pathsep)])\nos.environ[\"VIRTUAL_ENV\"] = base  # virtual env is right above bin directory\nos.environ[\"VIRTUAL_ENV_PROMPT\"] = 'think-reason-learn-py3.13' or os.path.basename(base)\n# add the virtual environments libraries to the host python import mechanism\nprev_length = len(sys.path)\nfor lib in '../lib/python3.13/site-packages'.split(os.pathsep):\n    path = os.path.realpath(os.path.join(bin_dir, lib))\n    site.addsitedir(path.decode(\"utf-8\") if '' else path)\nsys.path[:] = sys.path[prev_length:] + sys.path[0:prev_length]\nsys.real_prefix = sys.prefix",
         "detail": ".venv.bin.activate_this",
         "documentation": {}
     },
@@ -532,7 +846,7 @@
         "kind": 5,
         "importPath": ".venv.bin.activate_this",
         "description": ".venv.bin.activate_this",
-        "peekOfCode": "os.environ[\"VIRTUAL_ENV\"] = base  # virtual env is right above bin directory\nos.environ[\"VIRTUAL_ENV_PROMPT\"] = 'reasoning-forest-py3.13' or os.path.basename(base)\n# add the virtual environments libraries to the host python import mechanism\nprev_length = len(sys.path)\nfor lib in '../lib/python3.13/site-packages'.split(os.pathsep):\n    path = os.path.realpath(os.path.join(bin_dir, lib))\n    site.addsitedir(path.decode(\"utf-8\") if '' else path)\nsys.path[:] = sys.path[prev_length:] + sys.path[0:prev_length]\nsys.real_prefix = sys.prefix\nsys.prefix = base",
+        "peekOfCode": "os.environ[\"VIRTUAL_ENV\"] = base  # virtual env is right above bin directory\nos.environ[\"VIRTUAL_ENV_PROMPT\"] = 'think-reason-learn-py3.13' or os.path.basename(base)\n# add the virtual environments libraries to the host python import mechanism\nprev_length = len(sys.path)\nfor lib in '../lib/python3.13/site-packages'.split(os.pathsep):\n    path = os.path.realpath(os.path.join(bin_dir, lib))\n    site.addsitedir(path.decode(\"utf-8\") if '' else path)\nsys.path[:] = sys.path[prev_length:] + sys.path[0:prev_length]\nsys.real_prefix = sys.prefix\nsys.prefix = base",
         "detail": ".venv.bin.activate_this",
         "documentation": {}
     },
@@ -541,7 +855,7 @@
         "kind": 5,
         "importPath": ".venv.bin.activate_this",
         "description": ".venv.bin.activate_this",
-        "peekOfCode": "os.environ[\"VIRTUAL_ENV_PROMPT\"] = 'reasoning-forest-py3.13' or os.path.basename(base)\n# add the virtual environments libraries to the host python import mechanism\nprev_length = len(sys.path)\nfor lib in '../lib/python3.13/site-packages'.split(os.pathsep):\n    path = os.path.realpath(os.path.join(bin_dir, lib))\n    site.addsitedir(path.decode(\"utf-8\") if '' else path)\nsys.path[:] = sys.path[prev_length:] + sys.path[0:prev_length]\nsys.real_prefix = sys.prefix\nsys.prefix = base",
+        "peekOfCode": "os.environ[\"VIRTUAL_ENV_PROMPT\"] = 'think-reason-learn-py3.13' or os.path.basename(base)\n# add the virtual environments libraries to the host python import mechanism\nprev_length = len(sys.path)\nfor lib in '../lib/python3.13/site-packages'.split(os.pathsep):\n    path = os.path.realpath(os.path.join(bin_dir, lib))\n    site.addsitedir(path.decode(\"utf-8\") if '' else path)\nsys.path[:] = sys.path[prev_length:] + sys.path[0:prev_length]\nsys.real_prefix = sys.prefix\nsys.prefix = base",
         "detail": ".venv.bin.activate_this",
         "documentation": {}
     },
@@ -586,7 +900,7 @@
         "kind": 5,
         "importPath": "docs.conf",
         "description": "docs.conf",
-        "peekOfCode": "project = \"Reasoning Forest\"\ncopyright = \"[2025], Vela Research\"\nauthor = \"Vela Research\"\nrelease = \"0.1.0\"\nextensions = [\n    \"sphinx.ext.autodoc\",\n    \"sphinx.ext.napoleon\",\n    \"sphinx.ext.viewcode\",\n]\ntemplates_path = [\"_templates\"]",
+        "peekOfCode": "project = \"Think Reason Learn\"\ncopyright = \"[2025], Vela Research\"\nauthor = \"Vela Research\"\nrelease = \"0.1.0\"\nextensions = [\n    \"sphinx.ext.autodoc\",\n    \"sphinx.ext.napoleon\",\n    \"sphinx.ext.viewcode\",\n]\ntemplates_path = [\"_templates\"]",
         "detail": "docs.conf",
         "documentation": {}
     },
@@ -663,120 +977,309 @@
         "documentation": {}
     },
     {
+        "label": "PROJECT_ROOT",
+        "kind": 5,
+        "importPath": "tests.conftest",
+        "description": "tests.conftest",
+        "peekOfCode": "PROJECT_ROOT = Path(__file__).resolve().parents[1]\nif str(PROJECT_ROOT) not in sys.path:\n    sys.path.insert(0, str(PROJECT_ROOT))",
+        "detail": "tests.conftest",
+        "documentation": {}
+    },
+    {
+        "label": "AnthropicInput",
+        "kind": 6,
+        "importPath": "think_reason_learn.core.llms._anthropic.ask",
+        "description": "think_reason_learn.core.llms._anthropic.ask",
+        "peekOfCode": "class AnthropicInput(TypedDict):\n    messages: List[MessageParam]\n    system: str | Iterable[TextBlockParam] | NotGiven\n    tools: List[ToolUnionParam] | NotGiven\n    tool_choice: ToolChoiceParam | NotGiven\n    temperature: float | NotGiven\n    kwargs: Dict[str, Any]\nclass AnthropicLLM(metaclass=SingletonMeta):\n    def __init__(self, api_key: str) -> None:\n        self.client = anthropic.Anthropic(api_key=api_key)",
+        "detail": "think_reason_learn.core.llms._anthropic.ask",
+        "documentation": {}
+    },
+    {
         "label": "AnthropicLLM",
         "kind": 6,
-        "importPath": "reasoning_forest.core.llms._anthropic.ask",
-        "description": "reasoning_forest.core.llms._anthropic.ask",
-        "peekOfCode": "class AnthropicLLM(metaclass=SingletonMeta):\n    def __init__(self, api_key: str) -> None: ...\n    def respond(\n        self,\n        query: str,\n        model: AnthropicChatModel,\n        response_format: Type[T],\n        instructions: str | None = None,\n        temperature: float | None = None,\n        web_search: bool = False,",
-        "detail": "reasoning_forest.core.llms._anthropic.ask",
+        "importPath": "think_reason_learn.core.llms._anthropic.ask",
+        "description": "think_reason_learn.core.llms._anthropic.ask",
+        "peekOfCode": "class AnthropicLLM(metaclass=SingletonMeta):\n    def __init__(self, api_key: str) -> None:\n        self.client = anthropic.Anthropic(api_key=api_key)\n        self.aclient = anthropic.AsyncAnthropic(api_key=api_key)\n    def _process_input(\n        self,\n        query: str,\n        response_format: Type[T],\n        instructions: str | NotGiven,\n        temperature: float | NotGiven,",
+        "detail": "think_reason_learn.core.llms._anthropic.ask",
+        "documentation": {}
+    },
+    {
+        "label": "get_anthropic_llm",
+        "kind": 2,
+        "importPath": "think_reason_learn.core.llms._anthropic.ask",
+        "description": "think_reason_learn.core.llms._anthropic.ask",
+        "peekOfCode": "def get_anthropic_llm(api_key: str) -> AnthropicLLM | None:\n    return AnthropicLLM(api_key) if api_key else None",
+        "detail": "think_reason_learn.core.llms._anthropic.ask",
+        "documentation": {}
+    },
+    {
+        "label": "logger",
+        "kind": 5,
+        "importPath": "think_reason_learn.core.llms._anthropic.ask",
+        "description": "think_reason_learn.core.llms._anthropic.ask",
+        "peekOfCode": "logger = logging.getLogger(__name__)\nDEFAULT_MAX_TOKENS = 4096\nclass AnthropicInput(TypedDict):\n    messages: List[MessageParam]\n    system: str | Iterable[TextBlockParam] | NotGiven\n    tools: List[ToolUnionParam] | NotGiven\n    tool_choice: ToolChoiceParam | NotGiven\n    temperature: float | NotGiven\n    kwargs: Dict[str, Any]\nclass AnthropicLLM(metaclass=SingletonMeta):",
+        "detail": "think_reason_learn.core.llms._anthropic.ask",
+        "documentation": {}
+    },
+    {
+        "label": "DEFAULT_MAX_TOKENS",
+        "kind": 5,
+        "importPath": "think_reason_learn.core.llms._anthropic.ask",
+        "description": "think_reason_learn.core.llms._anthropic.ask",
+        "peekOfCode": "DEFAULT_MAX_TOKENS = 4096\nclass AnthropicInput(TypedDict):\n    messages: List[MessageParam]\n    system: str | Iterable[TextBlockParam] | NotGiven\n    tools: List[ToolUnionParam] | NotGiven\n    tool_choice: ToolChoiceParam | NotGiven\n    temperature: float | NotGiven\n    kwargs: Dict[str, Any]\nclass AnthropicLLM(metaclass=SingletonMeta):\n    def __init__(self, api_key: str) -> None:",
+        "detail": "think_reason_learn.core.llms._anthropic.ask",
+        "documentation": {}
+    },
+    {
+        "label": "AnthropicChoice",
+        "kind": 6,
+        "importPath": "think_reason_learn.core.llms._anthropic.schemas",
+        "description": "think_reason_learn.core.llms._anthropic.schemas",
+        "peekOfCode": "class AnthropicChoice(BaseModel):\n    provider: Literal[\"anthropic\"] = \"anthropic\"\n    model: AnthropicChatModel\nclass AnthropicChoiceDict(TypedDict):\n    provider: Literal[\"anthropic\"]\n    model: AnthropicChatModel",
+        "detail": "think_reason_learn.core.llms._anthropic.schemas",
+        "documentation": {}
+    },
+    {
+        "label": "AnthropicChoiceDict",
+        "kind": 6,
+        "importPath": "think_reason_learn.core.llms._anthropic.schemas",
+        "description": "think_reason_learn.core.llms._anthropic.schemas",
+        "peekOfCode": "class AnthropicChoiceDict(TypedDict):\n    provider: Literal[\"anthropic\"]\n    model: AnthropicChatModel",
+        "detail": "think_reason_learn.core.llms._anthropic.schemas",
         "documentation": {}
     },
     {
         "label": "GeminiLLM",
         "kind": 6,
-        "importPath": "reasoning_forest.core.llms._google.ask",
-        "description": "reasoning_forest.core.llms._google.ask",
-        "peekOfCode": "class GeminiLLM(metaclass=SingletonMeta):\n    def __init__(self, api_key: str) -> None:\n        self.client = genai.Client(api_key=api_key)\n    @classmethod\n    def get_ggrounding_tool(\n        cls,\n        time_range_start: datetime | None = None,\n        time_range_end: datetime | None = None,\n    ) -> gtypes.GoogleSearch:\n        time_range_start = time_range_start or datetime.min",
-        "detail": "reasoning_forest.core.llms._google.ask",
+        "importPath": "think_reason_learn.core.llms._google.ask",
+        "description": "think_reason_learn.core.llms._google.ask",
+        "peekOfCode": "class GeminiLLM(metaclass=SingletonMeta):\n    def __init__(self, api_key: str) -> None:\n        self.client = genai.Client(api_key=api_key)\n    def _process_kwargs(\n        self,\n        kwargs: Dict[str, Any],\n    ) -> Dict[str, Any]:\n        \"\"\"Process Google kwargs and query.\"\"\"\n        return {\n            k: v or None",
+        "detail": "think_reason_learn.core.llms._google.ask",
+        "documentation": {}
+    },
+    {
+        "label": "get_google_llm",
+        "kind": 2,
+        "importPath": "think_reason_learn.core.llms._google.ask",
+        "description": "think_reason_learn.core.llms._google.ask",
+        "peekOfCode": "def get_google_llm(api_key: str) -> GeminiLLM | None:\n    return GeminiLLM(api_key) if api_key else None",
+        "detail": "think_reason_learn.core.llms._google.ask",
+        "documentation": {}
+    },
+    {
+        "label": "logger",
+        "kind": 5,
+        "importPath": "think_reason_learn.core.llms._google.ask",
+        "description": "think_reason_learn.core.llms._google.ask",
+        "peekOfCode": "logger = logging.getLogger(__name__)\nclass GeminiLLM(metaclass=SingletonMeta):\n    def __init__(self, api_key: str) -> None:\n        self.client = genai.Client(api_key=api_key)\n    def _process_kwargs(\n        self,\n        kwargs: Dict[str, Any],\n    ) -> Dict[str, Any]:\n        \"\"\"Process Google kwargs and query.\"\"\"\n        return {",
+        "detail": "think_reason_learn.core.llms._google.ask",
+        "documentation": {}
+    },
+    {
+        "label": "GoogleChoice",
+        "kind": 6,
+        "importPath": "think_reason_learn.core.llms._google.schemas",
+        "description": "think_reason_learn.core.llms._google.schemas",
+        "peekOfCode": "class GoogleChoice(BaseModel):\n    provider: Literal[\"google\"] = \"google\"\n    model: GoogleChatModel\nclass GoogleChoiceDict(TypedDict):\n    provider: Literal[\"google\"]\n    model: GoogleChatModel",
+        "detail": "think_reason_learn.core.llms._google.schemas",
+        "documentation": {}
+    },
+    {
+        "label": "GoogleChoiceDict",
+        "kind": 6,
+        "importPath": "think_reason_learn.core.llms._google.schemas",
+        "description": "think_reason_learn.core.llms._google.schemas",
+        "peekOfCode": "class GoogleChoiceDict(TypedDict):\n    provider: Literal[\"google\"]\n    model: GoogleChatModel",
+        "detail": "think_reason_learn.core.llms._google.schemas",
         "documentation": {}
     },
     {
         "label": "OpenAILLM",
         "kind": 6,
-        "importPath": "reasoning_forest.core.llms._openai.ask",
-        "description": "reasoning_forest.core.llms._openai.ask",
-        "peekOfCode": "class OpenAILLM(metaclass=SingletonMeta):\n    def __init__(self, api_key: str) -> None: ...\n    def respond(\n        self,\n        query: str,\n        model: OpenAIChatModel,\n        response_format: Type[T],\n        instructions: str | None = None,\n        temperature: float | None = None,\n        web_search: bool = False,",
-        "detail": "reasoning_forest.core.llms._openai.ask",
+        "importPath": "think_reason_learn.core.llms._openai.ask",
+        "description": "think_reason_learn.core.llms._openai.ask",
+        "peekOfCode": "class OpenAILLM(metaclass=SingletonMeta):\n    def __init__(self, api_key: str) -> None:\n        self.client = OpenAI(api_key=api_key)\n        self.aclient = AsyncOpenAI(api_key=api_key)\n    def _process_kwargs(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:\n        return {\n            k: v if v else (None if v is None else NOT_GIVEN)\n            for k, v in kwargs.items()\n            if k in self.client.responses.parse.__annotations__\n        }",
+        "detail": "think_reason_learn.core.llms._openai.ask",
+        "documentation": {}
+    },
+    {
+        "label": "get_openai_llm",
+        "kind": 2,
+        "importPath": "think_reason_learn.core.llms._openai.ask",
+        "description": "think_reason_learn.core.llms._openai.ask",
+        "peekOfCode": "def get_openai_llm(api_key: str) -> OpenAILLM | None:\n    return OpenAILLM(api_key) if api_key else None",
+        "detail": "think_reason_learn.core.llms._openai.ask",
+        "documentation": {}
+    },
+    {
+        "label": "logger",
+        "kind": 5,
+        "importPath": "think_reason_learn.core.llms._openai.ask",
+        "description": "think_reason_learn.core.llms._openai.ask",
+        "peekOfCode": "logger = logging.getLogger(__name__)\nclass OpenAILLM(metaclass=SingletonMeta):\n    def __init__(self, api_key: str) -> None:\n        self.client = OpenAI(api_key=api_key)\n        self.aclient = AsyncOpenAI(api_key=api_key)\n    def _process_kwargs(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:\n        return {\n            k: v if v else (None if v is None else NOT_GIVEN)\n            for k, v in kwargs.items()\n            if k in self.client.responses.parse.__annotations__",
+        "detail": "think_reason_learn.core.llms._openai.ask",
+        "documentation": {}
+    },
+    {
+        "label": "OpenAIChoice",
+        "kind": 6,
+        "importPath": "think_reason_learn.core.llms._openai.schemas",
+        "description": "think_reason_learn.core.llms._openai.schemas",
+        "peekOfCode": "class OpenAIChoice(BaseModel):\n    provider: Literal[\"openai\"] = \"openai\"\n    model: OpenAIChatModel\nclass OpenAIChoiceDict(TypedDict):\n    provider: Literal[\"openai\"]\n    model: OpenAIChatModel",
+        "detail": "think_reason_learn.core.llms._openai.schemas",
+        "documentation": {}
+    },
+    {
+        "label": "OpenAIChoiceDict",
+        "kind": 6,
+        "importPath": "think_reason_learn.core.llms._openai.schemas",
+        "description": "think_reason_learn.core.llms._openai.schemas",
+        "peekOfCode": "class OpenAIChoiceDict(TypedDict):\n    provider: Literal[\"openai\"]\n    model: OpenAIChatModel",
+        "detail": "think_reason_learn.core.llms._openai.schemas",
         "documentation": {}
     },
     {
         "label": "xAILLM",
         "kind": 6,
-        "importPath": "reasoning_forest.core.llms._xai.ask",
-        "description": "reasoning_forest.core.llms._xai.ask",
-        "peekOfCode": "class xAILLM(metaclass=SingletonMeta):\n    def __init__(self, api_key: str) -> None: ...\n    def respond(\n        self,\n        query: str,\n        model: xAIChatModel,\n        response_format: Type[T],\n        instructions: str | None = None,\n        temperature: float | None = None,\n        web_search: bool = False,",
-        "detail": "reasoning_forest.core.llms._xai.ask",
+        "importPath": "think_reason_learn.core.llms._xai.ask",
+        "description": "think_reason_learn.core.llms._xai.ask",
+        "peekOfCode": "class xAILLM(metaclass=SingletonMeta):\n    def __init__(self, api_key: str) -> None:\n        self.client = Client(api_key=api_key)\n        self.aclient = AsyncClient(api_key=api_key)\n    def _process_kwargs(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:\n        return {\n            k: v or None\n            for k, v in kwargs.items()\n            if k in self.client.chat.create.__annotations__\n        }",
+        "detail": "think_reason_learn.core.llms._xai.ask",
         "documentation": {}
     },
     {
-        "label": "LLMResponse",
-        "kind": 6,
-        "importPath": "reasoning_forest.core.llms._response_schema",
-        "description": "reasoning_forest.core.llms._response_schema",
-        "peekOfCode": "class LLMResponse(BaseModel, Generic[T]):\n    response: T\n    logprobs: List[Tuple[str, float | None]]\n    total_tokens: int | None = None\n    @property\n    def average_confidence(self) -> float | None:\n        if not self.logprobs:\n            return\n        lps = [lp[1] for lp in self.logprobs if lp[1] is not None]\n        if not lps:",
-        "detail": "reasoning_forest.core.llms._response_schema",
+        "label": "get_xai_llm",
+        "kind": 2,
+        "importPath": "think_reason_learn.core.llms._xai.ask",
+        "description": "think_reason_learn.core.llms._xai.ask",
+        "peekOfCode": "def get_xai_llm(api_key: str) -> xAILLM | None:\n    return xAILLM(api_key) if api_key else None",
+        "detail": "think_reason_learn.core.llms._xai.ask",
         "documentation": {}
     },
     {
-        "label": "T",
+        "label": "logger",
         "kind": 5,
-        "importPath": "reasoning_forest.core.llms._response_schema",
-        "description": "reasoning_forest.core.llms._response_schema",
-        "peekOfCode": "T = TypeVar(\"T\", bound=BaseModel | str)\nclass LLMResponse(BaseModel, Generic[T]):\n    response: T\n    logprobs: List[Tuple[str, float | None]]\n    total_tokens: int | None = None\n    @property\n    def average_confidence(self) -> float | None:\n        if not self.logprobs:\n            return\n        lps = [lp[1] for lp in self.logprobs if lp[1] is not None]",
-        "detail": "reasoning_forest.core.llms._response_schema",
+        "importPath": "think_reason_learn.core.llms._xai.ask",
+        "description": "think_reason_learn.core.llms._xai.ask",
+        "peekOfCode": "logger = logging.getLogger(__name__)\nclass xAILLM(metaclass=SingletonMeta):\n    def __init__(self, api_key: str) -> None:\n        self.client = Client(api_key=api_key)\n        self.aclient = AsyncClient(api_key=api_key)\n    def _process_kwargs(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:\n        return {\n            k: v or None\n            for k, v in kwargs.items()\n            if k in self.client.chat.create.__annotations__",
+        "detail": "think_reason_learn.core.llms._xai.ask",
+        "documentation": {}
+    },
+    {
+        "label": "XAIPriority",
+        "kind": 6,
+        "importPath": "think_reason_learn.core.llms._xai.schemas",
+        "description": "think_reason_learn.core.llms._xai.schemas",
+        "peekOfCode": "class XAIPriority(BaseModel):\n    provider: Literal[\"xai\"] = \"xai\"\n    model: xAIChatModel\nclass XAIPriorityDict(TypedDict):\n    provider: Literal[\"xai\"]\n    model: xAIChatModel",
+        "detail": "think_reason_learn.core.llms._xai.schemas",
+        "documentation": {}
+    },
+    {
+        "label": "XAIPriorityDict",
+        "kind": 6,
+        "importPath": "think_reason_learn.core.llms._xai.schemas",
+        "description": "think_reason_learn.core.llms._xai.schemas",
+        "peekOfCode": "class XAIPriorityDict(TypedDict):\n    provider: Literal[\"xai\"]\n    model: xAIChatModel",
+        "detail": "think_reason_learn.core.llms._xai.schemas",
         "documentation": {}
     },
     {
         "label": "LLM",
         "kind": 6,
-        "importPath": "reasoning_forest.core.llms.ask",
-        "description": "reasoning_forest.core.llms.ask",
-        "peekOfCode": "class LLM(metaclass=SingletonMeta):\n    def __init__(self) -> None:\n        self.anthropic_llm = get_anthropic_llm(settings.ANTHROPIC_API_KEY)\n        self.google_llm = get_google_llm(settings.GOOGLE_AI_API_KEY)\n        self.openai_llm = get_openai_llm(settings.OPENAI_API_KEY)\n        self.xai_llm = get_xai_llm(settings.XAI_API_KEY)\n    def _check_api_key_missing(self, priority: LLMPriority) -> None:\n        if getattr(self, f\"{priority.provider}_llm\") is None:\n            raise ValueError(\n                f\"Cannot use {priority.model}. {priority.provider.upper()}_API_KEY is not set! Please set it in the environment variables.\"",
-        "detail": "reasoning_forest.core.llms.ask",
+        "importPath": "think_reason_learn.core.llms.ask",
+        "description": "think_reason_learn.core.llms.ask",
+        "peekOfCode": "class LLM(metaclass=SingletonMeta):\n    def __init__(self) -> None:\n        self.anthropic_llm = get_anthropic_llm(settings.ANTHROPIC_API_KEY)\n        self.google_llm = get_google_llm(settings.GOOGLE_AI_API_KEY)\n        self.openai_llm = get_openai_llm(settings.OPENAI_API_KEY)\n        self.xai_llm = get_xai_llm(settings.XAI_API_KEY)\n    def _val_llm_priority_and_api_keys(\n        self, llm_priority: List[LLMPriority]\n    ) -> List[LLMPriorityModel]:\n        \"\"\"Validate the LLMPriority(provider and model) and check if the API key is set for such provider.\"\"\"",
+        "detail": "think_reason_learn.core.llms.ask",
         "documentation": {}
     },
     {
-        "label": "LLMPriority",
-        "kind": 6,
-        "importPath": "reasoning_forest.core.llms.schamas",
-        "description": "reasoning_forest.core.llms.schamas",
-        "peekOfCode": "class LLMPriority(BaseModel):\n    provider: LLMProvider\n    model: LLMChatModel\n    @model_validator(mode=\"after\")\n    def validate_model_provider(self) -> LLMPriority:\n        provider_model: Dict[LLMProvider, Tuple[LLMChatModel, ...]] = {\n            \"anthropic\": AnthropicChatModel.__args__,\n            \"google\": GoogleChatModel.__args__,\n            \"openai\": OpenAIChatModel.__args__,\n            \"xai\": xAIChatModel.__args__,",
-        "detail": "reasoning_forest.core.llms.schamas",
-        "documentation": {}
-    },
-    {
-        "label": "Settings",
-        "kind": 6,
-        "importPath": "reasoning_forest.core._config",
-        "description": "reasoning_forest.core._config",
-        "peekOfCode": "class Settings(BaseSettings):\n    \"\"\"Class to store all the settings of the application.\"\"\"\n    OPENAI_API_KEY: str = \"\"\n    GOOGLE_AI_API_KEY: str = \"\"\n    XAI_API_KEY: str = \"\"\n    ANTHROPIC_API_KEY: str = \"\"\n    model_config = SettingsConfigDict(\n        case_sensitive=False,\n        env_file=\".env\",\n        env_file_encoding=\"utf-8\",",
-        "detail": "reasoning_forest.core._config",
-        "documentation": {}
-    },
-    {
-        "label": "settings",
+        "label": "logger",
         "kind": 5,
-        "importPath": "reasoning_forest.core._config",
-        "description": "reasoning_forest.core._config",
-        "peekOfCode": "settings = Settings()  # type: ignore",
-        "detail": "reasoning_forest.core._config",
+        "importPath": "think_reason_learn.core.llms.ask",
+        "description": "think_reason_learn.core.llms.ask",
+        "peekOfCode": "logger = logging.getLogger(__name__)\nclass LLM(metaclass=SingletonMeta):\n    def __init__(self) -> None:\n        self.anthropic_llm = get_anthropic_llm(settings.ANTHROPIC_API_KEY)\n        self.google_llm = get_google_llm(settings.GOOGLE_AI_API_KEY)\n        self.openai_llm = get_openai_llm(settings.OPENAI_API_KEY)\n        self.xai_llm = get_xai_llm(settings.XAI_API_KEY)\n    def _val_llm_priority_and_api_keys(\n        self, llm_priority: List[LLMPriority]\n    ) -> List[LLMPriorityModel]:",
+        "detail": "think_reason_learn.core.llms.ask",
         "documentation": {}
     },
     {
-        "label": "SingletonMeta",
+        "label": "LLMResponse",
         "kind": 6,
-        "importPath": "reasoning_forest.core._singleton",
-        "description": "reasoning_forest.core._singleton",
-        "peekOfCode": "class SingletonMeta(type):\n    _instances: ClassVar[Dict[type, object]] = {}\n    def __call__(cls: type[T], *args: Any, **kwargs: Any) -> T:\n        if cls not in cls._instances:  # type: ignore\n            cls._instances[cls] = super().__call__(*args, **kwargs)  # type: ignore\n        return cls._instances[cls]  # type: ignore\n__all__ = [\"SingletonMeta\"]",
-        "detail": "reasoning_forest.core._singleton",
+        "importPath": "think_reason_learn.core.llms.schemas",
+        "description": "think_reason_learn.core.llms.schemas",
+        "peekOfCode": "class LLMResponse(BaseModel, Generic[T]):\n    response: T | None = None\n    logprobs: List[Tuple[str, float | None]]\n    total_tokens: int | None = None\n    provider_model: LLMPriorityModel\n    @property\n    def average_confidence(self) -> float | None:\n        if not self.logprobs:\n            return\n        lps = [lp[1] for lp in self.logprobs if lp[1] is not None]",
+        "detail": "think_reason_learn.core.llms.schemas",
+        "documentation": {}
+    },
+    {
+        "label": "NotGiven",
+        "kind": 6,
+        "importPath": "think_reason_learn.core.llms.schemas",
+        "description": "think_reason_learn.core.llms.schemas",
+        "peekOfCode": "class NotGiven:\n    \"\"\"\n    A sentinel singleton class used to distinguish omitted keyword arguments\n    from those passed in with the value None (which may have different behavior).\n    For example:\n    ```py\n    def get(timeout: Union[int, TRLNotGiven, None] = TRLNotGiven()) -> Response: ...\n    get(timeout=1)  # 1s timeout\n    get(timeout=None)  # No timeout\n    get()  # Default timeout behavior, which may not be statically known at the method definition.",
+        "detail": "think_reason_learn.core.llms.schemas",
         "documentation": {}
     },
     {
         "label": "T",
         "kind": 5,
-        "importPath": "reasoning_forest.core._singleton",
-        "description": "reasoning_forest.core._singleton",
+        "importPath": "think_reason_learn.core.llms.schemas",
+        "description": "think_reason_learn.core.llms.schemas",
+        "peekOfCode": "T = TypeVar(\"T\", bound=BaseModel | str, covariant=True)\nLLMProvider: TypeAlias = Literal[\"anthropic\", \"google\", \"openai\", \"xai\"]\nLLMChatModel: TypeAlias = Union[\n    AnthropicChatModel,\n    GoogleChatModel,\n    OpenAIChatModel,\n    xAIChatModel,\n]\nLLMPriorityModel: TypeAlias = Union[\n    AnthropicChoice,",
+        "detail": "think_reason_learn.core.llms.schemas",
+        "documentation": {}
+    },
+    {
+        "label": "NOT_GIVEN",
+        "kind": 5,
+        "importPath": "think_reason_learn.core.llms.schemas",
+        "description": "think_reason_learn.core.llms.schemas",
+        "peekOfCode": "NOT_GIVEN = NotGiven()",
+        "detail": "think_reason_learn.core.llms.schemas",
+        "documentation": {}
+    },
+    {
+        "label": "Settings",
+        "kind": 6,
+        "importPath": "think_reason_learn.core._config",
+        "description": "think_reason_learn.core._config",
+        "peekOfCode": "class Settings(BaseSettings):\n    \"\"\"Class to store all the settings of the application.\"\"\"\n    OPENAI_API_KEY: str = \"\"\n    GOOGLE_AI_API_KEY: str = \"\"\n    XAI_API_KEY: str = \"\"\n    ANTHROPIC_API_KEY: str = \"\"\n    model_config = SettingsConfigDict(\n        case_sensitive=False,\n        env_file=\".env\",\n        env_file_encoding=\"utf-8\",",
+        "detail": "think_reason_learn.core._config",
+        "documentation": {}
+    },
+    {
+        "label": "settings",
+        "kind": 5,
+        "importPath": "think_reason_learn.core._config",
+        "description": "think_reason_learn.core._config",
+        "peekOfCode": "settings = Settings()  # type: ignore",
+        "detail": "think_reason_learn.core._config",
+        "documentation": {}
+    },
+    {
+        "label": "SingletonMeta",
+        "kind": 6,
+        "importPath": "think_reason_learn.core._singleton",
+        "description": "think_reason_learn.core._singleton",
+        "peekOfCode": "class SingletonMeta(type):\n    _instances: ClassVar[Dict[type, object]] = {}\n    def __call__(cls: type[T], *args: Any, **kwargs: Any) -> T:\n        if cls not in cls._instances:  # type: ignore\n            cls._instances[cls] = super().__call__(*args, **kwargs)  # type: ignore\n        return cls._instances[cls]  # type: ignore\n__all__ = [\"SingletonMeta\"]",
+        "detail": "think_reason_learn.core._singleton",
+        "documentation": {}
+    },
+    {
+        "label": "T",
+        "kind": 5,
+        "importPath": "think_reason_learn.core._singleton",
+        "description": "think_reason_learn.core._singleton",
         "peekOfCode": "T = TypeVar(\"T\")\nclass SingletonMeta(type):\n    _instances: ClassVar[Dict[type, object]] = {}\n    def __call__(cls: type[T], *args: Any, **kwargs: Any) -> T:\n        if cls not in cls._instances:  # type: ignore\n            cls._instances[cls] = super().__call__(*args, **kwargs)  # type: ignore\n        return cls._instances[cls]  # type: ignore\n__all__ = [\"SingletonMeta\"]",
-        "detail": "reasoning_forest.core._singleton",
+        "detail": "think_reason_learn.core._singleton",
         "documentation": {}
     },
     {
         "label": "__all__",
         "kind": 5,
-        "importPath": "reasoning_forest.core._singleton",
-        "description": "reasoning_forest.core._singleton",
+        "importPath": "think_reason_learn.core._singleton",
+        "description": "think_reason_learn.core._singleton",
         "peekOfCode": "__all__ = [\"SingletonMeta\"]",
-        "detail": "reasoning_forest.core._singleton",
+        "detail": "think_reason_learn.core._singleton",
         "documentation": {}
     }
 ]

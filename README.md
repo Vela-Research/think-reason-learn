@@ -1,17 +1,17 @@
-# Reasoning Forest 🌲
+# Think Reason Learn 🌲
 
-Reasoning Forest is an open-source Python library for building interpretable, tree/forest-style decision-making systems powered by large language models (LLMs).
+Think Reason Learn is an open-source Python library for building interpretable, tree/forest-style decision-making systems powered by large language models (LLMs).
 
 ## Installation
 
 ```bash
-pip install reasoning-forest
+pip install think-reason-learn
 ```
 
 ## Quick Start
 
 ```python
-from reasoning_forest.gptree import GPTree
+from think_reason_learn.gptree import GPTree
 
 tree = GPTree(...)
 result = await tree.predict(...)

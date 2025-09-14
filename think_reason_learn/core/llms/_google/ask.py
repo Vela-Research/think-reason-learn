@@ -103,7 +103,7 @@ class GeminiLLM(metaclass=SingletonMeta):
             provider_model=GoogleChoice(model=model),
         )
 
-    def respond(
+    def respond_sync(
         self,
         query: str,
         model: GoogleChatModel,
@@ -135,7 +135,7 @@ class GeminiLLM(metaclass=SingletonMeta):
                 raise e
             return None
 
-    async def arespond(
+    async def respond(
         self,
         query: str,
         model: GoogleChatModel,

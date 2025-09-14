@@ -26,7 +26,7 @@ class xAILLM(metaclass=SingletonMeta):
             if k in self.client.chat.create.__annotations__
         }
 
-    def respond(
+    def respond_sync(
         self,
         model: xAIChatModel,
         query: str = "",
@@ -83,7 +83,7 @@ class xAILLM(metaclass=SingletonMeta):
                 raise e
             return None
 
-    async def arespond(
+    async def respond(
         self,
         model: xAIChatModel,
         query: str = "",

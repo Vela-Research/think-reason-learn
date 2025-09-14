@@ -25,7 +25,7 @@ class OpenAILLM(metaclass=SingletonMeta):
             if k in self.client.responses.parse.__annotations__
         }
 
-    def respond(
+    def respond_sync(
         self,
         model: OpenAIChatModel,
         query: str = "",
@@ -77,7 +77,7 @@ class OpenAILLM(metaclass=SingletonMeta):
                 raise e
             return None
 
-    async def arespond(
+    async def respond(
         self,
         model: OpenAIChatModel,
         query: str = "",

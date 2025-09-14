@@ -65,7 +65,7 @@ class LLM(metaclass=SingletonMeta):
             priority_models.append(llmp)
         return priority_models
 
-    def respond(
+    def respond_sync(
         self,
         llm_priority: List[LLMPriority],
         query: str = "",
@@ -111,7 +111,7 @@ class LLM(metaclass=SingletonMeta):
 
             if llmp.provider == "google":
                 google_llm = cast(GeminiLLM, self.google_llm)
-                response = google_llm.respond(
+                response = google_llm.respond_sync(
                     query=query,
                     model=llmp.model,
                     response_format=response_format,
@@ -126,7 +126,7 @@ class LLM(metaclass=SingletonMeta):
 
             if llmp.provider == "openai":
                 openai_llm = cast(OpenAILLM, self.openai_llm)
-                response = openai_llm.respond(
+                response = openai_llm.respond_sync(
                     query=query,
                     model=llmp.model,
                     response_format=response_format,
@@ -149,7 +149,7 @@ class LLM(metaclass=SingletonMeta):
 
             if llmp.provider == "anthropic":
                 anthropic_llm = cast(AnthropicLLM, self.anthropic_llm)
-                response = anthropic_llm.respond(
+                response = anthropic_llm.respond_sync(
                     query=query,
                     model=llmp.model,
                     response_format=response_format,
@@ -164,7 +164,7 @@ class LLM(metaclass=SingletonMeta):
 
             if llmp.provider == "xai":
                 xai_llm = cast(xAILLM, self.xai_llm)
-                response = xai_llm.respond(
+                response = xai_llm.respond_sync(
                     query=query,
                     model=llmp.model,
                     response_format=response_format,
@@ -180,7 +180,7 @@ class LLM(metaclass=SingletonMeta):
         llmps = [f"{llmp.provider}: {llmp.model}" for llmp in llm_priority_models]
         raise ValueError(f"Failed to respond with any of {llmps}")
 
-    async def arespond(
+    async def respond(
         self,
         query: str,
         llm_priority: List[LLMPriority],
@@ -225,7 +225,7 @@ class LLM(metaclass=SingletonMeta):
 
             if llmp.provider == "google":
                 google_llm = cast(GeminiLLM, self.google_llm)
-                response = await google_llm.arespond(
+                response = await google_llm.respond(
                     query=query,
                     model=llmp.model,
                     response_format=response_format,
@@ -240,7 +240,7 @@ class LLM(metaclass=SingletonMeta):
 
             if llmp.provider == "openai":
                 openai_llm = cast(OpenAILLM, self.openai_llm)
-                response = await openai_llm.arespond(
+                response = await openai_llm.respond(
                     query=query,
                     model=llmp.model,
                     response_format=response_format,
@@ -263,7 +263,7 @@ class LLM(metaclass=SingletonMeta):
 
             if llmp.provider == "anthropic":
                 anthropic_llm = cast(AnthropicLLM, self.anthropic_llm)
-                response = await anthropic_llm.arespond(
+                response = await anthropic_llm.respond(
                     query=query,
                     model=llmp.model,
                     response_format=response_format,
@@ -278,7 +278,7 @@ class LLM(metaclass=SingletonMeta):
 
             if llmp.provider == "xai":
                 xai_llm = cast(xAILLM, self.xai_llm)
-                response = await xai_llm.arespond(
+                response = await xai_llm.respond(
                     query=query,
                     model=llmp.model,
                     response_format=response_format,

@@ -96,7 +96,7 @@ class AnthropicLLM(metaclass=SingletonMeta):
             kwargs=kwargs,
         )
 
-    def respond(
+    def respond_sync(
         self,
         model: AnthropicChatModel,
         query: str = "",
@@ -144,7 +144,7 @@ class AnthropicLLM(metaclass=SingletonMeta):
                 raise e
             return None
 
-    async def arespond(
+    async def respond(
         self,
         model: AnthropicChatModel,
         query: str = "",

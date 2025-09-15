@@ -1,9 +1,10 @@
 from typing import Type, List, Any, cast, Dict
 import logging
+import contextlib
 
 from xai_sdk import Client, AsyncClient
 from xai_sdk.chat import system, user
-from xai_sdk.proto.v6.chat_pb2 import Message
+from xai_sdk.proto.v6.chat_pb2 import Message, MessageRole
 from pydantic import BaseModel
 
 from ..schemas import LLMResponse, T, XAIPriority
@@ -40,10 +41,12 @@ class xAILLM(metaclass=SingletonMeta):
 
         try:
             messages: List[Message] = kwargs.get("messages", [])
-            if instructions is not None:
-                messages.insert(0, system(instructions))
-            if query:
-                messages.append(user(query))
+            with contextlib.suppress(IndexError):
+                if query and messages[-1].role != MessageRole.ROLE_USER:
+                    messages.append(user(query))
+            if not (m for m in messages if m.role == MessageRole.ROLE_SYSTEM):
+                if instructions:
+                    messages.insert(0, system(instructions))
 
             chat = self.client.chat.create(
                 model=model,
@@ -97,10 +100,12 @@ class xAILLM(metaclass=SingletonMeta):
 
         try:
             messages: List[Message] = kwargs.get("messages", [])
-            if instructions is not None:
-                messages.insert(0, system(instructions))
-            if query:
-                messages.append(user(query))
+            with contextlib.suppress(IndexError):
+                if query and messages[-1].role != MessageRole.ROLE_USER:
+                    messages.append(user(query))
+            if not (m for m in messages if m.role == MessageRole.ROLE_SYSTEM):
+                if instructions:
+                    messages.insert(0, system(instructions))
 
             chat = self.aclient.chat.create(
                 model=model,

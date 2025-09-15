@@ -122,7 +122,6 @@ class GeminiLLM(metaclass=SingletonMeta):
         )
 
         try:
-            raise ValueError("Intentional error")
             response = self.client.models.generate_content(  # type: ignore
                 model=model,
                 contents=kwargs.get("contents", query),

@@ -734,6 +734,15 @@
         "documentation": {}
     },
     {
+        "label": "contextlib",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "contextlib",
+        "description": "contextlib",
+        "detail": "contextlib",
+        "documentation": {}
+    },
+    {
         "label": "Client",
         "importPath": "xai_sdk",
         "description": "xai_sdk",
@@ -767,6 +776,14 @@
     },
     {
         "label": "Message",
+        "importPath": "xai_sdk.proto.v6.chat_pb2",
+        "description": "xai_sdk.proto.v6.chat_pb2",
+        "isExtraImport": true,
+        "detail": "xai_sdk.proto.v6.chat_pb2",
+        "documentation": {}
+    },
+    {
+        "label": "MessageRole",
         "importPath": "xai_sdk.proto.v6.chat_pb2",
         "description": "xai_sdk.proto.v6.chat_pb2",
         "isExtraImport": true,

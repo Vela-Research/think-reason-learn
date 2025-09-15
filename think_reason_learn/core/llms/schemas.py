@@ -1,5 +1,6 @@
 from typing import TypeVar, Tuple, Generic, List, TypeAlias, Literal, override, Union
 import math
+from dataclasses import dataclass
 
 from pydantic import BaseModel
 
@@ -94,3 +95,10 @@ class NotGiven:
 
 
 NOT_GIVEN = NotGiven()
+
+
+@dataclass(slots=True)
+class TokenCount:
+    provider: LLMProvider
+    model: LLMChatModel
+    value: int | None = None

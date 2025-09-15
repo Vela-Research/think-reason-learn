@@ -22,6 +22,10 @@ logger = logging.getLogger(__name__)
 
 
 class LLM(metaclass=SingletonMeta):
+    """
+    A singleton class that provides a unified interface for the LLMs.
+    """
+
     def __init__(self) -> None:
         self.anthropic_llm = get_anthropic_llm(settings.ANTHROPIC_API_KEY)
         self.google_llm = get_google_llm(settings.GOOGLE_AI_API_KEY)
@@ -178,7 +182,9 @@ class LLM(metaclass=SingletonMeta):
                     return response
 
         llmps = [f"{llmp.provider}: {llmp.model}" for llmp in llm_priority_models]
-        raise ValueError(f"Failed to respond with any of {llmps}")
+        raise ValueError(
+            f"Failed to respond with any of {llmps}\n\nQuery: {query}\n\nInstructions: {instructions}\n\nTemperature: {temperature}\n\nVerbose: {verbose}\n\n**kwargs: {kwargs}"
+        )
 
     async def respond(
         self,

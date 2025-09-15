@@ -33,6 +33,30 @@
         "documentation": {}
     },
     {
+        "label": "annotations",
+        "importPath": "__future__",
+        "description": "__future__",
+        "isExtraImport": true,
+        "detail": "__future__",
+        "documentation": {}
+    },
+    {
+        "label": "annotations",
+        "importPath": "__future__",
+        "description": "__future__",
+        "isExtraImport": true,
+        "detail": "__future__",
+        "documentation": {}
+    },
+    {
+        "label": "annotations",
+        "importPath": "__future__",
+        "description": "__future__",
+        "isExtraImport": true,
+        "detail": "__future__",
+        "documentation": {}
+    },
+    {
         "label": "os",
         "kind": 6,
         "isExtraImport": true,
@@ -460,6 +484,94 @@
         "documentation": {}
     },
     {
+        "label": "Union",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Dict",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "List",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Dict",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Literal",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "List",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Dict",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Literal",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "cast",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Type",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Tuple",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
         "label": "logging",
         "kind": 6,
         "isExtraImport": true,
@@ -550,6 +662,22 @@
     },
     {
         "label": "BaseModel",
+        "importPath": "pydantic",
+        "description": "pydantic",
+        "isExtraImport": true,
+        "detail": "pydantic",
+        "documentation": {}
+    },
+    {
+        "label": "BaseModel",
+        "importPath": "pydantic",
+        "description": "pydantic",
+        "isExtraImport": true,
+        "detail": "pydantic",
+        "documentation": {}
+    },
+    {
+        "label": "create_model",
         "importPath": "pydantic",
         "description": "pydantic",
         "isExtraImport": true,
@@ -808,6 +936,30 @@
         "documentation": {}
     },
     {
+        "label": "dataclass",
+        "importPath": "dataclasses",
+        "description": "dataclasses",
+        "isExtraImport": true,
+        "detail": "dataclasses",
+        "documentation": {}
+    },
+    {
+        "label": "dataclass",
+        "importPath": "dataclasses",
+        "description": "dataclasses",
+        "isExtraImport": true,
+        "detail": "dataclasses",
+        "documentation": {}
+    },
+    {
+        "label": "field",
+        "importPath": "dataclasses",
+        "description": "dataclasses",
+        "isExtraImport": true,
+        "detail": "dataclasses",
+        "documentation": {}
+    },
+    {
         "label": "BaseSettings",
         "importPath": "pydantic_settings",
         "description": "pydantic_settings",
@@ -829,6 +981,98 @@
         "description": "pydantic_settings",
         "isExtraImport": true,
         "detail": "pydantic_settings",
+        "documentation": {}
+    },
+    {
+        "label": "JSONValue",
+        "importPath": "think_reason_learn.core._types",
+        "description": "think_reason_learn.core._types",
+        "isExtraImport": true,
+        "detail": "think_reason_learn.core._types",
+        "documentation": {}
+    },
+    {
+        "label": "asyncio",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "asyncio",
+        "description": "asyncio",
+        "detail": "asyncio",
+        "documentation": {}
+    },
+    {
+        "label": "uuid4",
+        "importPath": "uuid",
+        "description": "uuid",
+        "isExtraImport": true,
+        "detail": "uuid",
+        "documentation": {}
+    },
+    {
+        "label": "deepcopy",
+        "importPath": "copy",
+        "description": "copy",
+        "isExtraImport": true,
+        "detail": "copy",
+        "documentation": {}
+    },
+    {
+        "label": "numpy",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "numpy",
+        "description": "numpy",
+        "detail": "numpy",
+        "documentation": {}
+    },
+    {
+        "label": "numpy.typing",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "numpy.typing",
+        "description": "numpy.typing",
+        "detail": "numpy.typing",
+        "documentation": {}
+    },
+    {
+        "label": "pandas",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "pandas",
+        "description": "pandas",
+        "detail": "pandas",
+        "documentation": {}
+    },
+    {
+        "label": "LLMPriority",
+        "importPath": "think_reason_learn.core.llms.schemas",
+        "description": "think_reason_learn.core.llms.schemas",
+        "isExtraImport": true,
+        "detail": "think_reason_learn.core.llms.schemas",
+        "documentation": {}
+    },
+    {
+        "label": "TokenCount",
+        "importPath": "think_reason_learn.core.llms.schemas",
+        "description": "think_reason_learn.core.llms.schemas",
+        "isExtraImport": true,
+        "detail": "think_reason_learn.core.llms.schemas",
+        "documentation": {}
+    },
+    {
+        "label": "llm",
+        "importPath": "think_reason_learn.core.llms",
+        "description": "think_reason_learn.core.llms",
+        "isExtraImport": true,
+        "detail": "think_reason_learn.core.llms",
+        "documentation": {}
+    },
+    {
+        "label": "DataError",
+        "importPath": "think_reason_learn.core._exceptions",
+        "description": "think_reason_learn.core._exceptions",
+        "isExtraImport": true,
+        "detail": "think_reason_learn.core._exceptions",
         "documentation": {}
     },
     {
@@ -1214,7 +1458,7 @@
         "kind": 6,
         "importPath": "think_reason_learn.core.llms.ask",
         "description": "think_reason_learn.core.llms.ask",
-        "peekOfCode": "class LLM(metaclass=SingletonMeta):\n    def __init__(self) -> None:\n        self.anthropic_llm = get_anthropic_llm(settings.ANTHROPIC_API_KEY)\n        self.google_llm = get_google_llm(settings.GOOGLE_AI_API_KEY)\n        self.openai_llm = get_openai_llm(settings.OPENAI_API_KEY)\n        self.xai_llm = get_xai_llm(settings.XAI_API_KEY)\n    def _val_llm_priority_and_api_keys(\n        self, llm_priority: List[LLMPriority]\n    ) -> List[LLMPriorityModel]:\n        \"\"\"Validate the LLMPriority(provider and model) and check if the API key is set for such provider.\"\"\"",
+        "peekOfCode": "class LLM(metaclass=SingletonMeta):\n    \"\"\"\n    A singleton class that provides a unified interface for the LLMs.\n    \"\"\"\n    def __init__(self) -> None:\n        self.anthropic_llm = get_anthropic_llm(settings.ANTHROPIC_API_KEY)\n        self.google_llm = get_google_llm(settings.GOOGLE_AI_API_KEY)\n        self.openai_llm = get_openai_llm(settings.OPENAI_API_KEY)\n        self.xai_llm = get_xai_llm(settings.XAI_API_KEY)\n    def _val_llm_priority_and_api_keys(",
         "detail": "think_reason_learn.core.llms.ask",
         "documentation": {}
     },
@@ -1223,7 +1467,7 @@
         "kind": 5,
         "importPath": "think_reason_learn.core.llms.ask",
         "description": "think_reason_learn.core.llms.ask",
-        "peekOfCode": "logger = logging.getLogger(__name__)\nclass LLM(metaclass=SingletonMeta):\n    def __init__(self) -> None:\n        self.anthropic_llm = get_anthropic_llm(settings.ANTHROPIC_API_KEY)\n        self.google_llm = get_google_llm(settings.GOOGLE_AI_API_KEY)\n        self.openai_llm = get_openai_llm(settings.OPENAI_API_KEY)\n        self.xai_llm = get_xai_llm(settings.XAI_API_KEY)\n    def _val_llm_priority_and_api_keys(\n        self, llm_priority: List[LLMPriority]\n    ) -> List[LLMPriorityModel]:",
+        "peekOfCode": "logger = logging.getLogger(__name__)\nclass LLM(metaclass=SingletonMeta):\n    \"\"\"\n    A singleton class that provides a unified interface for the LLMs.\n    \"\"\"\n    def __init__(self) -> None:\n        self.anthropic_llm = get_anthropic_llm(settings.ANTHROPIC_API_KEY)\n        self.google_llm = get_google_llm(settings.GOOGLE_AI_API_KEY)\n        self.openai_llm = get_openai_llm(settings.OPENAI_API_KEY)\n        self.xai_llm = get_xai_llm(settings.XAI_API_KEY)",
         "detail": "think_reason_learn.core.llms.ask",
         "documentation": {}
     },
@@ -1246,6 +1490,15 @@
         "documentation": {}
     },
     {
+        "label": "TokenCount",
+        "kind": 6,
+        "importPath": "think_reason_learn.core.llms.schemas",
+        "description": "think_reason_learn.core.llms.schemas",
+        "peekOfCode": "class TokenCount:\n    provider: LLMProvider\n    model: LLMChatModel\n    value: int | None = None",
+        "detail": "think_reason_learn.core.llms.schemas",
+        "documentation": {}
+    },
+    {
         "label": "T",
         "kind": 5,
         "importPath": "think_reason_learn.core.llms.schemas",
@@ -1259,7 +1512,7 @@
         "kind": 5,
         "importPath": "think_reason_learn.core.llms.schemas",
         "description": "think_reason_learn.core.llms.schemas",
-        "peekOfCode": "NOT_GIVEN = NotGiven()",
+        "peekOfCode": "NOT_GIVEN = NotGiven()\n@dataclass(slots=True)\nclass TokenCount:\n    provider: LLMProvider\n    model: LLMChatModel\n    value: int | None = None",
         "detail": "think_reason_learn.core.llms.schemas",
         "documentation": {}
     },
@@ -1279,6 +1532,15 @@
         "description": "think_reason_learn.core._config",
         "peekOfCode": "settings = Settings()  # type: ignore",
         "detail": "think_reason_learn.core._config",
+        "documentation": {}
+    },
+    {
+        "label": "DataError",
+        "kind": 6,
+        "importPath": "think_reason_learn.core._exceptions",
+        "description": "think_reason_learn.core._exceptions",
+        "peekOfCode": "class DataError(Exception):\n    \"\"\"Data not in the expected format.\"\"\"",
+        "detail": "think_reason_learn.core._exceptions",
         "documentation": {}
     },
     {
@@ -1306,6 +1568,150 @@
         "description": "think_reason_learn.core._singleton",
         "peekOfCode": "__all__ = [\"SingletonMeta\"]",
         "detail": "think_reason_learn.core._singleton",
+        "documentation": {}
+    },
+    {
+        "label": "JSONScalar",
+        "kind": 5,
+        "importPath": "think_reason_learn.core._types",
+        "description": "think_reason_learn.core._types",
+        "peekOfCode": "JSONScalar = Union[str, int, float, bool, None]\nJSONValue = Union[JSONScalar, Dict[str, \"JSONValue\"], List[\"JSONValue\"]]",
+        "detail": "think_reason_learn.core._types",
+        "documentation": {}
+    },
+    {
+        "label": "JSONValue",
+        "kind": 5,
+        "importPath": "think_reason_learn.core._types",
+        "description": "think_reason_learn.core._types",
+        "peekOfCode": "JSONValue = Union[JSONScalar, Dict[str, \"JSONValue\"], List[\"JSONValue\"]]",
+        "detail": "think_reason_learn.core._types",
+        "documentation": {}
+    },
+    {
+        "label": "num_questions_tag",
+        "kind": 5,
+        "importPath": "think_reason_learn.gptree._prompts",
+        "description": "think_reason_learn.gptree._prompts",
+        "peekOfCode": "num_questions_tag = \"<number_of_questions>\"\nINSTRUCTIONS_FOR_GENERATING_QUESTION_GEN_INSTRUCTIONS = f\"\"\"\\\nYou are part of a team of experts that are building a decision tree model (GPTree) for a classification task.\nWhen given a task description, you need to generate clear and detailed instructions template for generating questions for the tree at a Node.\nYour instructions template will inform the question generator in your team to generate questions for the tree at a Node.\nThe number of questions to generate is not known now, so use the tag {num_questions_tag} as a placeholder in your instructions template.\nThe instructions template should be in a format that is easy for the question generator to understand and generate questions purposely for this task.\n\"\"\"\n\"Instructions for an LLM to generate instructions for generating questions.\"\nQUESTION_ANSWER_INSTRUCTIONS = \"\"\"\\",
+        "detail": "think_reason_learn.gptree._prompts",
+        "documentation": {}
+    },
+    {
+        "label": "INSTRUCTIONS_FOR_GENERATING_QUESTION_GEN_INSTRUCTIONS",
+        "kind": 5,
+        "importPath": "think_reason_learn.gptree._prompts",
+        "description": "think_reason_learn.gptree._prompts",
+        "peekOfCode": "INSTRUCTIONS_FOR_GENERATING_QUESTION_GEN_INSTRUCTIONS = f\"\"\"\\\nYou are part of a team of experts that are building a decision tree model (GPTree) for a classification task.\nWhen given a task description, you need to generate clear and detailed instructions template for generating questions for the tree at a Node.\nYour instructions template will inform the question generator in your team to generate questions for the tree at a Node.\nThe number of questions to generate is not known now, so use the tag {num_questions_tag} as a placeholder in your instructions template.\nThe instructions template should be in a format that is easy for the question generator to understand and generate questions purposely for this task.\n\"\"\"\n\"Instructions for an LLM to generate instructions for generating questions.\"\nQUESTION_ANSWER_INSTRUCTIONS = \"\"\"\\\nYou are part of a team of experts that are building a decision tree model (GPTree) for a classification task.",
+        "detail": "think_reason_learn.gptree._prompts",
+        "documentation": {}
+    },
+    {
+        "label": "QUESTION_ANSWER_INSTRUCTIONS",
+        "kind": 5,
+        "importPath": "think_reason_learn.gptree._prompts",
+        "description": "think_reason_learn.gptree._prompts",
+        "peekOfCode": "QUESTION_ANSWER_INSTRUCTIONS = \"\"\"\\\nYou are part of a team of experts that are building a decision tree model (GPTree) for a classification task.\nWhen given a question and a sample from the data, your task is to answer the question for the sample per the sample given.\n\"\"\"\n\"Instructions for an LLM to answer a question for a sample.\"",
+        "detail": "think_reason_learn.gptree._prompts",
+        "documentation": {}
+    },
+    {
+        "label": "Sample",
+        "kind": 5,
+        "importPath": "think_reason_learn.gptree._types",
+        "description": "think_reason_learn.gptree._types",
+        "peekOfCode": "Sample = Dict[str, JSONValue]\nQuestionType = Literal[\"INFERENCE\", \"CODE\"]\nCriterion = Literal[\"gini\"]",
+        "detail": "think_reason_learn.gptree._types",
+        "documentation": {}
+    },
+    {
+        "label": "QuestionType",
+        "kind": 5,
+        "importPath": "think_reason_learn.gptree._types",
+        "description": "think_reason_learn.gptree._types",
+        "peekOfCode": "QuestionType = Literal[\"INFERENCE\", \"CODE\"]\nCriterion = Literal[\"gini\"]",
+        "detail": "think_reason_learn.gptree._types",
+        "documentation": {}
+    },
+    {
+        "label": "Criterion",
+        "kind": 5,
+        "importPath": "think_reason_learn.gptree._types",
+        "description": "think_reason_learn.gptree._types",
+        "peekOfCode": "Criterion = Literal[\"gini\"]",
+        "detail": "think_reason_learn.gptree._types",
+        "documentation": {}
+    },
+    {
+        "label": "NodeQuestion",
+        "kind": 6,
+        "importPath": "think_reason_learn.gptree.gptree",
+        "description": "think_reason_learn.gptree.gptree",
+        "peekOfCode": "class NodeQuestion:\n    value: str\n    choices: List[str]\n    question_type: QuestionType\n    df_column: str = field(default_factory=lambda: str(uuid4()))\n    score: float | None = None\n    def __hash__(self):\n        return hash((self.value, self.question_type))\n    def __eq__(self, other: object):\n        if not isinstance(other, NodeQuestion):",
+        "detail": "think_reason_learn.gptree.gptree",
+        "documentation": {}
+    },
+    {
+        "label": "Question",
+        "kind": 6,
+        "importPath": "think_reason_learn.gptree.gptree",
+        "description": "think_reason_learn.gptree.gptree",
+        "peekOfCode": "class Question(BaseModel):\n    value: str\n    choices: List[str]\n    question_type: QuestionType\nclass Questions(BaseModel):\n    questions: List[Question]\n    memory_context: str\nclass Answer(BaseModel):\n    answer: str\n@dataclass(slots=True)",
+        "detail": "think_reason_learn.gptree.gptree",
+        "documentation": {}
+    },
+    {
+        "label": "Questions",
+        "kind": 6,
+        "importPath": "think_reason_learn.gptree.gptree",
+        "description": "think_reason_learn.gptree.gptree",
+        "peekOfCode": "class Questions(BaseModel):\n    questions: List[Question]\n    memory_context: str\nclass Answer(BaseModel):\n    answer: str\n@dataclass(slots=True)\nclass Node:\n    \"\"\"\n    A Node represents a decision point in GPTree.\n    Attributes",
+        "detail": "think_reason_learn.gptree.gptree",
+        "documentation": {}
+    },
+    {
+        "label": "Answer",
+        "kind": 6,
+        "importPath": "think_reason_learn.gptree.gptree",
+        "description": "think_reason_learn.gptree.gptree",
+        "peekOfCode": "class Answer(BaseModel):\n    answer: str\n@dataclass(slots=True)\nclass Node:\n    \"\"\"\n    A Node represents a decision point in GPTree.\n    Attributes\n    ----------\n    id: int\n        The id of the node.",
+        "detail": "think_reason_learn.gptree.gptree",
+        "documentation": {}
+    },
+    {
+        "label": "Node",
+        "kind": 6,
+        "importPath": "think_reason_learn.gptree.gptree",
+        "description": "think_reason_learn.gptree.gptree",
+        "peekOfCode": "class Node:\n    \"\"\"\n    A Node represents a decision point in GPTree.\n    Attributes\n    ----------\n    id: int\n        The id of the node.\n    label: str\n        The label of the node.\n    question: NodeQuestion, default=None",
+        "detail": "think_reason_learn.gptree.gptree",
+        "documentation": {}
+    },
+    {
+        "label": "GPTree",
+        "kind": 6,
+        "importPath": "think_reason_learn.gptree.gptree",
+        "description": "think_reason_learn.gptree.gptree",
+        "peekOfCode": "class GPTree:\n    \"\"\"LLM based decision tree classifier.\"\"\"\n    def __init__(\n        self,\n        question_gen_llmp: List[LLMPriority],\n        critic_llmp: List[LLMPriority],\n        question_gen_instructions_llmp: List[LLMPriority],\n        question_gen_temperature: float = 0.0,\n        critic_temperature: float = 0.0,\n        question_gen_instructions_gen_temperature: float = 0.0,",
+        "detail": "think_reason_learn.gptree.gptree",
+        "documentation": {}
+    },
+    {
+        "label": "logger",
+        "kind": 5,
+        "importPath": "think_reason_learn.gptree.gptree",
+        "description": "think_reason_learn.gptree.gptree",
+        "peekOfCode": "logger = logging.getLogger(__name__)\nIndexArray = npt.NDArray[np.intp]\n@dataclass(slots=True)\nclass NodeQuestion:\n    value: str\n    choices: List[str]\n    question_type: QuestionType\n    df_column: str = field(default_factory=lambda: str(uuid4()))\n    score: float | None = None\n    def __hash__(self):",
+        "detail": "think_reason_learn.gptree.gptree",
+        "documentation": {}
+    },
+    {
+        "label": "IndexArray",
+        "kind": 5,
+        "importPath": "think_reason_learn.gptree.gptree",
+        "description": "think_reason_learn.gptree.gptree",
+        "peekOfCode": "IndexArray = npt.NDArray[np.intp]\n@dataclass(slots=True)\nclass NodeQuestion:\n    value: str\n    choices: List[str]\n    question_type: QuestionType\n    df_column: str = field(default_factory=lambda: str(uuid4()))\n    score: float | None = None\n    def __hash__(self):\n        return hash((self.value, self.question_type))",
+        "detail": "think_reason_learn.gptree.gptree",
         "documentation": {}
     }
 ]

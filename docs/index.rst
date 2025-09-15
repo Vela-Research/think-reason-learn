@@ -1,6 +1,6 @@
-.. Reasoning Forest documentation master file.
+.. Think Reason Learn documentation master file.
 
-Welcome to Reasoning Forest's documentation!
+Welcome to Think Reason Learn's documentation!
 ============================================
 
 .. toctree::

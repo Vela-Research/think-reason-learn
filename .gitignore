@@ -45,3 +45,6 @@ Thumbs.db
 
 # Custom
 llm_context.md
+
+lab.ipynb
+.env

@@ -986,6 +986,15 @@
         "documentation": {}
     },
     {
+        "label": "test_placeholder",
+        "kind": 2,
+        "importPath": "tests.test_placeholder",
+        "description": "tests.test_placeholder",
+        "peekOfCode": "def test_placeholder():\n    assert True",
+        "detail": "tests.test_placeholder",
+        "documentation": {}
+    },
+    {
         "label": "AnthropicInput",
         "kind": 6,
         "importPath": "think_reason_learn.core.llms._anthropic.ask",

@@ -14,8 +14,8 @@ from ._google.schemas import GoogleChoice
 from ._openai.ask import OpenAILLM, get_openai_llm
 from ._openai.schemas import OpenAIChoice
 from ._xai.ask import xAILLM, get_xai_llm
-from ._xai.schemas import XAIPriority
-from .schemas import LLMPriority, LLMPriorityModel, LLMResponse, T
+from ._xai.schemas import XAIChoice
+from .schemas import LLMChoice, LLMChoiceModel, LLMResponse, T
 from .schemas import NotGiven, NOT_GIVEN
 
 logger = logging.getLogger(__name__)
@@ -33,16 +33,16 @@ class LLM(metaclass=SingletonMeta):
         self.xai_llm = get_xai_llm(settings.XAI_API_KEY)
 
     def _val_llm_priority_and_api_keys(
-        self, llm_priority: List[LLMPriority]
-    ) -> List[LLMPriorityModel]:
+        self, llm_priority: List[LLMChoice]
+    ) -> List[LLMChoiceModel]:
         """Validate the LLMPriority(provider and model) and check if the API key is set for such provider."""
         models_map = {
             "anthropic": AnthropicChoice,
             "google": GoogleChoice,
             "openai": OpenAIChoice,
-            "xai": XAIPriority,
+            "xai": XAIChoice,
         }
-        priority_models: List[LLMPriorityModel] = []
+        priority_models: List[LLMChoiceModel] = []
         for llmp in llm_priority:
 
             if isinstance(llmp, dict):
@@ -71,7 +71,7 @@ class LLM(metaclass=SingletonMeta):
 
     def respond_sync(
         self,
-        llm_priority: List[LLMPriority],
+        llm_priority: List[LLMChoice],
         query: str = "",
         response_format: Type[T] = str,
         instructions: str | NotGiven | None = NOT_GIVEN,
@@ -189,7 +189,7 @@ class LLM(metaclass=SingletonMeta):
     async def respond(
         self,
         query: str,
-        llm_priority: List[LLMPriority],
+        llm_priority: List[LLMChoice],
         response_format: Type[T],
         instructions: str | NotGiven | None = NOT_GIVEN,
         temperature: float | NotGiven | None = NOT_GIVEN,

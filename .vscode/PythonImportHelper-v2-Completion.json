@@ -92,6 +92,14 @@
         "documentation": {}
     },
     {
+        "label": "Path",
+        "importPath": "pathlib",
+        "description": "pathlib",
+        "isExtraImport": true,
+        "detail": "pathlib",
+        "documentation": {}
+    },
+    {
         "label": "Type",
         "importPath": "typing",
         "description": "typing",
@@ -572,6 +580,14 @@
         "documentation": {}
     },
     {
+        "label": "AsyncGenerator",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
         "label": "logging",
         "kind": 6,
         "isExtraImport": true,
@@ -960,6 +976,14 @@
         "documentation": {}
     },
     {
+        "label": "asdict",
+        "importPath": "dataclasses",
+        "description": "dataclasses",
+        "isExtraImport": true,
+        "detail": "dataclasses",
+        "documentation": {}
+    },
+    {
         "label": "BaseSettings",
         "importPath": "pydantic_settings",
         "description": "pydantic_settings",
@@ -1017,6 +1041,33 @@
         "documentation": {}
     },
     {
+        "label": "datetime",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "datetime",
+        "description": "datetime",
+        "detail": "datetime",
+        "documentation": {}
+    },
+    {
+        "label": "re",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "re",
+        "description": "re",
+        "detail": "re",
+        "documentation": {}
+    },
+    {
+        "label": "orjson",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "orjson",
+        "description": "orjson",
+        "detail": "orjson",
+        "documentation": {}
+    },
+    {
         "label": "numpy",
         "kind": 6,
         "isExtraImport": true,
@@ -1044,7 +1095,7 @@
         "documentation": {}
     },
     {
-        "label": "LLMPriority",
+        "label": "LLMChoice",
         "importPath": "think_reason_learn.core.llms.schemas",
         "description": "think_reason_learn.core.llms.schemas",
         "isExtraImport": true,
@@ -1436,20 +1487,20 @@
         "documentation": {}
     },
     {
-        "label": "XAIPriority",
+        "label": "XAIChoice",
         "kind": 6,
         "importPath": "think_reason_learn.core.llms._xai.schemas",
         "description": "think_reason_learn.core.llms._xai.schemas",
-        "peekOfCode": "class XAIPriority(BaseModel):\n    provider: Literal[\"xai\"] = \"xai\"\n    model: xAIChatModel\nclass XAIPriorityDict(TypedDict):\n    provider: Literal[\"xai\"]\n    model: xAIChatModel",
+        "peekOfCode": "class XAIChoice(BaseModel):\n    provider: Literal[\"xai\"] = \"xai\"\n    model: xAIChatModel\nclass XAIChoiceDict(TypedDict):\n    provider: Literal[\"xai\"]\n    model: xAIChatModel",
         "detail": "think_reason_learn.core.llms._xai.schemas",
         "documentation": {}
     },
     {
-        "label": "XAIPriorityDict",
+        "label": "XAIChoiceDict",
         "kind": 6,
         "importPath": "think_reason_learn.core.llms._xai.schemas",
         "description": "think_reason_learn.core.llms._xai.schemas",
-        "peekOfCode": "class XAIPriorityDict(TypedDict):\n    provider: Literal[\"xai\"]\n    model: xAIChatModel",
+        "peekOfCode": "class XAIChoiceDict(TypedDict):\n    provider: Literal[\"xai\"]\n    model: xAIChatModel",
         "detail": "think_reason_learn.core.llms._xai.schemas",
         "documentation": {}
     },
@@ -1476,7 +1527,7 @@
         "kind": 6,
         "importPath": "think_reason_learn.core.llms.schemas",
         "description": "think_reason_learn.core.llms.schemas",
-        "peekOfCode": "class LLMResponse(BaseModel, Generic[T]):\n    response: T | None = None\n    logprobs: List[Tuple[str, float | None]]\n    total_tokens: int | None = None\n    provider_model: LLMPriorityModel\n    @property\n    def average_confidence(self) -> float | None:\n        if not self.logprobs:\n            return\n        lps = [lp[1] for lp in self.logprobs if lp[1] is not None]",
+        "peekOfCode": "class LLMResponse(BaseModel, Generic[T]):\n    response: T | None = None\n    logprobs: List[Tuple[str, float | None]]\n    total_tokens: int | None = None\n    provider_model: LLMChoiceModel\n    @property\n    def average_confidence(self) -> float | None:\n        if not self.logprobs:\n            return\n        lps = [lp[1] for lp in self.logprobs if lp[1] is not None]",
         "detail": "think_reason_learn.core.llms.schemas",
         "documentation": {}
     },
@@ -1503,7 +1554,7 @@
         "kind": 5,
         "importPath": "think_reason_learn.core.llms.schemas",
         "description": "think_reason_learn.core.llms.schemas",
-        "peekOfCode": "T = TypeVar(\"T\", bound=BaseModel | str, covariant=True)\nLLMProvider: TypeAlias = Literal[\"anthropic\", \"google\", \"openai\", \"xai\"]\nLLMChatModel: TypeAlias = Union[\n    AnthropicChatModel,\n    GoogleChatModel,\n    OpenAIChatModel,\n    xAIChatModel,\n]\nLLMPriorityModel: TypeAlias = Union[\n    AnthropicChoice,",
+        "peekOfCode": "T = TypeVar(\"T\", bound=BaseModel | str, covariant=True)\nLLMProvider: TypeAlias = Literal[\"anthropic\", \"google\", \"openai\", \"xai\"]\nLLMChatModel: TypeAlias = Union[\n    AnthropicChatModel,\n    GoogleChatModel,\n    OpenAIChatModel,\n    xAIChatModel,\n]\nLLMChoiceModel: TypeAlias = Union[\n    AnthropicChoice,",
         "detail": "think_reason_learn.core.llms.schemas",
         "documentation": {}
     },
@@ -1688,11 +1739,20 @@
         "documentation": {}
     },
     {
+        "label": "BuildTask",
+        "kind": 6,
+        "importPath": "think_reason_learn.gptree.gptree",
+        "description": "think_reason_learn.gptree.gptree",
+        "peekOfCode": "class BuildTask:\n    node_id: int\n    parent_id: int | None\n    depth: int\n    label: str\n    sample_indices: IndexArray\nclass GPTree:\n    \"\"\"LLM based decision tree classifier.\"\"\"\n    def __init__(\n        self,",
+        "detail": "think_reason_learn.gptree.gptree",
+        "documentation": {}
+    },
+    {
         "label": "GPTree",
         "kind": 6,
         "importPath": "think_reason_learn.gptree.gptree",
         "description": "think_reason_learn.gptree.gptree",
-        "peekOfCode": "class GPTree:\n    \"\"\"LLM based decision tree classifier.\"\"\"\n    def __init__(\n        self,\n        question_gen_llmp: List[LLMPriority],\n        critic_llmp: List[LLMPriority],\n        question_gen_instructions_llmp: List[LLMPriority],\n        question_gen_temperature: float = 0.0,\n        critic_temperature: float = 0.0,\n        question_gen_instructions_gen_temperature: float = 0.0,",
+        "peekOfCode": "class GPTree:\n    \"\"\"LLM based decision tree classifier.\"\"\"\n    def __init__(\n        self,\n        question_gen_llmc: List[LLMChoice],\n        critic_llmc: List[LLMChoice],\n        question_gen_instructions_llmc: List[LLMChoice],\n        question_gen_temperature: float = 0.0,\n        critic_temperature: float = 0.0,\n        question_gen_instructions_gen_temperature: float = 0.0,",
         "detail": "think_reason_learn.gptree.gptree",
         "documentation": {}
     },

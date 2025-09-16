@@ -682,7 +682,7 @@ class GPTree:
         instructions_template: str | None = None,
         task_description: str | None = None,
         verbose: bool = True,
-    ) -> None:
+    ) -> Literal[True]:
         """
         Set the question generation instructions template or provide a task description to generate the instructions template using an LLM.
 
@@ -714,7 +714,7 @@ class GPTree:
                 )
             else:
                 self._question_gen_instructions_template = instructions_template
-                return
+                return True
 
         async with self._llm_semaphore:
             response = await llm.respond(
@@ -741,6 +741,7 @@ class GPTree:
 
         self._task_description = task_description
         self._question_gen_instructions_template = response.response
+        return True
 
     def _get_question_gen_instructions(self, num_questions: int) -> str:
 

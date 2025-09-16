@@ -361,7 +361,11 @@ class GPTree:
                 return text
             return text[: truncate_length - 3] + "..."
 
-        dot = Digraph(name=f"GPTree_{self.name}_{node_id}", format=format, graph_attr={"rankdir": "TB"})  # type: ignore
+        dot = Digraph(
+            name=f"GPTree_{self.name}_{node_id}",
+            format=format,
+            graph_attr={"rankdir": "TB"},
+        )  # type: ignore
 
         visited: set[int] = set()
         queue: List[Node] = []
@@ -397,7 +401,14 @@ class GPTree:
                 label_lines.append(_truncate(f"dist: {dist_str}"))
 
             node_label = _escape("\n".join(label_lines))
-            dot.node(str(current.id), node_label, shape="box", style="rounded,filled", fillcolor="lightgrey", fontsize="10")  # type: ignore
+            dot.node(
+                str(current.id),
+                node_label,
+                shape="box",
+                style="rounded,filled",
+                fillcolor="lightgrey",
+                fontsize="10",
+            )  # type: ignore
 
             for child in current.children or []:
                 edge_label = _escape(str(child.label))
@@ -754,9 +765,9 @@ class GPTree:
         str
             The question generation instructions template.
         """
-        assert (
-            instructions_template is not None or task_description is not None
-        ), "Either instructions_template or task_description must be provided"
+        assert instructions_template is not None or task_description is not None, (
+            "Either instructions_template or task_description must be provided"
+        )
 
         if instructions_template:
             if num_questions_tag not in instructions_template:
@@ -800,7 +811,6 @@ class GPTree:
         return response.response
 
     def _get_question_gen_instructions(self, num_questions: int) -> str:
-
         if not self._question_gen_instructions_template:
             raise ValueError(
                 "Question generation instructions template is not set"
@@ -1169,7 +1179,6 @@ class GPTree:
         self._save()
 
         for choice, indices in choice_indices_list:
-
             if self._stop_training:
                 yield node
                 return
@@ -1198,7 +1207,11 @@ class GPTree:
             raise DataError(
                 f"X must be a pandas DataFrame with a single column named {self._X_column}"
             )
-        if not isinstance(y, np.ndarray) or not np.issubdtype(y.dtype, np.str_) or y.ndim != 1:  # type: ignore
+        if (
+            not isinstance(y, np.ndarray)
+            or not np.issubdtype(y.dtype, np.str_)
+            or y.ndim != 1
+        ):  # type: ignore
             raise DataError(f"y must be a numpy array of strings with one dimension")
 
         if y.shape[0] != X.shape[0]:

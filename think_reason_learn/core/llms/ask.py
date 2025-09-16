@@ -44,7 +44,6 @@ class LLM(metaclass=SingletonMeta):
         }
         priority_models: List[LLMChoiceModel] = []
         for llmp in llm_priority:
-
             if isinstance(llmp, dict):
                 priority_class = models_map.get(llmp["provider"])
                 if priority_class is None:
@@ -56,7 +55,7 @@ class LLM(metaclass=SingletonMeta):
                     llmp = priority_class(**llmp)  # type: ignore
                 except ValidationError:
                     raise ValueError(
-                        f"Invalid LLMPriority: {llmp['model']} for {llmp['provider']}. Supported models are {priority_class.__annotations__["model"].__args__}."
+                        f"Invalid LLMPriority: {llmp['model']} for {llmp['provider']}. Supported models are {priority_class.__annotations__['model'].__args__}."
                     )
 
             else:

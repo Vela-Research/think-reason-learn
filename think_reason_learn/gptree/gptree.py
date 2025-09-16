@@ -401,14 +401,14 @@ class GPTree:
                 label_lines.append(_truncate(f"dist: {dist_str}"))
 
             node_label = _escape("\n".join(label_lines))
-            dot.node(
+            dot.node(  # type: ignore
                 str(current.id),
                 node_label,
                 shape="box",
                 style="rounded,filled",
                 fillcolor="lightgrey",
                 fontsize="10",
-            )  # type: ignore
+            )
 
             for child in current.children or []:
                 edge_label = _escape(str(child.label))
@@ -765,9 +765,9 @@ class GPTree:
         str
             The question generation instructions template.
         """
-        assert instructions_template is not None or task_description is not None, (
-            "Either instructions_template or task_description must be provided"
-        )
+        assert (
+            instructions_template is not None or task_description is not None
+        ), "Either instructions_template or task_description must be provided"
 
         if instructions_template:
             if num_questions_tag not in instructions_template:
@@ -1208,14 +1208,14 @@ class GPTree:
                 f"X must be a pandas DataFrame with a single column named {self._X_column}"
             )
         if (
-            not isinstance(y, np.ndarray)
+            not isinstance(y, np.ndarray)  # type: ignore
             or not np.issubdtype(y.dtype, np.str_)
             or y.ndim != 1
         ):  # type: ignore
-            raise DataError(f"y must be a numpy array of strings with one dimension")
+            raise DataError("y must be a numpy array of strings with one dimension")
 
         if y.shape[0] != X.shape[0]:
-            raise DataError(f"y and X must have the same number of rows")
+            raise DataError("y and X must have the same number of rows")
 
         if copy_data:
             self._X = deepcopy(X)  # type: ignore

@@ -75,17 +75,11 @@ class AnthropicLLM(metaclass=SingletonMeta):
         system: str | Iterable[TextBlockParam] | NotGiven = kwargs.get(
             "system", NOT_GIVEN
         )
-        if instructions:
-            if not system:
-                system = instructions
-            elif isinstance(system, str):
-                system = [
-                    {"type": "text", "text": system},
-                    {"type": "text", "text": instructions},
-                ]
-            else:
-                system = list(system)
-                system.append({"type": "text", "text": instructions})
+        system = (
+            [{"type": "text", "text": instructions}]
+            if (not system and instructions)
+            else system
+        )
 
         return AnthropicInput(
             messages=messages,

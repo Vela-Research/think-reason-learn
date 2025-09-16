@@ -14,14 +14,18 @@ from ._google.schemas import GoogleChoice
 from ._openai.ask import OpenAILLM, get_openai_llm
 from ._openai.schemas import OpenAIChoice
 from ._xai.ask import xAILLM, get_xai_llm
-from ._xai.schemas import XAIPriority
-from .schemas import LLMPriority, LLMPriorityModel, LLMResponse, T
+from ._xai.schemas import XAIChoice
+from .schemas import LLMChoice, LLMChoiceModel, LLMResponse, T
 from .schemas import NotGiven, NOT_GIVEN
 
 logger = logging.getLogger(__name__)
 
 
 class LLM(metaclass=SingletonMeta):
+    """
+    A singleton class that provides a unified interface for the LLMs.
+    """
+
     def __init__(self) -> None:
         self.anthropic_llm = get_anthropic_llm(settings.ANTHROPIC_API_KEY)
         self.google_llm = get_google_llm(settings.GOOGLE_AI_API_KEY)
@@ -29,18 +33,17 @@ class LLM(metaclass=SingletonMeta):
         self.xai_llm = get_xai_llm(settings.XAI_API_KEY)
 
     def _val_llm_priority_and_api_keys(
-        self, llm_priority: List[LLMPriority]
-    ) -> List[LLMPriorityModel]:
+        self, llm_priority: List[LLMChoice]
+    ) -> List[LLMChoiceModel]:
         """Validate the LLMPriority(provider and model) and check if the API key is set for such provider."""
         models_map = {
             "anthropic": AnthropicChoice,
             "google": GoogleChoice,
             "openai": OpenAIChoice,
-            "xai": XAIPriority,
+            "xai": XAIChoice,
         }
-        priority_models: List[LLMPriorityModel] = []
+        priority_models: List[LLMChoiceModel] = []
         for llmp in llm_priority:
-
             if isinstance(llmp, dict):
                 priority_class = models_map.get(llmp["provider"])
                 if priority_class is None:
@@ -52,7 +55,7 @@ class LLM(metaclass=SingletonMeta):
                     llmp = priority_class(**llmp)  # type: ignore
                 except ValidationError:
                     raise ValueError(
-                        f"Invalid LLMPriority: {llmp['model']} for {llmp['provider']}. Supported models are {priority_class.__annotations__["model"].__args__}."
+                        f"Invalid LLMPriority: {llmp['model']} for {llmp['provider']}. Supported models are {priority_class.__annotations__['model'].__args__}."
                     )
 
             else:
@@ -67,7 +70,7 @@ class LLM(metaclass=SingletonMeta):
 
     def respond_sync(
         self,
-        llm_priority: List[LLMPriority],
+        llm_priority: List[LLMChoice],
         query: str = "",
         response_format: Type[T] = str,
         instructions: str | NotGiven | None = NOT_GIVEN,
@@ -178,12 +181,14 @@ class LLM(metaclass=SingletonMeta):
                     return response
 
         llmps = [f"{llmp.provider}: {llmp.model}" for llmp in llm_priority_models]
-        raise ValueError(f"Failed to respond with any of {llmps}")
+        raise ValueError(
+            f"Failed to respond with any of {llmps}\n\nQuery: {query}\n\nInstructions: {instructions}\n\nTemperature: {temperature}\n\nVerbose: {verbose}\n\n**kwargs: {kwargs}"
+        )
 
     async def respond(
         self,
         query: str,
-        llm_priority: List[LLMPriority],
+        llm_priority: List[LLMChoice],
         response_format: Type[T],
         instructions: str | NotGiven | None = NOT_GIVEN,
         temperature: float | NotGiven | None = NOT_GIVEN,

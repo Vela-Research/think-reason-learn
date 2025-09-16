@@ -14,7 +14,8 @@ pip install think-reason-learn
 from think_reason_learn.gptree import GPTree
 
 tree = GPTree(...)
-result = await tree.predict(...)
+await tree.init_question_gen_instructions_template(task_description="Classify startup founders into successful and failed")
+
 ```
 
 For more details, see [docs](docs/index.html).

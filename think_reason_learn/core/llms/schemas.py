@@ -1,5 +1,6 @@
 from typing import TypeVar, Tuple, Generic, List, TypeAlias, Literal, override, Union
 import math
+from dataclasses import dataclass
 
 from pydantic import BaseModel
 
@@ -18,7 +19,7 @@ from ._openai.schemas import (
     NOT_GIVEN as OPENAI_NOT_GIVEN,
 )
 from ._google.schemas import GoogleChatModel, GoogleChoice, GoogleChoiceDict
-from ._xai.schemas import xAIChatModel, XAIPriority, XAIPriorityDict
+from ._xai.schemas import xAIChatModel, XAIChoice, XAIChoiceDict
 
 
 T = TypeVar("T", bound=BaseModel | str, covariant=True)
@@ -31,26 +32,26 @@ LLMChatModel: TypeAlias = Union[
     OpenAIChatModel,
     xAIChatModel,
 ]
-LLMPriorityModel: TypeAlias = Union[
+LLMChoiceModel: TypeAlias = Union[
     AnthropicChoice,
     GoogleChoice,
     OpenAIChoice,
-    XAIPriority,
+    XAIChoice,
 ]
-LLMPriorityDict: TypeAlias = Union[
+LLMChoiceDict: TypeAlias = Union[
     AnthropicChoiceDict,
     GoogleChoiceDict,
     OpenAIChoiceDict,
-    XAIPriorityDict,
+    XAIChoiceDict,
 ]
-LLMPriority: TypeAlias = LLMPriorityModel | LLMPriorityDict
+LLMChoice: TypeAlias = LLMChoiceModel | LLMChoiceDict
 
 
 class LLMResponse(BaseModel, Generic[T]):
     response: T | None = None
     logprobs: List[Tuple[str, float | None]]
     total_tokens: int | None = None
-    provider_model: LLMPriorityModel
+    provider_model: LLMChoiceModel
 
     @property
     def average_confidence(self) -> float | None:
@@ -94,3 +95,10 @@ class NotGiven:
 
 
 NOT_GIVEN = NotGiven()
+
+
+@dataclass(slots=True)
+class TokenCount:
+    provider: LLMProvider
+    model: LLMChatModel
+    value: int | None = None

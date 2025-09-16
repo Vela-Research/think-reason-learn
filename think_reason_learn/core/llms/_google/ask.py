@@ -94,7 +94,10 @@ class GeminiLLM(metaclass=SingletonMeta):
                         provider_model=GoogleChoice(model=model),
                     )
                 except ValidationError:
-                    pass
+                    logger.warning(
+                        f"Error parsing response with Google: {text}", exc_info=True
+                    )
+                    raise ValueError(f"Error parsing response with Google: {text}")
 
         return LLMResponse(
             response=cast(T, text),
@@ -122,7 +125,6 @@ class GeminiLLM(metaclass=SingletonMeta):
         )
 
         try:
-            raise ValueError("Intentional error")
             response = self.client.models.generate_content(  # type: ignore
                 model=model,
                 contents=kwargs.get("contents", query),

@@ -276,6 +276,21 @@ class GPTree:
 
         self._frontier: List[BuildTask] = []  # Frontier for resumable training
 
+    @property
+    def question_gen_instructions_template(self) -> str | None:
+        """Get the question generation instructions template."""
+        return self._question_gen_instructions_template
+
+    @property
+    def critic_instructions_template(self) -> str | None:
+        """Get the critic instructions template."""
+        return self._critic_instructions_template
+
+    @property
+    def task_description(self) -> str | None:
+        """Get the task description."""
+        return self._task_description
+
     def view_node(self, node_id: int, format: Literal["png", "svg"] = "png") -> bytes:
         """Render the subtree rooted at node_id as a PNG/SVG image and return bytes.
 
@@ -682,7 +697,7 @@ class GPTree:
         instructions_template: str | None = None,
         task_description: str | None = None,
         verbose: bool = True,
-    ) -> Literal[True]:
+    ) -> str:
         """
         Set the question generation instructions template or provide a task description to generate the instructions template using an LLM.
 
@@ -699,8 +714,8 @@ class GPTree:
 
         Returns
         -------
-        None
-            The function sets the question generation instructions template.
+        str
+            The question generation instructions template.
         """
         assert (
             instructions_template is not None or task_description is not None
@@ -714,7 +729,7 @@ class GPTree:
                 )
             else:
                 self._question_gen_instructions_template = instructions_template
-                return True
+                return instructions_template
 
         async with self._llm_semaphore:
             response = await llm.respond(
@@ -741,7 +756,7 @@ class GPTree:
 
         self._task_description = task_description
         self._question_gen_instructions_template = response.response
-        return True
+        return response.response
 
     def _get_question_gen_instructions(self, num_questions: int) -> str:
 

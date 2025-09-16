@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import asyncio
 from typing import List, Dict, Literal, cast, Type, Tuple, AsyncGenerator
 import logging
@@ -384,15 +385,10 @@ class GPTree:
     def _set_save_path(self, save_path: str | Path | None) -> Path:
         """Set the save path of the tree."""
 
-        lib_dir = Path(__file__).resolve().parent.parent
-
         if save_path is None:
-            return (lib_dir / "gptrees").resolve()
+            return (Path(os.getcwd()) / "gptrees").resolve()
         else:
-            save_path = Path(save_path).resolve()
-            if lib_dir in save_path.parents:
-                raise ValueError("Save path must be outside of the library directory")
-            return save_path
+            return Path(save_path).resolve()
 
     @classmethod
     def load(cls, path: str | Path) -> "GPTree":

@@ -588,6 +588,14 @@
         "documentation": {}
     },
     {
+        "label": "Any",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
         "label": "logging",
         "kind": 6,
         "isExtraImport": true,
@@ -694,6 +702,14 @@
     },
     {
         "label": "create_model",
+        "importPath": "pydantic",
+        "description": "pydantic",
+        "isExtraImport": true,
+        "detail": "pydantic",
+        "documentation": {}
+    },
+    {
+        "label": "Field",
         "importPath": "pydantic",
         "description": "pydantic",
         "isExtraImport": true,
@@ -1120,6 +1136,22 @@
     },
     {
         "label": "DataError",
+        "importPath": "think_reason_learn.core._exceptions",
+        "description": "think_reason_learn.core._exceptions",
+        "isExtraImport": true,
+        "detail": "think_reason_learn.core._exceptions",
+        "documentation": {}
+    },
+    {
+        "label": "LLMError",
+        "importPath": "think_reason_learn.core._exceptions",
+        "description": "think_reason_learn.core._exceptions",
+        "isExtraImport": true,
+        "detail": "think_reason_learn.core._exceptions",
+        "documentation": {}
+    },
+    {
+        "label": "CorruptionError",
         "importPath": "think_reason_learn.core._exceptions",
         "description": "think_reason_learn.core._exceptions",
         "isExtraImport": true,
@@ -1590,7 +1622,25 @@
         "kind": 6,
         "importPath": "think_reason_learn.core._exceptions",
         "description": "think_reason_learn.core._exceptions",
-        "peekOfCode": "class DataError(Exception):\n    \"\"\"Data not in the expected format.\"\"\"",
+        "peekOfCode": "class DataError(Exception):\n    \"\"\"Data not in the expected format.\"\"\"\nclass LLMError(Exception):\n    \"\"\"LLM failed to respond.\"\"\"\nclass CorruptionError(Exception):\n    \"\"\"Raised when a condition is not supposed to be met. Signifies a bug in model state.\"\"\"",
+        "detail": "think_reason_learn.core._exceptions",
+        "documentation": {}
+    },
+    {
+        "label": "LLMError",
+        "kind": 6,
+        "importPath": "think_reason_learn.core._exceptions",
+        "description": "think_reason_learn.core._exceptions",
+        "peekOfCode": "class LLMError(Exception):\n    \"\"\"LLM failed to respond.\"\"\"\nclass CorruptionError(Exception):\n    \"\"\"Raised when a condition is not supposed to be met. Signifies a bug in model state.\"\"\"",
+        "detail": "think_reason_learn.core._exceptions",
+        "documentation": {}
+    },
+    {
+        "label": "CorruptionError",
+        "kind": 6,
+        "importPath": "think_reason_learn.core._exceptions",
+        "description": "think_reason_learn.core._exceptions",
+        "peekOfCode": "class CorruptionError(Exception):\n    \"\"\"Raised when a condition is not supposed to be met. Signifies a bug in model state.\"\"\"",
         "detail": "think_reason_learn.core._exceptions",
         "documentation": {}
     },
@@ -1644,7 +1694,7 @@
         "kind": 5,
         "importPath": "think_reason_learn.gptree._prompts",
         "description": "think_reason_learn.gptree._prompts",
-        "peekOfCode": "num_questions_tag = \"<number_of_questions>\"\nINSTRUCTIONS_FOR_GENERATING_QUESTION_GEN_INSTRUCTIONS = f\"\"\"\\\nYou are part of a team of experts that are building a decision tree model (GPTree) for a classification task.\nWhen given a task description, you need to generate clear and detailed instructions template for generating questions for the tree at a Node.\nYour instructions template will inform the question generator in your team to generate questions for the tree at a Node.\nThe number of questions to generate is not known now, so use the tag {num_questions_tag} as a placeholder in your instructions template.\nThe instructions template should be in a format that is easy for the question generator to understand and generate questions purposely for this task.\nThe questions must always have definite choices as answers (binary or multi-class).\nGo straight to the point and generate the instructions template, do add junk such as \"Question generation instructions template:\"\n\"\"\"",
+        "peekOfCode": "num_questions_tag = \"<number_of_questions>\"\nINSTRUCTIONS_FOR_GENERATING_QUESTION_GEN_INSTRUCTIONS = f\"\"\"\\\nYou are part of a team of experts that are building a decision tree model (GPTree) for a classification task.\nWhen given a task description, you need to generate clear and detailed instructions template for generating questions for the tree at a Node.\nYour instructions template will inform the question generator in your team to generate questions for the tree at a Node.\nThe number of questions to generate is not known now, so use the tag {num_questions_tag} as a placeholder in your instructions template.\nThe instructions template should be in a format that is easy for the question generator to understand and generate questions purposely for this task.\nThe questions must always have definite choices as answers (binary or multi-class).\nGenerate only the instructions template without prefatory text or labels. Output the raw instructions that will be sent directly to the question generator.\n\"\"\"",
         "detail": "think_reason_learn.gptree._prompts",
         "documentation": {}
     },
@@ -1653,7 +1703,7 @@
         "kind": 5,
         "importPath": "think_reason_learn.gptree._prompts",
         "description": "think_reason_learn.gptree._prompts",
-        "peekOfCode": "INSTRUCTIONS_FOR_GENERATING_QUESTION_GEN_INSTRUCTIONS = f\"\"\"\\\nYou are part of a team of experts that are building a decision tree model (GPTree) for a classification task.\nWhen given a task description, you need to generate clear and detailed instructions template for generating questions for the tree at a Node.\nYour instructions template will inform the question generator in your team to generate questions for the tree at a Node.\nThe number of questions to generate is not known now, so use the tag {num_questions_tag} as a placeholder in your instructions template.\nThe instructions template should be in a format that is easy for the question generator to understand and generate questions purposely for this task.\nThe questions must always have definite choices as answers (binary or multi-class).\nGo straight to the point and generate the instructions template, do add junk such as \"Question generation instructions template:\"\n\"\"\"\n\"Instructions for an LLM to generate instructions for generating questions.\"",
+        "peekOfCode": "INSTRUCTIONS_FOR_GENERATING_QUESTION_GEN_INSTRUCTIONS = f\"\"\"\\\nYou are part of a team of experts that are building a decision tree model (GPTree) for a classification task.\nWhen given a task description, you need to generate clear and detailed instructions template for generating questions for the tree at a Node.\nYour instructions template will inform the question generator in your team to generate questions for the tree at a Node.\nThe number of questions to generate is not known now, so use the tag {num_questions_tag} as a placeholder in your instructions template.\nThe instructions template should be in a format that is easy for the question generator to understand and generate questions purposely for this task.\nThe questions must always have definite choices as answers (binary or multi-class).\nGenerate only the instructions template without prefatory text or labels. Output the raw instructions that will be sent directly to the question generator.\n\"\"\"\n\"Instructions for an LLM to generate instructions for generating questions.\"",
         "detail": "think_reason_learn.gptree._prompts",
         "documentation": {}
     },
@@ -1707,7 +1757,7 @@
         "kind": 6,
         "importPath": "think_reason_learn.gptree.gptree",
         "description": "think_reason_learn.gptree.gptree",
-        "peekOfCode": "class Question(BaseModel):\n    value: str\n    choices: List[str]\n    question_type: QuestionType\nclass Questions(BaseModel):\n    questions: List[Question]\n    memory_context: str\nclass Answer(BaseModel):\n    answer: str\n@dataclass(slots=True)",
+        "peekOfCode": "class Question(BaseModel):\n    value: str\n    choices: List[str]\n    question_type: QuestionType\nclass Questions(BaseModel):\n    questions: List[Question]\n    cummulative_memory: str = Field(\n        ...,\n        description=\"Based on the previous cummulative memory context and what you just learned, Give a brief advice that can be passed to the next node as cummulative memory context during it's questions generation.\",\n    )",
         "detail": "think_reason_learn.gptree.gptree",
         "documentation": {}
     },
@@ -1716,7 +1766,7 @@
         "kind": 6,
         "importPath": "think_reason_learn.gptree.gptree",
         "description": "think_reason_learn.gptree.gptree",
-        "peekOfCode": "class Questions(BaseModel):\n    questions: List[Question]\n    memory_context: str\nclass Answer(BaseModel):\n    answer: str\n@dataclass(slots=True)\nclass Node:\n    \"\"\"\n    A Node represents a decision point in GPTree.\n    Attributes",
+        "peekOfCode": "class Questions(BaseModel):\n    questions: List[Question]\n    cummulative_memory: str = Field(\n        ...,\n        description=\"Based on the previous cummulative memory context and what you just learned, Give a brief advice that can be passed to the next node as cummulative memory context during it's questions generation.\",\n    )\nclass Answer(BaseModel):\n    answer: str\n@dataclass(slots=True)\nclass Node:",
         "detail": "think_reason_learn.gptree.gptree",
         "documentation": {}
     },

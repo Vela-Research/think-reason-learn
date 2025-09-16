@@ -6,7 +6,8 @@ Your instructions template will inform the question generator in your team to ge
 The number of questions to generate is not known now, so use the tag {num_questions_tag} as a placeholder in your instructions template.
 The instructions template should be in a format that is easy for the question generator to understand and generate questions purposely for this task.
 The questions must always have definite choices as answers (binary or multi-class).
-Go straight to the point and generate the instructions template, do add junk such as "Question generation instructions template:"
+
+Generate only the instructions template without prefatory text or labels. Output the raw instructions that will be sent directly to the question generator.
 """
 "Instructions for an LLM to generate instructions for generating questions."
 

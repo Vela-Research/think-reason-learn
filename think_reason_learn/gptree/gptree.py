@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import asyncio
-from typing import List, Dict, Literal, cast, Type, Tuple, AsyncGenerator
+from typing import List, Dict, Literal, cast, Type, Tuple, AsyncGenerator, Any
 import logging
 import contextlib
 from dataclasses import dataclass, field, asdict
@@ -13,7 +13,7 @@ import datetime
 import re
 
 import orjson
-from pydantic import BaseModel, create_model
+from pydantic import BaseModel, create_model, Field
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
@@ -23,7 +23,7 @@ from ._prompts import INSTRUCTIONS_FOR_GENERATING_QUESTION_GEN_INSTRUCTIONS
 from ._prompts import num_questions_tag, QUESTION_ANSWER_INSTRUCTIONS
 from think_reason_learn.core.llms.schemas import LLMChoice, TokenCount
 from think_reason_learn.core.llms import llm
-from think_reason_learn.core._exceptions import DataError
+from think_reason_learn.core._exceptions import DataError, LLMError, CorruptionError
 
 
 logger = logging.getLogger(__name__)
@@ -56,7 +56,10 @@ class Question(BaseModel):
 
 class Questions(BaseModel):
     questions: List[Question]
-    memory_context: str
+    cummulative_memory: str = Field(
+        ...,
+        description="Based on the previous cummulative memory context and what you just learned, Give a brief advice that can be passed to the next node as cummulative memory context during it's questions generation.",
+    )
 
 
 class Answer(BaseModel):
@@ -82,8 +85,8 @@ class Node:
     questions: List[NodeQuestion], default=[]
         The questions that have been generated for this node.
 
-    memory_context: str | None = None
-        The memory context of the node.
+    cummulative_memory: str | None = None
+        The cummulative memory context generated at this node + previous nodes.
 
     split_ratios: Tuple[int, ...], default=None
         The split ratios of the samples that are associated with this node.
@@ -102,7 +105,7 @@ class Node:
     label: str
     question: NodeQuestion | None = None
     questions: List[NodeQuestion] = field(default_factory=list)
-    memory_context: str | None = None
+    cummulative_memory: str | None = None
     split_ratios: Tuple[int, ...] | None = None
     gini: float = 0.0
     class_distribution: Dict[str, int] = field(default_factory=dict)
@@ -265,7 +268,6 @@ class GPTree:
         self._X: pd.DataFrame | None = None
         self._y: npt.NDArray[np.str_] | None = None
         self._nodes: Dict[int, Node] = {}
-        self._root: Node | None = None
         self._node_counter = 0
         self._llm_semaphore = asyncio.Semaphore(llm_semaphore_limit)
         self._question_gen_instructions_template: str | None = None
@@ -275,6 +277,25 @@ class GPTree:
         self._task_description: str | None = None
 
         self._frontier: List[BuildTask] = []  # Frontier for resumable training
+
+    def get_root(self) -> Node | None:
+        """Get the root node."""
+        return self._nodes.get(0)
+
+    def get_training_data(self) -> pd.DataFrame | None:
+        """Get the training data."""
+        if self._X is None or self._y is None:
+            return None
+        return pd.concat([self._X, pd.Series(self._y, name="y")], axis=1)
+
+    def get_questions(self) -> pd.DataFrame | None:
+        """Get all quesitions generated in the tree."""
+        questions = [
+            {"node_id": n.id, **asdict(q)}
+            for n in self._nodes.values()
+            for q in n.questions
+        ]
+        return pd.DataFrame(questions) if questions else None
 
     @property
     def question_gen_instructions_template(self) -> str | None:
@@ -291,7 +312,13 @@ class GPTree:
         """Get the task description."""
         return self._task_description
 
-    def view_node(self, node_id: int, format: Literal["png", "svg"] = "png") -> bytes:
+    def view_node(
+        self,
+        node_id: int,
+        format: Literal["png", "svg"] = "png",
+        add_all_questions: bool = False,
+        truncate_length: int | None = 140,
+    ) -> bytes:
         """Render the subtree rooted at node_id as a PNG/SVG image and return bytes.
 
         Parameters
@@ -300,6 +327,10 @@ class GPTree:
             The id of the node to visualize as the root of the rendered subtree.
         format: Literal["png", "svg"], default="png"
             Output image format.
+        add_all_questions: bool, default=False
+            Whether to add all questions to the node.
+        truncate_length: int, default=140
+            The maximum length of the text to truncate. If None, then no truncation is done.
         """
         if node_id not in self._nodes:
             raise ValueError(f"Node {node_id} not found")
@@ -325,10 +356,12 @@ class GPTree:
                 .replace('"', '\\"')
             )
 
-        def _truncate(text: str, max_len: int = 140) -> str:
-            if len(text) <= max_len:
+        def _truncate(text: str) -> str:
+            if truncate_length is None:
                 return text
-            return text[: max_len - 3] + "..."
+            if len(text) <= truncate_length:
+                return text
+            return text[: truncate_length - 3] + "..."
 
         dot = Digraph(name=f"GPTree_{self.name}_{node_id}", format=format, graph_attr={"rankdir": "TB"})  # type: ignore
 
@@ -348,6 +381,9 @@ class GPTree:
                 f"label={current.label}",
                 f"gini={current.gini:.3f}",
             ]
+            if add_all_questions and current.questions:
+                all_questions = [q.value for q in current.questions]
+                label_lines.append(f"[{_truncate('; '.join(all_questions))}]")
             if current.question is not None:
                 q = current.question
                 label_lines.append(_truncate(f"Q: {q.value}"))
@@ -360,7 +396,7 @@ class GPTree:
                 dist_str = ", ".join(
                     f"{k}:{v}" for k, v in current.class_distribution.items()
                 )
-                label_lines.append(_truncate(f"dist: {dist_str}", 160))
+                label_lines.append(_truncate(f"dist: {dist_str}"))
 
             node_label = _escape("\n".join(label_lines))
             dot.node(str(current.id), node_label, shape="box", style="rounded,filled", fillcolor="lightgrey", fontsize="10")  # type: ignore
@@ -377,11 +413,17 @@ class GPTree:
         """Stop the training of the tree."""
         self._stop_training = True
 
-    def advice(self, advice: str) -> None:
+    def advice(self, advice: str | None) -> Literal["Advice taken", "Advice cleared"]:
         """Set context/advice for question generations."""
-        if not isinstance(advice, str):  # type: ignore
-            raise ValueError("Expert advice must be a string")
+        if advice is not None and not isinstance(advice, str):  # type: ignore
+            raise ValueError("Expert advice must be a string or None")
+
+        if advice is None:
+            self._expert_advice = None
+            return "Advice cleared"
+
         self._expert_advice = advice
+        return "Advice taken"
 
     @property
     def expert_advice(self) -> str | None:
@@ -391,7 +433,7 @@ class GPTree:
     def _get_name(self, name: str | None) -> str:
         if name is None:
             name = str(uuid4()).replace("-", "_")
-            logger.info(f"No name provided. Assigned name: {name}")
+            logger.debug(f"No name provided. Assigned name: {name}")
 
         if not re.match(r"^[a-zA-Z0-9_]+$", name):
             raise ValueError("Name must be only alphanumeric and underscores")
@@ -517,7 +559,7 @@ class GPTree:
                 split_ratios=split_ratios,
                 question=question,
                 questions=questions_list,
-                memory_context=cast(str | None, nd.get("memory_context")),
+                cummulative_memory=cast(str | None, nd.get("cummulative_memory")),
                 children=[],
             )
             id_to_node[node_id] = node
@@ -530,8 +572,6 @@ class GPTree:
                 parent.children.append(node)
 
         instance._nodes = id_to_node
-        root_id = payload.get("root_id")
-        instance._root = id_to_node.get(int(root_id)) if root_id is not None else None
 
         # frontier
         frontier_payload = payload.get("frontier", [])
@@ -609,7 +649,6 @@ class GPTree:
         payload: Dict[str, object] = {
             "tree_name": self.name,
             "created_at": datetime.datetime.now().isoformat(),
-            "root_id": self._root.id if self._root is not None else None,
             "classes": list(self._classes) if self._classes is not None else None,
             "x_column": self._X_column,
             "save_training_data": self.save_training_data,
@@ -745,6 +784,10 @@ class GPTree:
                 "Failed to generate question generation instructions"
                 "Try refining the task description or change the models for generating question generation instructions, `self.question_gen_instructions_llmp`"
             )
+        elif num_questions_tag not in response.response:
+            raise ValueError(
+                "Failed to generate a valid question generation instructions template. Please try again."
+            )
         if response.average_confidence is not None:
             logger.info(
                 f"Generated question generation instructions with confidence {response.average_confidence}"
@@ -775,7 +818,7 @@ class GPTree:
     async def _generate_questions(
         self,
         sample_indices: IndexArray,
-        context_memory: str | None,
+        cummulative_memory: str | None,
         node_depth: int,
         verbose: bool,
     ) -> Questions:
@@ -810,7 +853,10 @@ class GPTree:
                 n_samples = self.context_samples_n * class_ratio_fractions[label]
             elif self.class_ratio == "balanced":
                 n_samples = self.context_samples_n / y_unique.shape[0]
+            else:
+                raise ValueError(f"Invalid class ratio: {self.class_ratio}")
 
+            n_samples = min(n_samples, len(grouped[label]))
             samples = grouped[label].sample(int(n_samples))  # type: ignore
             samples_array = samples[self._X_column].to_numpy(dtype=str)  # type: ignore
             samples_array = cast(npt.NDArray[np.str_], samples_array)
@@ -821,8 +867,8 @@ class GPTree:
 
         if self._expert_advice is not None:
             query += f"Consider this expert advice: {self._expert_advice}\n"
-        if context_memory is not None:
-            query += f"Context from previous nodes: {context_memory}"
+        if cummulative_memory is not None:
+            query += f"Cummulative advice from previous nodes: {cummulative_memory}"
 
         async with self._llm_semaphore:
             response = await llm.respond(
@@ -868,14 +914,15 @@ class GPTree:
         sample = cast(str, row[self._X_column])
 
         try:
-            response = await llm.respond(
-                llm_priority=self.question_gen_llmc,
-                query=question.value,
-                instructions=QUESTION_ANSWER_INSTRUCTIONS,
-                response_format=AnswerModel,
-                temperature=self.question_gen_temperature,
-                verbose=verbose,
-            )
+            async with self._llm_semaphore:
+                response = await llm.respond(
+                    llm_priority=self.question_gen_llmc,
+                    query=question.value,
+                    instructions=QUESTION_ANSWER_INSTRUCTIONS,
+                    response_format=AnswerModel,
+                    temperature=self.question_gen_temperature,
+                    verbose=verbose,
+                )
             if response.response is None:
                 raise ValueError("No response from LLM")
             if response.average_confidence is not None:
@@ -939,10 +986,9 @@ class GPTree:
         sample_indices: IndexArray,
         verbose: bool,
     ) -> AsyncGenerator[Node, None]:
-        X = self._X
-        y = self._y
+        """Build a tree."""
 
-        if self._stop_training:
+        if not any(t.node_id == id for t in self._frontier):
             self._frontier.append(
                 BuildTask(
                     node_id=id,
@@ -952,7 +998,13 @@ class GPTree:
                     sample_indices=sample_indices,
                 )
             )
+            self._save()
+
+        if self._stop_training:
             return
+
+        X = self._X
+        y = self._y
 
         if X is None or y is None:
             raise ValueError("X, y,  must be set")
@@ -984,30 +1036,32 @@ class GPTree:
                 class_distribution=class_distribution,
                 question=None,
                 questions=[],
-                memory_context=None,
+                cummulative_memory=None,
                 split_ratios=None,
                 children=None,
             )
             self._nodes[id] = node
-            if id == 0:
-                self._root = node
+            self._frontier = [t for t in self._frontier if t.node_id != id]
+            self._save()
             yield node
             return
 
-        memory_context = (
-            self._nodes[parent_id].memory_context if parent_id is not None else None
+        cummulative_memory = (
+            self._nodes[parent_id].cummulative_memory if parent_id is not None else None
         )
         questions = await self._generate_questions(
             sample_indices=sample_indices,
-            context_memory=memory_context,
+            cummulative_memory=cummulative_memory,
             node_depth=depth,
             verbose=verbose,
         )
         logger.info(f"Generated {len(questions.questions)} questions for node {id}")
         chosen_question: NodeQuestion | None = None
 
+        node_questions: List[NodeQuestion] = []
         for llm_question in questions.questions:
             node_question = NodeQuestion(**llm_question.model_dump())
+            node_questions.append(node_question)
             logger.info(f"Answering question (Node {id}): {node_question.value}")
 
             if node_question.question_type == "INFERENCE":
@@ -1057,13 +1111,14 @@ class GPTree:
                 class_distribution=class_distribution,
                 split_ratios=None,
                 question=None,
-                questions=[NodeQuestion(**q.model_dump()) for q in questions.questions],
-                memory_context=questions.memory_context,
+                questions=node_questions,
+                cummulative_memory=questions.cummulative_memory,
                 children=None,
             )
             self._nodes[id] = node
-            if id == 0:
-                self._root = node
+
+            self._frontier = [t for t in self._frontier if t.node_id != id]
+            self._save()
             yield node
             return
 
@@ -1079,15 +1134,13 @@ class GPTree:
             label=label,
             gini=gini,
             question=chosen_question,
-            questions=[NodeQuestion(**q.model_dump()) for q in questions.questions],
-            memory_context=questions.memory_context,
+            questions=node_questions,
+            cummulative_memory=questions.cummulative_memory,
             split_ratios=split_ratios,
             class_distribution=class_distribution,
             children=[],
         )
         self._nodes[id] = node
-        if id == 0:
-            self._root = node
 
         choice_indices_list: List[Tuple[str, IndexArray]] = [
             (
@@ -1102,19 +1155,24 @@ class GPTree:
             choice: self._get_next_node_id() for choice, _ in choice_indices_list
         }
 
-        for idx, (choice, indices) in enumerate(choice_indices_list):
+        # Replace current node frontier with children frontiers
+        self._frontier = [t for t in self._frontier if t.node_id != id]
+        for choice, indices in choice_indices_list:
+            if not any(t.node_id == new_id_map[choice] for t in self._frontier):
+                self._frontier.append(
+                    BuildTask(
+                        node_id=new_id_map[choice],
+                        parent_id=id,
+                        depth=depth + 1,
+                        label=choice,
+                        sample_indices=indices,
+                    )
+                )
+        self._save()
+
+        for choice, indices in choice_indices_list:
 
             if self._stop_training:
-                for c, inds in choice_indices_list[idx:]:
-                    self._frontier.append(
-                        BuildTask(
-                            node_id=new_id_map[c],
-                            parent_id=id,
-                            depth=depth + 1,
-                            label=c,
-                            sample_indices=inds,
-                        )
-                    )
                 yield node
                 return
 
@@ -1138,11 +1196,11 @@ class GPTree:
         y: npt.NDArray[np.str_],
         copy_data: bool,
     ) -> None:
-        if X.columns.tolist() != [self._X_column]:
+        if set(X.columns) != {self._X_column}:
             raise DataError(
                 f"X must be a pandas DataFrame with a single column named {self._X_column}"
             )
-        if not isinstance(y, np.ndarray) or y.dtype != np.str_ or y.ndim != 1:  # type: ignore
+        if not isinstance(y, np.ndarray) or not np.issubdtype(y.dtype, np.str_) or y.ndim != 1:  # type: ignore
             raise DataError(f"y must be a numpy array of strings with one dimension")
 
         if y.shape[0] != X.shape[0]:
@@ -1156,77 +1214,74 @@ class GPTree:
             self._y = y
 
         self._nodes = {}
-        self._root = None
         self._node_counter = 0
         self._frontier = []
         self._stop_training = False
 
     async def fit(
         self,
-        X: pd.DataFrame,
-        y: npt.NDArray[np.str_],
+        X: pd.DataFrame | None = None,
+        y: npt.NDArray[np.str_] | None = None,
+        *,
         copy_data: bool = True,
+        reset: bool = False,
         verbose: bool = True,
     ) -> AsyncGenerator[Node, None]:
         """
-        Train the tree. Run as an async generator. Can be stopped by calling `stop`.
+        Train or resume the tree. Run as an async generator. Can be stopped by calling `stop`.
+
+        Behavior
+        --------
+        - If `reset=True`, X and y must be provided; training restarts from root.
+        - If X and y are provided for the first time, data is set and training starts from root.
+        - If no data is provided and there is a saved frontier, training resumes from the frontier.
+        - If no data is provided and there is no frontier but nodes exist, nothing to do.
 
         Parameters
         ----------
-        X: pd.DataFrame
-            The data to train the tree on.
+        X: pd.DataFrame | None
+            Training features. Provide with `y` on first run or when `reset=True`.
 
-        y: npt.NDArray[np.str_]
-            The target labels to train the tree on.
+        y: npt.NDArray[np.str_] | None
+            Training labels. Provide with `X` on first run or when `reset=True`.
 
         copy_data: bool, default=True
             Whether to copy the data.
 
+        reset: bool, default=False
+            If True, clears existing nodes/frontier and restarts from root using provided X and y.
+
         verbose: bool, default=True
             Whether to print verbose output.
 
         Returns
         -------
         AsyncGenerator[Node, None]
-            The root node of the tree.
+            Yields updated root (or subtree) nodes during construction.
         """
-        self._set_data(X, y, copy_data)
 
-        async for updated_root in self._build_tree(
-            id=0,
-            parent_id=None,
-            depth=0,
-            label="root",
-            sample_indices=X.index.to_numpy(dtype=np.intp),  # type: ignore
-            verbose=verbose,
-        ):
-            if self._stop_training:
-                break
-            yield updated_root
+        if reset:
+            if X is None or y is None:
+                raise ValueError("reset=True requires X and y")
+            self._set_data(X, y, copy_data)
+        else:
+            if X is not None or y is not None:
+                if self._X is not None or self._y is not None:
+                    raise ValueError(
+                        "Data already set on tree. Explicitly pass reset=True to replace data and restart training."
+                    )
+                if X is None or y is None:
+                    raise ValueError("Both X and y must be provided together")
+                self._set_data(X, y, copy_data)
 
-    async def continue_fit(self, verbose: bool = True) -> AsyncGenerator[Node, None]:
-        """
-        Continue training the tree. Run as an async generator. Can be stopped by calling `stop`.
-
-        Parameters
-        ----------
-        verbose: bool, default=True
-            Whether to print verbose output.
-
-        Returns
-        -------
-        AsyncGenerator[Node, None]
-            The root node of the tree.
-        """
         if self._X is None or self._y is None:
             raise ValueError(
-                "No data found on tree. Please fit the tree first. "
-                "If tree was loaded, then `save_training_data` must have been set to False hence no data was saved."
+                "No data found on tree. Provide X and y (or reset=True with X,y)"
             )
 
         self._stop_training = False
 
-        if len(self._nodes) == 0:  # Just starting. Kick off from root.
+        if len(self._nodes) == 0:  # train from scratch
             indices: IndexArray = self._X.index.to_numpy(dtype=np.intp)  # type: ignore
             async for updated_root in self._build_tree(
                 id=0,
@@ -1241,7 +1296,7 @@ class GPTree:
                 yield updated_root
             return
 
-        while self._frontier:  # Resume from queued frontier
+        while self._frontier:  # resume from frontier
             task = self._frontier.pop(0)
             async for updated_node in self._build_tree(
                 id=task.node_id,
@@ -1254,3 +1309,89 @@ class GPTree:
                 if self._stop_training:
                     return
                 yield updated_node
+        return
+
+    async def _predict(
+        self,
+        sample_index: Any,
+        sample: pd.Series,
+        verbose: bool = False,
+    ) -> AsyncGenerator[Tuple[Any, str, str, int], None]:
+        """Predict a single sample data point."""
+        node = self.get_root()
+        if node is None:
+            raise ValueError("Tree is empty. Fit or load a tree before predicting.")
+
+        while not node.is_leaf:
+            question = node.question
+            if question is None:
+                raise ValueError(f"Node {node.id} has not question. Tree is corrupted.")
+            idx_answer = await self._answer_question_for_row(
+                idx=0,
+                row=sample,
+                question=question,
+                verbose=verbose,
+            )
+            if idx_answer is None:
+                raise LLMError(f"Failed to answer question: {question.value}!")
+            _, answer = idx_answer
+
+            pre_node_id = node.id
+            yield sample_index, question.value, answer.answer, pre_node_id
+            node = next(
+                (c for c in node.children or [] if c.label == answer.answer), None
+            )
+            if node is None:
+                raise CorruptionError(
+                    f"Node with label {answer.answer} not found in children of node {pre_node_id}"
+                )
+        yield sample_index, "DONE", "DONE", node.id
+
+    async def predict(
+        self,
+        samples: pd.DataFrame,
+        verbose: bool = False,
+    ) -> AsyncGenerator[Tuple[int, str, str, int], None]:
+        """
+        Make predictions concurrently across samples, yielding step-by-step progress.
+
+        Yields (sample_index, question, answer, node_id) for each node traversed per sample.
+        """
+        if samples.shape[0] == 0:
+            raise ValueError("samples must have at least one row")
+        if set(samples.columns) != {self._X_column}:
+            raise ValueError(
+                f"samples must have a single column named {self._X_column}"
+            )
+
+        queue: asyncio.Queue[Literal["DONE"] | Tuple[Any, str, str, int]] = (
+            asyncio.Queue()
+        )
+
+        async def worker(sample_index: Any, row: pd.Series) -> None:
+            try:
+                async for record in self._predict(sample_index, row, verbose):
+                    await queue.put(record)
+            finally:
+                await queue.put("DONE")
+
+        tasks: List[asyncio.Task[None]] = []
+        try:
+            for sample_index, row in samples.iterrows():
+                tasks.append(asyncio.create_task(worker(sample_index, row)))
+
+            remaining = len(tasks)
+            while remaining > 0:
+                item = await queue.get()
+                if item == "DONE":
+                    remaining -= 1
+                    continue
+                else:
+                    yield item
+            return
+        except asyncio.CancelledError:
+            pass
+        finally:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()

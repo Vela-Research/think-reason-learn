@@ -765,9 +765,9 @@ class GPTree:
         str
             The question generation instructions template.
         """
-        assert (
-            instructions_template is not None or task_description is not None
-        ), "Either instructions_template or task_description must be provided"
+        assert instructions_template is not None or task_description is not None, (
+            "Either instructions_template or task_description must be provided"
+        )
 
         if instructions_template:
             if num_questions_tag not in instructions_template:

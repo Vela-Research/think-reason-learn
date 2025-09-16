@@ -17,3 +17,11 @@ You are part of a team of experts that are building a decision tree model (GPTre
 When given a question and a sample from the data, your task is to answer the question for the sample per the sample given.
 """
 "Instructions for an LLM to answer a question for a sample."
+
+
+CUMMULATIVE_MEMORY_INSTRUCTIONS = """\
+Based on the previous cummulative memory context and what you just learned, \
+give a brief advice that can be passed to the next node as cummulative memory context during it's questions generation. \
+This should inform the next node about what happened here and the previous nodes and what it should focus on.
+"""
+"Instructions for an LLM to use cummulative memory context."

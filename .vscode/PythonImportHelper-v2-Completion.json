@@ -1712,7 +1712,16 @@
         "kind": 5,
         "importPath": "think_reason_learn.gptree._prompts",
         "description": "think_reason_learn.gptree._prompts",
-        "peekOfCode": "QUESTION_ANSWER_INSTRUCTIONS = \"\"\"\\\nYou are part of a team of experts that are building a decision tree model (GPTree) for a classification task.\nWhen given a question and a sample from the data, your task is to answer the question for the sample per the sample given.\n\"\"\"\n\"Instructions for an LLM to answer a question for a sample.\"",
+        "peekOfCode": "QUESTION_ANSWER_INSTRUCTIONS = \"\"\"\\\nYou are part of a team of experts that are building a decision tree model (GPTree) for a classification task.\nWhen given a question and a sample from the data, your task is to answer the question for the sample per the sample given.\n\"\"\"\n\"Instructions for an LLM to answer a question for a sample.\"\nCUMMULATIVE_MEMORY_INSTRUCTIONS = \"\"\"\\\nBased on the previous cummulative memory context and what you just learned, \\\ngive a brief advice that can be passed to the next node as cummulative memory context during it's questions generation. \\\nThis should inform the next node about what happened here and the previous nodes and what it should focus on.\n\"\"\"",
+        "detail": "think_reason_learn.gptree._prompts",
+        "documentation": {}
+    },
+    {
+        "label": "CUMMULATIVE_MEMORY_INSTRUCTIONS",
+        "kind": 5,
+        "importPath": "think_reason_learn.gptree._prompts",
+        "description": "think_reason_learn.gptree._prompts",
+        "peekOfCode": "CUMMULATIVE_MEMORY_INSTRUCTIONS = \"\"\"\\\nBased on the previous cummulative memory context and what you just learned, \\\ngive a brief advice that can be passed to the next node as cummulative memory context during it's questions generation. \\\nThis should inform the next node about what happened here and the previous nodes and what it should focus on.\n\"\"\"\n\"Instructions for an LLM to use cummulative memory context.\"",
         "detail": "think_reason_learn.gptree._prompts",
         "documentation": {}
     },
@@ -1757,7 +1766,7 @@
         "kind": 6,
         "importPath": "think_reason_learn.gptree.gptree",
         "description": "think_reason_learn.gptree.gptree",
-        "peekOfCode": "class Question(BaseModel):\n    value: str\n    choices: List[str]\n    question_type: QuestionType\nclass Questions(BaseModel):\n    questions: List[Question]\n    cummulative_memory: str = Field(\n        ...,\n        description=\"Based on the previous cummulative memory context and what you just learned, Give a brief advice that can be passed to the next node as cummulative memory context during it's questions generation.\",\n    )",
+        "peekOfCode": "class Question(BaseModel):\n    value: str\n    choices: List[str]\n    question_type: QuestionType\nclass Questions(BaseModel):\n    questions: List[Question]\n    cummulative_memory: str = Field(..., description=CUMMULATIVE_MEMORY_INSTRUCTIONS)\nclass Answer(BaseModel):\n    answer: str\n@dataclass(slots=True)",
         "detail": "think_reason_learn.gptree.gptree",
         "documentation": {}
     },
@@ -1766,7 +1775,7 @@
         "kind": 6,
         "importPath": "think_reason_learn.gptree.gptree",
         "description": "think_reason_learn.gptree.gptree",
-        "peekOfCode": "class Questions(BaseModel):\n    questions: List[Question]\n    cummulative_memory: str = Field(\n        ...,\n        description=\"Based on the previous cummulative memory context and what you just learned, Give a brief advice that can be passed to the next node as cummulative memory context during it's questions generation.\",\n    )\nclass Answer(BaseModel):\n    answer: str\n@dataclass(slots=True)\nclass Node:",
+        "peekOfCode": "class Questions(BaseModel):\n    questions: List[Question]\n    cummulative_memory: str = Field(..., description=CUMMULATIVE_MEMORY_INSTRUCTIONS)\nclass Answer(BaseModel):\n    answer: str\n@dataclass(slots=True)\nclass Node:\n    \"\"\"\n    A Node represents a decision point in GPTree.\n    Attributes",
         "detail": "think_reason_learn.gptree.gptree",
         "documentation": {}
     },

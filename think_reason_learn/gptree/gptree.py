@@ -21,6 +21,7 @@ import pandas as pd
 from ._types import QuestionType, Criterion
 from ._prompts import INSTRUCTIONS_FOR_GENERATING_QUESTION_GEN_INSTRUCTIONS
 from ._prompts import num_questions_tag, QUESTION_ANSWER_INSTRUCTIONS
+from ._prompts import CUMMULATIVE_MEMORY_INSTRUCTIONS
 from think_reason_learn.core.llms.schemas import LLMChoice, TokenCount
 from think_reason_learn.core.llms import llm
 from think_reason_learn.core._exceptions import DataError, LLMError, CorruptionError
@@ -56,10 +57,7 @@ class Question(BaseModel):
 
 class Questions(BaseModel):
     questions: List[Question]
-    cummulative_memory: str = Field(
-        ...,
-        description="Based on the previous cummulative memory context and what you just learned, Give a brief advice that can be passed to the next node as cummulative memory context during it's questions generation.",
-    )
+    cummulative_memory: str = Field(..., description=CUMMULATIVE_MEMORY_INSTRUCTIONS)
 
 
 class Answer(BaseModel):
@@ -631,7 +629,7 @@ class GPTree:
         """Save the tree state to JSON (and optionally training data to CSV)"""
         self.save_path.mkdir(parents=True, exist_ok=True)
 
-        tree_json_path = self.save_path / f"{self.name}_tree.json"
+        tree_json_path = self.save_path / f"{self.name}_gptree.json"
 
         nodes_serialized = [asdict(node) for node in self._nodes.values()]
         frontier_serialized = [asdict(t) for t in self._frontier]

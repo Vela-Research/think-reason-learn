@@ -57,14 +57,6 @@
         "documentation": {}
     },
     {
-        "label": "annotations",
-        "importPath": "__future__",
-        "description": "__future__",
-        "isExtraImport": true,
-        "detail": "__future__",
-        "documentation": {}
-    },
-    {
         "label": "os",
         "kind": 6,
         "isExtraImport": true,
@@ -89,14 +81,6 @@
         "importPath": "sys",
         "description": "sys",
         "detail": "sys",
-        "documentation": {}
-    },
-    {
-        "label": "Path",
-        "importPath": "pathlib",
-        "description": "pathlib",
-        "isExtraImport": true,
-        "detail": "pathlib",
         "documentation": {}
     },
     {
@@ -620,78 +604,6 @@
         "documentation": {}
     },
     {
-        "label": "List",
-        "importPath": "typing",
-        "description": "typing",
-        "isExtraImport": true,
-        "detail": "typing",
-        "documentation": {}
-    },
-    {
-        "label": "Dict",
-        "importPath": "typing",
-        "description": "typing",
-        "isExtraImport": true,
-        "detail": "typing",
-        "documentation": {}
-    },
-    {
-        "label": "Literal",
-        "importPath": "typing",
-        "description": "typing",
-        "isExtraImport": true,
-        "detail": "typing",
-        "documentation": {}
-    },
-    {
-        "label": "cast",
-        "importPath": "typing",
-        "description": "typing",
-        "isExtraImport": true,
-        "detail": "typing",
-        "documentation": {}
-    },
-    {
-        "label": "Type",
-        "importPath": "typing",
-        "description": "typing",
-        "isExtraImport": true,
-        "detail": "typing",
-        "documentation": {}
-    },
-    {
-        "label": "Tuple",
-        "importPath": "typing",
-        "description": "typing",
-        "isExtraImport": true,
-        "detail": "typing",
-        "documentation": {}
-    },
-    {
-        "label": "AsyncGenerator",
-        "importPath": "typing",
-        "description": "typing",
-        "isExtraImport": true,
-        "detail": "typing",
-        "documentation": {}
-    },
-    {
-        "label": "Any",
-        "importPath": "typing",
-        "description": "typing",
-        "isExtraImport": true,
-        "detail": "typing",
-        "documentation": {}
-    },
-    {
-        "label": "Set",
-        "importPath": "typing",
-        "description": "typing",
-        "isExtraImport": true,
-        "detail": "typing",
-        "documentation": {}
-    },
-    {
         "label": "logging",
         "kind": 6,
         "isExtraImport": true,
@@ -782,30 +694,6 @@
     },
     {
         "label": "BaseModel",
-        "importPath": "pydantic",
-        "description": "pydantic",
-        "isExtraImport": true,
-        "detail": "pydantic",
-        "documentation": {}
-    },
-    {
-        "label": "BaseModel",
-        "importPath": "pydantic",
-        "description": "pydantic",
-        "isExtraImport": true,
-        "detail": "pydantic",
-        "documentation": {}
-    },
-    {
-        "label": "create_model",
-        "importPath": "pydantic",
-        "description": "pydantic",
-        "isExtraImport": true,
-        "detail": "pydantic",
-        "documentation": {}
-    },
-    {
-        "label": "Field",
         "importPath": "pydantic",
         "description": "pydantic",
         "isExtraImport": true,
@@ -1120,30 +1008,6 @@
         "documentation": {}
     },
     {
-        "label": "dataclass",
-        "importPath": "dataclasses",
-        "description": "dataclasses",
-        "isExtraImport": true,
-        "detail": "dataclasses",
-        "documentation": {}
-    },
-    {
-        "label": "field",
-        "importPath": "dataclasses",
-        "description": "dataclasses",
-        "isExtraImport": true,
-        "detail": "dataclasses",
-        "documentation": {}
-    },
-    {
-        "label": "asdict",
-        "importPath": "dataclasses",
-        "description": "dataclasses",
-        "isExtraImport": true,
-        "detail": "dataclasses",
-        "documentation": {}
-    },
-    {
         "label": "BaseSettings",
         "importPath": "pydantic_settings",
         "description": "pydantic_settings",
@@ -1185,35 +1049,11 @@
         "documentation": {}
     },
     {
-        "label": "deque",
-        "importPath": "collections",
-        "description": "collections",
-        "isExtraImport": true,
-        "detail": "collections",
-        "documentation": {}
-    },
-    {
         "label": "uuid4",
         "importPath": "uuid",
         "description": "uuid",
         "isExtraImport": true,
         "detail": "uuid",
-        "documentation": {}
-    },
-    {
-        "label": "uuid4",
-        "importPath": "uuid",
-        "description": "uuid",
-        "isExtraImport": true,
-        "detail": "uuid",
-        "documentation": {}
-    },
-    {
-        "label": "deepcopy",
-        "importPath": "copy",
-        "description": "copy",
-        "isExtraImport": true,
-        "detail": "copy",
         "documentation": {}
     },
     {
@@ -1300,54 +1140,6 @@
         "description": "think_reason_learn.core.llms",
         "isExtraImport": true,
         "detail": "think_reason_learn.core.llms",
-        "documentation": {}
-    },
-    {
-        "label": "LLMChoice",
-        "importPath": "think_reason_learn.core.llms",
-        "description": "think_reason_learn.core.llms",
-        "isExtraImport": true,
-        "detail": "think_reason_learn.core.llms",
-        "documentation": {}
-    },
-    {
-        "label": "TokenCount",
-        "importPath": "think_reason_learn.core.llms",
-        "description": "think_reason_learn.core.llms",
-        "isExtraImport": true,
-        "detail": "think_reason_learn.core.llms",
-        "documentation": {}
-    },
-    {
-        "label": "llm",
-        "importPath": "think_reason_learn.core.llms",
-        "description": "think_reason_learn.core.llms",
-        "isExtraImport": true,
-        "detail": "think_reason_learn.core.llms",
-        "documentation": {}
-    },
-    {
-        "label": "DataError",
-        "importPath": "think_reason_learn.core._exceptions",
-        "description": "think_reason_learn.core._exceptions",
-        "isExtraImport": true,
-        "detail": "think_reason_learn.core._exceptions",
-        "documentation": {}
-    },
-    {
-        "label": "LLMError",
-        "importPath": "think_reason_learn.core._exceptions",
-        "description": "think_reason_learn.core._exceptions",
-        "isExtraImport": true,
-        "detail": "think_reason_learn.core._exceptions",
-        "documentation": {}
-    },
-    {
-        "label": "CorruptionError",
-        "importPath": "think_reason_learn.core._exceptions",
-        "description": "think_reason_learn.core._exceptions",
-        "isExtraImport": true,
-        "detail": "think_reason_learn.core._exceptions",
         "documentation": {}
     },
     {
@@ -2055,87 +1847,6 @@
         "description": "think_reason_learn.gptree._types",
         "peekOfCode": "Criterion = Literal[\"gini\"]",
         "detail": "think_reason_learn.gptree._types",
-        "documentation": {}
-    },
-    {
-        "label": "NodeQuestion",
-        "kind": 6,
-        "importPath": "think_reason_learn.gptree.gptree",
-        "description": "think_reason_learn.gptree.gptree",
-        "peekOfCode": "class NodeQuestion:\n    value: str\n    choices: List[str]\n    question_type: QuestionType\n    df_column: str = field(default_factory=lambda: str(uuid4()))\n    score: float | None = None\n    def __hash__(self):\n        return hash((self.value, self.question_type))\n    def __eq__(self, other: object):\n        if not isinstance(other, NodeQuestion):",
-        "detail": "think_reason_learn.gptree.gptree",
-        "documentation": {}
-    },
-    {
-        "label": "Question",
-        "kind": 6,
-        "importPath": "think_reason_learn.gptree.gptree",
-        "description": "think_reason_learn.gptree.gptree",
-        "peekOfCode": "class Question(BaseModel):\n    value: str\n    choices: List[str]\n    question_type: QuestionType\nclass Questions(BaseModel):\n    questions: List[Question]\n    cummulative_memory: str = Field(..., description=CUMULATIVE_MEMORY_INSTRUCTIONS)\nclass Answer(BaseModel):\n    answer: str\n@dataclass(slots=True)",
-        "detail": "think_reason_learn.gptree.gptree",
-        "documentation": {}
-    },
-    {
-        "label": "Questions",
-        "kind": 6,
-        "importPath": "think_reason_learn.gptree.gptree",
-        "description": "think_reason_learn.gptree.gptree",
-        "peekOfCode": "class Questions(BaseModel):\n    questions: List[Question]\n    cummulative_memory: str = Field(..., description=CUMULATIVE_MEMORY_INSTRUCTIONS)\nclass Answer(BaseModel):\n    answer: str\n@dataclass(slots=True)\nclass Node:\n    \"\"\"\n    A Node represents a decision point in GPTree.\n    Attributes",
-        "detail": "think_reason_learn.gptree.gptree",
-        "documentation": {}
-    },
-    {
-        "label": "Answer",
-        "kind": 6,
-        "importPath": "think_reason_learn.gptree.gptree",
-        "description": "think_reason_learn.gptree.gptree",
-        "peekOfCode": "class Answer(BaseModel):\n    answer: str\n@dataclass(slots=True)\nclass Node:\n    \"\"\"\n    A Node represents a decision point in GPTree.\n    Attributes\n    ----------\n    id: int\n        The id of the node.",
-        "detail": "think_reason_learn.gptree.gptree",
-        "documentation": {}
-    },
-    {
-        "label": "Node",
-        "kind": 6,
-        "importPath": "think_reason_learn.gptree.gptree",
-        "description": "think_reason_learn.gptree.gptree",
-        "peekOfCode": "class Node:\n    \"\"\"\n    A Node represents a decision point in GPTree.\n    Attributes\n    ----------\n    id: int\n        The id of the node.\n    label: str\n        The label of the node.\n    question: NodeQuestion, default=None",
-        "detail": "think_reason_learn.gptree.gptree",
-        "documentation": {}
-    },
-    {
-        "label": "BuildTask",
-        "kind": 6,
-        "importPath": "think_reason_learn.gptree.gptree",
-        "description": "think_reason_learn.gptree.gptree",
-        "peekOfCode": "class BuildTask:\n    node_id: int\n    parent_id: int | None\n    depth: int\n    label: str\n    sample_indices: IndexArray\nclass GPTree:\n    \"\"\"LLM based decision tree classifier.\"\"\"\n    def __init__(\n        self,",
-        "detail": "think_reason_learn.gptree.gptree",
-        "documentation": {}
-    },
-    {
-        "label": "GPTree",
-        "kind": 6,
-        "importPath": "think_reason_learn.gptree.gptree",
-        "description": "think_reason_learn.gptree.gptree",
-        "peekOfCode": "class GPTree:\n    \"\"\"LLM based decision tree classifier.\"\"\"\n    def __init__(\n        self,\n        question_gen_llmc: List[LLMChoice],\n        critic_llmc: List[LLMChoice],\n        question_gen_instructions_llmc: List[LLMChoice],\n        question_gen_temperature: float = 0.0,\n        critic_temperature: float = 0.0,\n        question_gen_instructions_gen_temperature: float = 0.0,",
-        "detail": "think_reason_learn.gptree.gptree",
-        "documentation": {}
-    },
-    {
-        "label": "logger",
-        "kind": 5,
-        "importPath": "think_reason_learn.gptree.gptree",
-        "description": "think_reason_learn.gptree.gptree",
-        "peekOfCode": "logger = logging.getLogger(__name__)\nIndexArray = npt.NDArray[np.intp]\n@dataclass(slots=True)\nclass NodeQuestion:\n    value: str\n    choices: List[str]\n    question_type: QuestionType\n    df_column: str = field(default_factory=lambda: str(uuid4()))\n    score: float | None = None\n    def __hash__(self):",
-        "detail": "think_reason_learn.gptree.gptree",
-        "documentation": {}
-    },
-    {
-        "label": "IndexArray",
-        "kind": 5,
-        "importPath": "think_reason_learn.gptree.gptree",
-        "description": "think_reason_learn.gptree.gptree",
-        "peekOfCode": "IndexArray = npt.NDArray[np.intp]\n@dataclass(slots=True)\nclass NodeQuestion:\n    value: str\n    choices: List[str]\n    question_type: QuestionType\n    df_column: str = field(default_factory=lambda: str(uuid4()))\n    score: float | None = None\n    def __hash__(self):\n        return hash((self.value, self.question_type))",
-        "detail": "think_reason_learn.gptree.gptree",
         "documentation": {}
     }
 ]

@@ -114,6 +114,7 @@ class Node:
 
     @property
     def is_leaf(self) -> bool:
+        """Check if the node is a leaf node."""
         return len(self.children or []) == 0
 
 

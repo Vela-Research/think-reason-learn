@@ -42,3 +42,14 @@ myst-parser = "^4.0.1"  # if you want Markdown docs
 [build-system]
 requires = ["poetry-core>=2.1.3"]
 build-backend = "poetry.core.masonry.api"
+
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "D"]   # E/F for pyflakes + pycodestyle, D for docstrings
+ignore = ["D101"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"

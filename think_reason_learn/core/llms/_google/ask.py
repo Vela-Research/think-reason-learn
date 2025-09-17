@@ -7,7 +7,7 @@ from pydantic import BaseModel, ValidationError
 from google import genai
 from google.genai import types as gtypes
 
-from ..schemas import LLMResponse, T, GoogleChoice
+from .._schemas import LLMResponse, T, GoogleChoice
 from .schemas import GoogleChatModel
 from think_reason_learn.core._singleton import SingletonMeta
 

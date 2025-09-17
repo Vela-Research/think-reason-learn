@@ -138,7 +138,7 @@ TODO: Add RRF quick start example.
 
 TODO: Add GPT-HTree quick start example.
 
-For more examples and detailed usage, see the [full documentation](docs/index.html).
+For more examples and detailed usage, see the [full documentation](docs/buildclear/index.html).
 
 ## Contributing
 

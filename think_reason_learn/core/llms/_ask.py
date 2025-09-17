@@ -90,11 +90,12 @@ class LLM(metaclass=SingletonMeta):
             temperature: Optional temperature to use.
             verbose: Whether to log info.
             **kwargs: Additional arguments to pass to the LLM. For:
-                - OpenAI: `openai.OpenAI.responses.parse` or
-                    `openai.OpenAI.responses.create`.
-                - Google: `google.genai.types.GenerateContentConfig`.
-                - XAI: `xai_sdk.Client.chat.create`.
-                - Anthropic: `anthropic.Client.messages.create`.
+
+                - OpenAI: ``openai.OpenAI.responses.parse`` or
+                    ``openai.OpenAI.responses.create``.
+                - Google: ``google.genai.types.GenerateContentConfig``.
+                - XAI: ``xai_sdk.Client.chat.create``.
+                - Anthropic: ``anthropic.Client.messages.create``.
 
         Note:
             Provided kwargs override the function arguments.
@@ -213,11 +214,12 @@ class LLM(metaclass=SingletonMeta):
             temperature: Optional temperature to use.
             verbose: Whether to log info.
             **kwargs: Additional arguments to pass to the LLM. For:
-                - OpenAI: `openai.OpenAI.responses.parse` or
-                    `openai.OpenAI.responses.create`.
-                - Google: `google.genai.types.GenerateContentConfig`.
-                - XAI: `xai_sdk.Client.chat.create`.
-                - Anthropic: `anthropic.Client.messages.create`.
+
+                - OpenAI: ``openai.OpenAI.responses.parse`` or
+                    ``openai.OpenAI.responses.create``.
+                - Google: ``google.genai.types.GenerateContentConfig``.
+                - XAI: ``xai_sdk.Client.chat.create``.
+                - Anthropic: ``anthropic.Client.messages.create``.
 
         Note:
             Provided kwargs override the function arguments.

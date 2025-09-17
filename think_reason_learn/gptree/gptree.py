@@ -331,7 +331,7 @@ class GPTree:
             The maximum length of the text to truncate. If None, then no truncation is done.
         """
         if node_id not in self._nodes:
-            raise ValueError(f"Node {node_id} not found")
+            raise ValueError(f"Node with id {node_id} not found in the tree")
 
         try:
             from graphviz import Digraph  # type: ignore

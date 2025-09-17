@@ -30,7 +30,7 @@ from ._types import QuestionType, Criterion
 from ._prompts import INSTRUCTIONS_FOR_GENERATING_QUESTION_GEN_INSTRUCTIONS
 from ._prompts import num_questions_tag, QUESTION_ANSWER_INSTRUCTIONS
 from ._prompts import CUMULATIVE_MEMORY_INSTRUCTIONS
-from think_reason_learn.core.llms.schemas import LLMChoice, TokenCount
+from think_reason_learn.core.llms import LLMChoice, TokenCount
 from think_reason_learn.core.llms import llm
 from think_reason_learn.core._exceptions import DataError, LLMError, CorruptionError
 

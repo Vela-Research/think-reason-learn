@@ -1303,6 +1303,22 @@
         "documentation": {}
     },
     {
+        "label": "LLMChoice",
+        "importPath": "think_reason_learn.core.llms",
+        "description": "think_reason_learn.core.llms",
+        "isExtraImport": true,
+        "detail": "think_reason_learn.core.llms",
+        "documentation": {}
+    },
+    {
+        "label": "TokenCount",
+        "importPath": "think_reason_learn.core.llms",
+        "description": "think_reason_learn.core.llms",
+        "isExtraImport": true,
+        "detail": "think_reason_learn.core.llms",
+        "documentation": {}
+    },
+    {
         "label": "llm",
         "importPath": "think_reason_learn.core.llms",
         "description": "think_reason_learn.core.llms",
@@ -1364,22 +1380,6 @@
         "description": "think_reason_learn.core._types",
         "isExtraImport": true,
         "detail": "think_reason_learn.core._types",
-        "documentation": {}
-    },
-    {
-        "label": "LLMChoice",
-        "importPath": "think_reason_learn.core.llms.schemas",
-        "description": "think_reason_learn.core.llms.schemas",
-        "isExtraImport": true,
-        "detail": "think_reason_learn.core.llms.schemas",
-        "documentation": {}
-    },
-    {
-        "label": "TokenCount",
-        "importPath": "think_reason_learn.core.llms.schemas",
-        "description": "think_reason_learn.core.llms.schemas",
-        "isExtraImport": true,
-        "detail": "think_reason_learn.core.llms.schemas",
         "documentation": {}
     },
     {
@@ -1558,7 +1558,7 @@
         "kind": 2,
         "importPath": "tests.test_placeholder",
         "description": "tests.test_placeholder",
-        "peekOfCode": "def test_placeholder():\n    assert True",
+        "peekOfCode": "def test_placeholder():\n    \"\"\"Test the placeholder test.\"\"\"\n    assert True",
         "detail": "tests.test_placeholder",
         "documentation": {}
     },
@@ -1846,7 +1846,7 @@
         "kind": 6,
         "importPath": "think_reason_learn.core._exceptions",
         "description": "think_reason_learn.core._exceptions",
-        "peekOfCode": "class DataError(Exception):\n    \"\"\"Data not in the expected format.\"\"\"\nclass LLMError(Exception):\n    \"\"\"LLM failed to respond.\"\"\"\nclass CorruptionError(Exception):\n    \"\"\"Raised when a condition is not supposed to be met. Signifies a bug in model state.\"\"\"",
+        "peekOfCode": "class DataError(Exception):\n    \"\"\"Data not in the expected format.\"\"\"\nclass LLMError(Exception):\n    \"\"\"LLM failed to respond.\"\"\"\nclass CorruptionError(Exception):\n    \"\"\"Internal state corruption detected. A model's state is corrupted.\"\"\"",
         "detail": "think_reason_learn.core._exceptions",
         "documentation": {}
     },
@@ -1855,7 +1855,7 @@
         "kind": 6,
         "importPath": "think_reason_learn.core._exceptions",
         "description": "think_reason_learn.core._exceptions",
-        "peekOfCode": "class LLMError(Exception):\n    \"\"\"LLM failed to respond.\"\"\"\nclass CorruptionError(Exception):\n    \"\"\"Raised when a condition is not supposed to be met. Signifies a bug in model state.\"\"\"",
+        "peekOfCode": "class LLMError(Exception):\n    \"\"\"LLM failed to respond.\"\"\"\nclass CorruptionError(Exception):\n    \"\"\"Internal state corruption detected. A model's state is corrupted.\"\"\"",
         "detail": "think_reason_learn.core._exceptions",
         "documentation": {}
     },
@@ -1864,7 +1864,7 @@
         "kind": 6,
         "importPath": "think_reason_learn.core._exceptions",
         "description": "think_reason_learn.core._exceptions",
-        "peekOfCode": "class CorruptionError(Exception):\n    \"\"\"Raised when a condition is not supposed to be met. Signifies a bug in model state.\"\"\"",
+        "peekOfCode": "class CorruptionError(Exception):\n    \"\"\"Internal state corruption detected. A model's state is corrupted.\"\"\"",
         "detail": "think_reason_learn.core._exceptions",
         "documentation": {}
     },

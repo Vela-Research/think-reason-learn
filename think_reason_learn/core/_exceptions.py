@@ -7,4 +7,4 @@ class LLMError(Exception):
 
 
 class CorruptionError(Exception):
-    """Raised when a condition is not supposed to be met. Signifies a bug in model state."""
+    """Internal state corruption detected. A model's state is corrupted."""

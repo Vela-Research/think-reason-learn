@@ -5,7 +5,7 @@ from openai import AsyncOpenAI, OpenAI
 from openai.types.responses import Response
 from pydantic import BaseModel
 
-from ..schemas import LLMResponse, T, OpenAIChoice
+from .._schemas import LLMResponse, T, OpenAIChoice
 from think_reason_learn.core._singleton import SingletonMeta
 from .schemas import OpenAIChatModel, NOT_GIVEN, NotGiven
 

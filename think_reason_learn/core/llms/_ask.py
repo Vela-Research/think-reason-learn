@@ -15,16 +15,14 @@ from ._openai.ask import OpenAILLM, get_openai_llm
 from ._openai.schemas import OpenAIChoice
 from ._xai.ask import xAILLM, get_xai_llm
 from ._xai.schemas import XAIChoice
-from .schemas import LLMChoice, LLMChoiceModel, LLMResponse, T
-from .schemas import NotGiven, NOT_GIVEN
+from ._schemas import LLMChoice, LLMChoiceModel, LLMResponse, T
+from ._schemas import NotGiven, NOT_GIVEN
 
 logger = logging.getLogger(__name__)
 
 
 class LLM(metaclass=SingletonMeta):
-    """
-    A singleton class that provides a unified interface for the LLMs.
-    """
+    """A singleton class that provides a unified interface for the LLMs."""
 
     def __init__(self) -> None:
         self.anthropic_llm = get_anthropic_llm(settings.ANTHROPIC_API_KEY)
@@ -35,7 +33,7 @@ class LLM(metaclass=SingletonMeta):
     def _val_llm_priority_and_api_keys(
         self, llm_priority: List[LLMChoice]
     ) -> List[LLMChoiceModel]:
-        """Validate the LLMPriority(provider and model) and check if the API key is set for such provider."""
+        """Validate the LLMPriority and ensure the API key is set for such provider."""
         models_map = {
             "anthropic": AnthropicChoice,
             "google": GoogleChoice,
@@ -48,14 +46,17 @@ class LLM(metaclass=SingletonMeta):
                 priority_class = models_map.get(llmp["provider"])
                 if priority_class is None:
                     raise ValueError(
-                        f"Invalid LLMPriority: {llmp['provider']}. Supported providers are {list(models_map.keys())}."
+                        f"Invalid LLMPriority: {llmp['provider']}. "
+                        f"Supported providers are {list(models_map.keys())}."
                     )
 
                 try:
                     llmp = priority_class(**llmp)  # type: ignore
                 except ValidationError:
+                    supported_models = priority_class.__annotations__["model"].__args__
                     raise ValueError(
-                        f"Invalid LLMPriority: {llmp['model']} for {llmp['provider']}. Supported models are {priority_class.__annotations__['model'].__args__}."
+                        f"Invalid LLMPriority: {llmp['model']} for {llmp['provider']}. "
+                        f"Supported models are {supported_models}."
                     )
 
             else:
@@ -63,7 +64,8 @@ class LLM(metaclass=SingletonMeta):
 
             if getattr(self, f"{llmp.provider}_llm") is None:
                 raise ValueError(
-                    f"Cannot use {llmp.model}. {llmp.provider.upper()}_API_KEY is not set! Please set it in the environment variables."
+                    f"Can't use {llmp.model}. {llmp.provider.upper()}_API_KEY not set! "
+                    "Please set it in the environment variables."
                 )
             priority_models.append(llmp)
         return priority_models
@@ -78,31 +80,32 @@ class LLM(metaclass=SingletonMeta):
         verbose: bool = False,
         **kwargs: Dict[str, Any],
     ) -> LLMResponse[T]:
-        """
-        Respond to a query using the LLM.
+        """Respond to a query using the LLM synchronously.
 
         Args:
-            query (str): The query to respond to.
-            llm_priority (List[LLMPriority]): LLMs to use in order of priority.
-            response_format (Type[T]): The response format to use.
-            instructions (str | NotGiven | None): The instructions to use.
-            temperature (float | NotGiven | None): The temperature to use.
-            verbose (bool): Whether to log info.
-            **kwargs: (Dict[str, Any]): Additional arguments to pass to the LLM.
-                - For OpenAI, refers to args for `openai.OpenAI.responses.parse` or `openai.OpenAI.responses.create`.
-                - For Google, refers to args for `google.genai.types.GenerateContentConfig`.
-                - For XAI, refers to args for `xai_sdk.Client.chat.create`.
-                - For Anthropic, refers to args for `anthropic.Client.messages.create`.
-                Note that provided kwargs will override the function arguments.
+            query: The query to respond to.
+            llm_priority: LLMs to use in order of priority.
+            response_format: The response format to use.
+            instructions: Optional instructions to use.
+            temperature: Optional temperature to use.
+            verbose: Whether to log info.
+            **kwargs: Additional arguments to pass to the LLM. For:
+                - OpenAI: `openai.OpenAI.responses.parse` or
+                    `openai.OpenAI.responses.create`.
+                - Google: `google.genai.types.GenerateContentConfig`.
+                - XAI: `xai_sdk.Client.chat.create`.
+                - Anthropic: `anthropic.Client.messages.create`.
+
+        Note:
+            Provided kwargs override the function arguments.
 
         Returns:
-            LLMResponse[T]: The response from the LLM.
+            The response from the LLM.
 
         Raises:
             AssertionError: If llm_priority is an empty list.
             ValueError: If none of the LLMs worked.
         """
-
         assert len(llm_priority) > 0, "llm_priority must be a non-empty list"
         raise_ = len(llm_priority) == 1
 
@@ -182,7 +185,12 @@ class LLM(metaclass=SingletonMeta):
 
         llmps = [f"{llmp.provider}: {llmp.model}" for llmp in llm_priority_models]
         raise ValueError(
-            f"Failed to respond with any of {llmps}\n\nQuery: {query}\n\nInstructions: {instructions}\n\nTemperature: {temperature}\n\nVerbose: {verbose}\n\n**kwargs: {kwargs}"
+            f"Failed to respond with any of {llmps}\n"
+            "Query: {query}\n"
+            "Instructions: {instructions}\n"
+            "Temperature: {temperature}\n"
+            "Verbose: {verbose}\n"
+            "**kwargs: {kwargs}"
         )
 
     async def respond(
@@ -195,29 +203,31 @@ class LLM(metaclass=SingletonMeta):
         verbose: bool = False,
         **kwargs: Dict[str, Any],
     ) -> LLMResponse[T]:
-        """
-        Respond to a query using the LLM asynchronously.
+        """Respond to a query using the LLM asynchronously.
 
         Args:
-            query (str): The query to respond to.
-            llm_priority (List[LLMPriority]): LLMs to use in order of priority.
-            response_format (Type[T]): The response format to use.
-            instructions (str | NotGiven | None): The instructions to use.
-            temperature (float | NotGiven | None): The temperature to use.
-            verbose (bool): Whether to log info.
-            **kwargs: (Dict[str, Any]): Additional arguments to pass to the LLM.
-                - For OpenAI, refers to args for `openai.OpenAI.responses.parse` or `openai.OpenAI.responses.create`.
-                - For Google, refers to args for `google.genai.types.GenerateContentConfig`.
-                - For XAI, refers to args for `xai_sdk.Client.chat.create`.
-                - For Anthropic, refers to args for `anthropic.Client.messages.create`.
-                Note that provided kwargs will override the function arguments.
+            query: The query to respond to.
+            llm_priority: LLMs to use in order of priority.
+            response_format: The response format to use.
+            instructions: Optional instructions to use.
+            temperature: Optional temperature to use.
+            verbose: Whether to log info.
+            **kwargs: Additional arguments to pass to the LLM. For:
+                - OpenAI: `openai.OpenAI.responses.parse` or
+                    `openai.OpenAI.responses.create`.
+                - Google: `google.genai.types.GenerateContentConfig`.
+                - XAI: `xai_sdk.Client.chat.create`.
+                - Anthropic: `anthropic.Client.messages.create`.
+
+        Note:
+            Provided kwargs override the function arguments.
 
         Returns:
-            LLMResponse[T]: The response from the LLM.
+            The response from the LLM.
 
         Raises:
-            RuntimeError: If none of the LLMs worked.
-            ValueError: If llm_priority is an empty list.
+            AssertionError: If llm_priority is an empty list.
+            ValueError: If none of the LLMs worked.
         """
         assert len(llm_priority) > 0, "llm_priority must be a non-empty list"
         raise_ = len(llm_priority) == 1

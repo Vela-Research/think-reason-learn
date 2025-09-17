@@ -13,7 +13,7 @@ from anthropic.types import (
 
 from think_reason_learn.core._singleton import SingletonMeta
 from .schemas import AnthropicChatModel, NOT_GIVEN, NotGiven
-from ..schemas import LLMResponse, T, AnthropicChoice
+from .._schemas import LLMResponse, T, AnthropicChoice
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +54,8 @@ class AnthropicLLM(metaclass=SingletonMeta):
         if issubclass(response_format, BaseModel):
             if tool_choice:
                 raise ValueError(
-                    "tool_choice is not supported when response_format is a Pydantic model in Anthropic"
+                    "tool_choice is not supported when response_format is a "
+                    "Pydantic model in Anthropic"
                 )
 
             tools.append(

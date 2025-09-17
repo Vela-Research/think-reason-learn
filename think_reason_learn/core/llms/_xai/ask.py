@@ -7,7 +7,7 @@ from xai_sdk.chat import system, user
 from xai_sdk.proto.v6.chat_pb2 import Message, MessageRole
 from pydantic import BaseModel
 
-from ..schemas import LLMResponse, T, XAIChoice
+from .._schemas import LLMResponse, T, XAIChoice
 from .schemas import xAIChatModel
 from think_reason_learn.core._singleton import SingletonMeta
 

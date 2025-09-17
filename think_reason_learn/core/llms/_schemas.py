@@ -48,6 +48,19 @@ LLMChoice: TypeAlias = LLMChoiceModel | LLMChoiceDict
 
 
 class LLMResponse(BaseModel, Generic[T]):
+    """A response from an LLM.
+
+    Attributes:
+        response: The response from the LLM.
+        logprobs: The log probabilities of the response.
+        total_tokens: The total number of tokens in the response.
+        provider_model: The provider and model used to generate the response.
+
+    Properties:
+        average_confidence: The average confidence of the response calculated
+        from the log probabilities.
+    """
+
     response: T | None = None
     logprobs: List[Tuple[str, float | None]]
     total_tokens: int | None = None
@@ -67,9 +80,7 @@ class LLMResponse(BaseModel, Generic[T]):
 
 
 class NotGiven:
-    """
-    A sentinel singleton class used to distinguish omitted keyword arguments
-    from those passed in with the value None (which may have different behavior).
+    """A sentinel singleton class used to distinguish omitted keyword arguments.
 
     For example:
 
@@ -79,7 +90,8 @@ class NotGiven:
 
     get(timeout=1)  # 1s timeout
     get(timeout=None)  # No timeout
-    get()  # Default timeout behavior, which may not be statically known at the method definition.
+    get()  # Default timeout behavior, which may not be statically known at the method
+    definition.
     ```
     """
 
@@ -99,6 +111,14 @@ NOT_GIVEN = NotGiven()
 
 @dataclass(slots=True)
 class TokenCount:
+    """Tokens used in an LLM call.
+
+    Attributes:
+        provider: The provider of the LLM.
+        model: The LLM model used.
+        value: The token count.
+    """
+
     provider: LLMProvider
     model: LLMChatModel
     value: int | None = None

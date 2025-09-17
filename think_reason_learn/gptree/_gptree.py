@@ -40,22 +40,28 @@ IndexArray = npt.NDArray[np.intp]
 
 @dataclass(slots=True)
 class NodeQuestion:
-    """A question for generated at a node.
+    """A question for generated at a node."""
 
-    Attributes:
-        value: the question text.
-        choices: the answer choices for the question.
-        question_type: the type of the question.
-        df_column: the name of the column in the tree's training data that contains
-            the question.
-        score: the score of the question in the node. E.g, gini impurity.
-    """
-
-    value: str
-    choices: List[str]
-    question_type: QuestionType
-    df_column: str = field(default_factory=lambda: str(uuid4()))
-    score: float | None = None
+    value: str = field(metadata={"description": "The question text."})
+    choices: List[str] = field(
+        metadata={"description": "The answer choices for the question."}
+    )
+    question_type: QuestionType = field(
+        metadata={"description": "The type of the question."}
+    )
+    df_column: str = field(
+        default_factory=lambda: str(uuid4()),
+        metadata={
+            "description": "The name of the column in the tree's training data that "
+            "contains the question."
+        },
+    )
+    score: float | None = field(
+        default=None,
+        metadata={
+            "description": "The score of the question in the node. E.g, gini impurity."
+        },
+    )
 
     def __hash__(self):
         return hash((self.value, self.question_type))
@@ -83,38 +89,50 @@ class Answer(BaseModel):
 
 @dataclass(slots=True)
 class Node:
-    """A Node represents a decision point in GPTree.
+    """A Node represents a decision point in GPTree."""
 
-    Attributes:
-        id: The id of the node.
-        label: The label of the node.
-        question: The chosen question at this node. E.g, if criterion is gini, then
-            the question with the lowest gini impurity.
-        questions: All questions that have been generated at this node.
-        cumulative_memory: The cumulative memory context generated at this node.
-        split_ratios: Samples split at this node per answer choice of the
-            chosen question.
-        gini: The Gini impurity of the node if criterion is gini.
-        class_distribution: Distribution of classes at this node.
-            Class label as key and number of samples as value.
-        children: The children of this node.
-        parent_id: The id of the parent node.
-
-    Properties:
-        is_leaf: Whether the node is a leaf node.
-
-    """
-
-    id: int
-    label: str
-    question: NodeQuestion | None = None
-    questions: List[NodeQuestion] = field(default_factory=list)
-    cumulative_memory: str | None = None
-    split_ratios: Tuple[int, ...] | None = None
-    gini: float = 0.0
-    class_distribution: Dict[str, int] = field(default_factory=dict)
-    children: List[Node] | None = None
-    parent_id: int | None = None
+    id: int = field(metadata={"description": "The id of the node."})
+    label: str = field(metadata={"description": "The label of the node."})
+    question: NodeQuestion | None = field(
+        default=None,
+        metadata={
+            "description": "The chosen question at this node. E.g, "
+            "if criterion is gini, then the question with the lowest gini impurity."
+        },
+    )
+    questions: List[NodeQuestion] = field(
+        default_factory=list,
+        metadata={
+            "description": "All questions that have been generated at this node."
+        },
+    )
+    cumulative_memory: str | None = field(
+        default=None,
+        metadata={
+            "description": "The cumulative memory context generated at this node."
+        },
+    )
+    split_ratios: Tuple[int, ...] | None = field(
+        default=None,
+        metadata={
+            "description": "Samples split at this node per answer choice of the "
+            "chosen question."
+        },
+    )
+    gini: float = field(
+        default=0.0,
+        metadata={"description": "The Gini impurity of the node if criterion is gini."},
+    )
+    class_distribution: Dict[str, int] = field(
+        default_factory=dict,
+        metadata={"description": "Distribution of classes at this node."},
+    )
+    children: List[Node] | None = field(
+        default=None, metadata={"description": "The children of this node."}
+    )
+    parent_id: int | None = field(
+        default=None, metadata={"description": "The id of the parent node."}
+    )
 
     @property
     def is_leaf(self) -> bool:
@@ -122,7 +140,6 @@ class Node:
         return len(self.children or []) == 0
 
 
-# New: task descriptor for resumable building
 @dataclass(slots=True)
 class BuildTask:
     node_id: int
@@ -211,7 +228,7 @@ class GPTree:
         self.save_training_data = save_training_data
         self.name: str = self._get_name(name)
 
-        self.token_usage: List[TokenCount] = []
+        self._token_usage: List[TokenCount] = []
 
         self._classes: List[str] | None = None
         self._X: pd.DataFrame | None = None
@@ -255,6 +272,15 @@ class GPTree:
             for q in n.questions
         ]
         return pd.DataFrame(questions) if questions else None
+
+    @property
+    def token_usage(self) -> List[TokenCount]:
+        """Accumulates per-call token usage across provider/model pairs."""
+        return self._token_usage
+
+    @token_usage.setter
+    def token_usage(self, value: List[TokenCount]) -> None:
+        self._token_usage = value
 
     @property
     def question_gen_instructions_template(self) -> str | None:
@@ -701,7 +727,7 @@ class GPTree:
             scale = max(size_factor, min_candidates / max_candidates)
         return max(min_candidates, int(max_candidates * scale))
 
-    async def init_question_gen_instructions_template(
+    async def set_tasks(
         self,
         instructions_template: str | None = None,
         task_description: str | None = None,
@@ -709,6 +735,7 @@ class GPTree:
     ) -> str:
         """Initialize question generation instructions template.
 
+        This sets the task description for the tree.
         Either sets a custom template or generates one from task description using LLM.
 
         Args:

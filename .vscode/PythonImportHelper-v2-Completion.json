@@ -701,6 +701,14 @@
         "documentation": {}
     },
     {
+        "label": "Field",
+        "importPath": "pydantic",
+        "description": "pydantic",
+        "isExtraImport": true,
+        "detail": "pydantic",
+        "documentation": {}
+    },
+    {
         "label": "BaseModel",
         "importPath": "pydantic",
         "description": "pydantic",
@@ -984,6 +992,14 @@
         "documentation": {}
     },
     {
+        "label": "field",
+        "importPath": "dataclasses",
+        "description": "dataclasses",
+        "isExtraImport": true,
+        "detail": "dataclasses",
+        "documentation": {}
+    },
+    {
         "label": "dataclass",
         "importPath": "dataclasses",
         "description": "dataclasses",
@@ -1258,82 +1274,262 @@
     {
         "label": "project",
         "kind": 5,
-        "importPath": "docs.conf",
-        "description": "docs.conf",
-        "peekOfCode": "project = \"Think Reason Learn\"\ncopyright = \"[2025], Vela Research\"\nauthor = \"Vela Research\"\nrelease = \"0.1.0\"\nextensions = [\n    \"sphinx.ext.autodoc\",\n    \"sphinx.ext.napoleon\",\n    \"sphinx.ext.viewcode\",\n]\ntemplates_path = [\"_templates\"]",
-        "detail": "docs.conf",
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "project = \"Think Reason Learn\"\ncopyright = \"2025, Vela Research\"\nauthor = \"Vela Research\"\nrelease = \"0.1.0\"\n# -- General configuration ---------------------------------------------------\n# https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration\nextensions = [\n    \"sphinx.ext.autodoc\",\n    \"sphinx.ext.napoleon\",  # Google/NumPy style docstrings\n    \"myst_parser\",  # Enable Markdown with MyST",
+        "detail": "docs.source.conf",
         "documentation": {}
     },
     {
         "label": "copyright",
         "kind": 5,
-        "importPath": "docs.conf",
-        "description": "docs.conf",
-        "peekOfCode": "copyright = \"[2025], Vela Research\"\nauthor = \"Vela Research\"\nrelease = \"0.1.0\"\nextensions = [\n    \"sphinx.ext.autodoc\",\n    \"sphinx.ext.napoleon\",\n    \"sphinx.ext.viewcode\",\n]\ntemplates_path = [\"_templates\"]\nexclude_patterns = [\"_build\", \"Thumbs.db\", \".DS_Store\"]",
-        "detail": "docs.conf",
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "copyright = \"2025, Vela Research\"\nauthor = \"Vela Research\"\nrelease = \"0.1.0\"\n# -- General configuration ---------------------------------------------------\n# https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration\nextensions = [\n    \"sphinx.ext.autodoc\",\n    \"sphinx.ext.napoleon\",  # Google/NumPy style docstrings\n    \"myst_parser\",  # Enable Markdown with MyST\n    \"sphinxcontrib.autodoc_pydantic\",  # Better Pydantic model rendering",
+        "detail": "docs.source.conf",
         "documentation": {}
     },
     {
         "label": "author",
         "kind": 5,
-        "importPath": "docs.conf",
-        "description": "docs.conf",
-        "peekOfCode": "author = \"Vela Research\"\nrelease = \"0.1.0\"\nextensions = [\n    \"sphinx.ext.autodoc\",\n    \"sphinx.ext.napoleon\",\n    \"sphinx.ext.viewcode\",\n]\ntemplates_path = [\"_templates\"]\nexclude_patterns = [\"_build\", \"Thumbs.db\", \".DS_Store\"]\nhtml_theme = \"alabaster\"",
-        "detail": "docs.conf",
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "author = \"Vela Research\"\nrelease = \"0.1.0\"\n# -- General configuration ---------------------------------------------------\n# https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration\nextensions = [\n    \"sphinx.ext.autodoc\",\n    \"sphinx.ext.napoleon\",  # Google/NumPy style docstrings\n    \"myst_parser\",  # Enable Markdown with MyST\n    \"sphinxcontrib.autodoc_pydantic\",  # Better Pydantic model rendering\n]",
+        "detail": "docs.source.conf",
         "documentation": {}
     },
     {
         "label": "release",
         "kind": 5,
-        "importPath": "docs.conf",
-        "description": "docs.conf",
-        "peekOfCode": "release = \"0.1.0\"\nextensions = [\n    \"sphinx.ext.autodoc\",\n    \"sphinx.ext.napoleon\",\n    \"sphinx.ext.viewcode\",\n]\ntemplates_path = [\"_templates\"]\nexclude_patterns = [\"_build\", \"Thumbs.db\", \".DS_Store\"]\nhtml_theme = \"alabaster\"\nhtml_static_path = [\"_static\"]",
-        "detail": "docs.conf",
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "release = \"0.1.0\"\n# -- General configuration ---------------------------------------------------\n# https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration\nextensions = [\n    \"sphinx.ext.autodoc\",\n    \"sphinx.ext.napoleon\",  # Google/NumPy style docstrings\n    \"myst_parser\",  # Enable Markdown with MyST\n    \"sphinxcontrib.autodoc_pydantic\",  # Better Pydantic model rendering\n]\n# Make Sphinx include type hints alongside docstring descriptions",
+        "detail": "docs.source.conf",
         "documentation": {}
     },
     {
         "label": "extensions",
         "kind": 5,
-        "importPath": "docs.conf",
-        "description": "docs.conf",
-        "peekOfCode": "extensions = [\n    \"sphinx.ext.autodoc\",\n    \"sphinx.ext.napoleon\",\n    \"sphinx.ext.viewcode\",\n]\ntemplates_path = [\"_templates\"]\nexclude_patterns = [\"_build\", \"Thumbs.db\", \".DS_Store\"]\nhtml_theme = \"alabaster\"\nhtml_static_path = [\"_static\"]",
-        "detail": "docs.conf",
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "extensions = [\n    \"sphinx.ext.autodoc\",\n    \"sphinx.ext.napoleon\",  # Google/NumPy style docstrings\n    \"myst_parser\",  # Enable Markdown with MyST\n    \"sphinxcontrib.autodoc_pydantic\",  # Better Pydantic model rendering\n]\n# Make Sphinx include type hints alongside docstring descriptions\nautodoc_typehints = \"description\"  # merge types into the description\nautoclass_content = \"both\"  # include class and __init__ docstrings\nautodoc_member_order = \"bysource\"",
+        "detail": "docs.source.conf",
+        "documentation": {}
+    },
+    {
+        "label": "autodoc_typehints",
+        "kind": 5,
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "autodoc_typehints = \"description\"  # merge types into the description\nautoclass_content = \"both\"  # include class and __init__ docstrings\nautodoc_member_order = \"bysource\"\nadd_module_names = False  # cleaner object names in docs\nautodoc_default_options = {\n    \"members\": True,\n    \"undoc-members\": False,\n    \"inherited-members\": True,\n    \"show-inheritance\": True,\n    # Do not include imported members to reduce duplicates across re-exports",
+        "detail": "docs.source.conf",
+        "documentation": {}
+    },
+    {
+        "label": "autoclass_content",
+        "kind": 5,
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "autoclass_content = \"both\"  # include class and __init__ docstrings\nautodoc_member_order = \"bysource\"\nadd_module_names = False  # cleaner object names in docs\nautodoc_default_options = {\n    \"members\": True,\n    \"undoc-members\": False,\n    \"inherited-members\": True,\n    \"show-inheritance\": True,\n    # Do not include imported members to reduce duplicates across re-exports\n    \"imported-members\": False,",
+        "detail": "docs.source.conf",
+        "documentation": {}
+    },
+    {
+        "label": "autodoc_member_order",
+        "kind": 5,
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "autodoc_member_order = \"bysource\"\nadd_module_names = False  # cleaner object names in docs\nautodoc_default_options = {\n    \"members\": True,\n    \"undoc-members\": False,\n    \"inherited-members\": True,\n    \"show-inheritance\": True,\n    # Do not include imported members to reduce duplicates across re-exports\n    \"imported-members\": False,\n}",
+        "detail": "docs.source.conf",
+        "documentation": {}
+    },
+    {
+        "label": "add_module_names",
+        "kind": 5,
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "add_module_names = False  # cleaner object names in docs\nautodoc_default_options = {\n    \"members\": True,\n    \"undoc-members\": False,\n    \"inherited-members\": True,\n    \"show-inheritance\": True,\n    # Do not include imported members to reduce duplicates across re-exports\n    \"imported-members\": False,\n}\n# Napoleon settings for Google-style docstrings",
+        "detail": "docs.source.conf",
+        "documentation": {}
+    },
+    {
+        "label": "autodoc_default_options",
+        "kind": 5,
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "autodoc_default_options = {\n    \"members\": True,\n    \"undoc-members\": False,\n    \"inherited-members\": True,\n    \"show-inheritance\": True,\n    # Do not include imported members to reduce duplicates across re-exports\n    \"imported-members\": False,\n}\n# Napoleon settings for Google-style docstrings\nnapoleon_google_docstring = True",
+        "detail": "docs.source.conf",
+        "documentation": {}
+    },
+    {
+        "label": "napoleon_google_docstring",
+        "kind": 5,
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "napoleon_google_docstring = True\nnapoleon_attr_types = True  # Include type info in attributes\nnapoleon_preprocess_types = True  # Preprocess types for better rendering\nnapoleon_use_param = True  # Use :param: for parameters\nnapoleon_use_rtype = True  # Use :rtype: for return types\n# autodoc_pydantic settings to avoid duplication and combine fields\nautodoc_pydantic_model_show_json = False  # Hide JSON model if not needed\nautodoc_pydantic_model_show_config_summary = False  # Hide config\nautodoc_pydantic_model_member_order = \"bysource\"  # Order by source code\nautodoc_pydantic_field_list_style = \"compact\"  # Compact field lists",
+        "detail": "docs.source.conf",
+        "documentation": {}
+    },
+    {
+        "label": "napoleon_attr_types",
+        "kind": 5,
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "napoleon_attr_types = True  # Include type info in attributes\nnapoleon_preprocess_types = True  # Preprocess types for better rendering\nnapoleon_use_param = True  # Use :param: for parameters\nnapoleon_use_rtype = True  # Use :rtype: for return types\n# autodoc_pydantic settings to avoid duplication and combine fields\nautodoc_pydantic_model_show_json = False  # Hide JSON model if not needed\nautodoc_pydantic_model_show_config_summary = False  # Hide config\nautodoc_pydantic_model_member_order = \"bysource\"  # Order by source code\nautodoc_pydantic_field_list_style = \"compact\"  # Compact field lists\nautodoc_pydantic_field_doc_policy = \"description\"",
+        "detail": "docs.source.conf",
+        "documentation": {}
+    },
+    {
+        "label": "napoleon_preprocess_types",
+        "kind": 5,
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "napoleon_preprocess_types = True  # Preprocess types for better rendering\nnapoleon_use_param = True  # Use :param: for parameters\nnapoleon_use_rtype = True  # Use :rtype: for return types\n# autodoc_pydantic settings to avoid duplication and combine fields\nautodoc_pydantic_model_show_json = False  # Hide JSON model if not needed\nautodoc_pydantic_model_show_config_summary = False  # Hide config\nautodoc_pydantic_model_member_order = \"bysource\"  # Order by source code\nautodoc_pydantic_field_list_style = \"compact\"  # Compact field lists\nautodoc_pydantic_field_doc_policy = \"description\"\nautodoc_pydantic_model_show_field_summary = False  # Avoid duplicate field entries",
+        "detail": "docs.source.conf",
+        "documentation": {}
+    },
+    {
+        "label": "napoleon_use_param",
+        "kind": 5,
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "napoleon_use_param = True  # Use :param: for parameters\nnapoleon_use_rtype = True  # Use :rtype: for return types\n# autodoc_pydantic settings to avoid duplication and combine fields\nautodoc_pydantic_model_show_json = False  # Hide JSON model if not needed\nautodoc_pydantic_model_show_config_summary = False  # Hide config\nautodoc_pydantic_model_member_order = \"bysource\"  # Order by source code\nautodoc_pydantic_field_list_style = \"compact\"  # Compact field lists\nautodoc_pydantic_field_doc_policy = \"description\"\nautodoc_pydantic_model_show_field_summary = False  # Avoid duplicate field entries\ntemplates_path = [\"_templates\"]",
+        "detail": "docs.source.conf",
+        "documentation": {}
+    },
+    {
+        "label": "napoleon_use_rtype",
+        "kind": 5,
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "napoleon_use_rtype = True  # Use :rtype: for return types\n# autodoc_pydantic settings to avoid duplication and combine fields\nautodoc_pydantic_model_show_json = False  # Hide JSON model if not needed\nautodoc_pydantic_model_show_config_summary = False  # Hide config\nautodoc_pydantic_model_member_order = \"bysource\"  # Order by source code\nautodoc_pydantic_field_list_style = \"compact\"  # Compact field lists\nautodoc_pydantic_field_doc_policy = \"description\"\nautodoc_pydantic_model_show_field_summary = False  # Avoid duplicate field entries\ntemplates_path = [\"_templates\"]\nexclude_patterns = []",
+        "detail": "docs.source.conf",
+        "documentation": {}
+    },
+    {
+        "label": "autodoc_pydantic_model_show_json",
+        "kind": 5,
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "autodoc_pydantic_model_show_json = False  # Hide JSON model if not needed\nautodoc_pydantic_model_show_config_summary = False  # Hide config\nautodoc_pydantic_model_member_order = \"bysource\"  # Order by source code\nautodoc_pydantic_field_list_style = \"compact\"  # Compact field lists\nautodoc_pydantic_field_doc_policy = \"description\"\nautodoc_pydantic_model_show_field_summary = False  # Avoid duplicate field entries\ntemplates_path = [\"_templates\"]\nexclude_patterns = []\n# Allow both .rst and .md files\nsource_suffix = {",
+        "detail": "docs.source.conf",
+        "documentation": {}
+    },
+    {
+        "label": "autodoc_pydantic_model_show_config_summary",
+        "kind": 5,
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "autodoc_pydantic_model_show_config_summary = False  # Hide config\nautodoc_pydantic_model_member_order = \"bysource\"  # Order by source code\nautodoc_pydantic_field_list_style = \"compact\"  # Compact field lists\nautodoc_pydantic_field_doc_policy = \"description\"\nautodoc_pydantic_model_show_field_summary = False  # Avoid duplicate field entries\ntemplates_path = [\"_templates\"]\nexclude_patterns = []\n# Allow both .rst and .md files\nsource_suffix = {\n    \".rst\": \"restructuredtext\",",
+        "detail": "docs.source.conf",
+        "documentation": {}
+    },
+    {
+        "label": "autodoc_pydantic_model_member_order",
+        "kind": 5,
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "autodoc_pydantic_model_member_order = \"bysource\"  # Order by source code\nautodoc_pydantic_field_list_style = \"compact\"  # Compact field lists\nautodoc_pydantic_field_doc_policy = \"description\"\nautodoc_pydantic_model_show_field_summary = False  # Avoid duplicate field entries\ntemplates_path = [\"_templates\"]\nexclude_patterns = []\n# Allow both .rst and .md files\nsource_suffix = {\n    \".rst\": \"restructuredtext\",\n    \".md\": \"markdown\",",
+        "detail": "docs.source.conf",
+        "documentation": {}
+    },
+    {
+        "label": "autodoc_pydantic_field_list_style",
+        "kind": 5,
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "autodoc_pydantic_field_list_style = \"compact\"  # Compact field lists\nautodoc_pydantic_field_doc_policy = \"description\"\nautodoc_pydantic_model_show_field_summary = False  # Avoid duplicate field entries\ntemplates_path = [\"_templates\"]\nexclude_patterns = []\n# Allow both .rst and .md files\nsource_suffix = {\n    \".rst\": \"restructuredtext\",\n    \".md\": \"markdown\",\n}",
+        "detail": "docs.source.conf",
+        "documentation": {}
+    },
+    {
+        "label": "autodoc_pydantic_field_doc_policy",
+        "kind": 5,
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "autodoc_pydantic_field_doc_policy = \"description\"\nautodoc_pydantic_model_show_field_summary = False  # Avoid duplicate field entries\ntemplates_path = [\"_templates\"]\nexclude_patterns = []\n# Allow both .rst and .md files\nsource_suffix = {\n    \".rst\": \"restructuredtext\",\n    \".md\": \"markdown\",\n}\n# -- Options for HTML output -------------------------------------------------",
+        "detail": "docs.source.conf",
+        "documentation": {}
+    },
+    {
+        "label": "autodoc_pydantic_model_show_field_summary",
+        "kind": 5,
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "autodoc_pydantic_model_show_field_summary = False  # Avoid duplicate field entries\ntemplates_path = [\"_templates\"]\nexclude_patterns = []\n# Allow both .rst and .md files\nsource_suffix = {\n    \".rst\": \"restructuredtext\",\n    \".md\": \"markdown\",\n}\n# -- Options for HTML output -------------------------------------------------\n# https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output",
+        "detail": "docs.source.conf",
         "documentation": {}
     },
     {
         "label": "templates_path",
         "kind": 5,
-        "importPath": "docs.conf",
-        "description": "docs.conf",
-        "peekOfCode": "templates_path = [\"_templates\"]\nexclude_patterns = [\"_build\", \"Thumbs.db\", \".DS_Store\"]\nhtml_theme = \"alabaster\"\nhtml_static_path = [\"_static\"]",
-        "detail": "docs.conf",
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "templates_path = [\"_templates\"]\nexclude_patterns = []\n# Allow both .rst and .md files\nsource_suffix = {\n    \".rst\": \"restructuredtext\",\n    \".md\": \"markdown\",\n}\n# -- Options for HTML output -------------------------------------------------\n# https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output\n# Furo theme options (optional cosmetics)",
+        "detail": "docs.source.conf",
         "documentation": {}
     },
     {
         "label": "exclude_patterns",
         "kind": 5,
-        "importPath": "docs.conf",
-        "description": "docs.conf",
-        "peekOfCode": "exclude_patterns = [\"_build\", \"Thumbs.db\", \".DS_Store\"]\nhtml_theme = \"alabaster\"\nhtml_static_path = [\"_static\"]",
-        "detail": "docs.conf",
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "exclude_patterns = []\n# Allow both .rst and .md files\nsource_suffix = {\n    \".rst\": \"restructuredtext\",\n    \".md\": \"markdown\",\n}\n# -- Options for HTML output -------------------------------------------------\n# https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output\n# Furo theme options (optional cosmetics)\nhtml_theme = \"furo\"  # Modern, responsive theme (pip install furo)",
+        "detail": "docs.source.conf",
+        "documentation": {}
+    },
+    {
+        "label": "source_suffix",
+        "kind": 5,
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "source_suffix = {\n    \".rst\": \"restructuredtext\",\n    \".md\": \"markdown\",\n}\n# -- Options for HTML output -------------------------------------------------\n# https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output\n# Furo theme options (optional cosmetics)\nhtml_theme = \"furo\"  # Modern, responsive theme (pip install furo)\nhtml_static_path = [\"_static\"]\nhtml_title = \"Think Reason Learn\"",
+        "detail": "docs.source.conf",
         "documentation": {}
     },
     {
         "label": "html_theme",
         "kind": 5,
-        "importPath": "docs.conf",
-        "description": "docs.conf",
-        "peekOfCode": "html_theme = \"alabaster\"\nhtml_static_path = [\"_static\"]",
-        "detail": "docs.conf",
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "html_theme = \"furo\"  # Modern, responsive theme (pip install furo)\nhtml_static_path = [\"_static\"]\nhtml_title = \"Think Reason Learn\"\nhtml_short_title = \"TRL\"\nhtml_theme_options = {\n    \"light_css_variables\": {\n        \"color-brand-primary\": \"#2e7d32\",\n        \"color-brand-content\": \"#1b5e20\",\n    },\n    \"footer_icons\": [",
+        "detail": "docs.source.conf",
         "documentation": {}
     },
     {
         "label": "html_static_path",
         "kind": 5,
-        "importPath": "docs.conf",
-        "description": "docs.conf",
-        "peekOfCode": "html_static_path = [\"_static\"]",
-        "detail": "docs.conf",
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "html_static_path = [\"_static\"]\nhtml_title = \"Think Reason Learn\"\nhtml_short_title = \"TRL\"\nhtml_theme_options = {\n    \"light_css_variables\": {\n        \"color-brand-primary\": \"#2e7d32\",\n        \"color-brand-content\": \"#1b5e20\",\n    },\n    \"footer_icons\": [\n        {",
+        "detail": "docs.source.conf",
+        "documentation": {}
+    },
+    {
+        "label": "html_title",
+        "kind": 5,
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "html_title = \"Think Reason Learn\"\nhtml_short_title = \"TRL\"\nhtml_theme_options = {\n    \"light_css_variables\": {\n        \"color-brand-primary\": \"#2e7d32\",\n        \"color-brand-content\": \"#1b5e20\",\n    },\n    \"footer_icons\": [\n        {\n            \"name\": \"GitHub\",",
+        "detail": "docs.source.conf",
+        "documentation": {}
+    },
+    {
+        "label": "html_short_title",
+        "kind": 5,
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "html_short_title = \"TRL\"\nhtml_theme_options = {\n    \"light_css_variables\": {\n        \"color-brand-primary\": \"#2e7d32\",\n        \"color-brand-content\": \"#1b5e20\",\n    },\n    \"footer_icons\": [\n        {\n            \"name\": \"GitHub\",\n            \"url\": \"https://github.com/vela-research/think-reason-learn\",",
+        "detail": "docs.source.conf",
+        "documentation": {}
+    },
+    {
+        "label": "html_theme_options",
+        "kind": 5,
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "html_theme_options = {\n    \"light_css_variables\": {\n        \"color-brand-primary\": \"#2e7d32\",\n        \"color-brand-content\": \"#1b5e20\",\n    },\n    \"footer_icons\": [\n        {\n            \"name\": \"GitHub\",\n            \"url\": \"https://github.com/vela-research/think-reason-learn\",\n            \"html\": (",
+        "detail": "docs.source.conf",
         "documentation": {}
     },
     {
@@ -1575,7 +1771,7 @@
         "kind": 6,
         "importPath": "think_reason_learn.core.llms._schemas",
         "description": "think_reason_learn.core.llms._schemas",
-        "peekOfCode": "class LLMResponse(BaseModel, Generic[T]):\n    \"\"\"A response from an LLM.\n    Attributes:\n        response: The response from the LLM.\n        logprobs: The log probabilities of the response.\n        total_tokens: The total number of tokens in the response.\n        provider_model: The provider and model used to generate the response.\n    Properties:\n        average_confidence: The average confidence of the response calculated\n        from the log probabilities.",
+        "peekOfCode": "class LLMResponse(BaseModel, Generic[T]):\n    \"\"\"A response from an LLM.\"\"\"\n    response: T | None = Field(default=None, description=\"The response from the LLM.\")\n    logprobs: List[Tuple[str, float | None]] = Field(\n        description=\"The log probabilities of the response.\"\n    )\n    total_tokens: int | None = Field(\n        default=None,\n        description=\"The total number of input and output tokens used \"\n        \"to generate the response.\",",
         "detail": "think_reason_learn.core.llms._schemas",
         "documentation": {}
     },
@@ -1584,7 +1780,7 @@
         "kind": 6,
         "importPath": "think_reason_learn.core.llms._schemas",
         "description": "think_reason_learn.core.llms._schemas",
-        "peekOfCode": "class NotGiven:\n    \"\"\"A sentinel singleton class used to distinguish omitted keyword arguments.\n    For example:\n    ```py\n    def get(timeout: Union[int, TRLNotGiven, None] = TRLNotGiven()) -> Response: ...\n    get(timeout=1)  # 1s timeout\n    get(timeout=None)  # No timeout\n    get()  # Default timeout behavior, which may not be statically known at the method\n    definition.\n    ```",
+        "peekOfCode": "class NotGiven:\n    \"\"\"A sentinel singleton class used to distinguish omitted keyword arguments.\n    Examples:\n        .. code-block:: python\n            def get(timeout: int | NotGiven | None = NotGiven()) -> Response: ...\n            get(timeout=1)      # 1s timeout\n            get(timeout=None)   # No timeout\n            get()               # Default timeout behavior; may not be statically\n                                # known at the method definition.\n    \"\"\"",
         "detail": "think_reason_learn.core.llms._schemas",
         "documentation": {}
     },
@@ -1593,7 +1789,7 @@
         "kind": 6,
         "importPath": "think_reason_learn.core.llms._schemas",
         "description": "think_reason_learn.core.llms._schemas",
-        "peekOfCode": "class TokenCount:\n    \"\"\"Tokens used in an LLM call.\n    Attributes:\n        provider: The provider of the LLM.\n        model: The LLM model used.\n        value: The token count.\n    \"\"\"\n    provider: LLMProvider\n    model: LLMChatModel\n    value: int | None = None",
+        "peekOfCode": "class TokenCount:\n    \"\"\"A token count from an LLM.\"\"\"\n    provider: LLMProvider = field(metadata={\"description\": \"The provider of the LLM.\"})\n    model: LLMChatModel = field(metadata={\"description\": \"The LLM model used.\"})\n    value: int | None = field(\n        default=None, metadata={\"description\": \"The token count.\"}\n    )",
         "detail": "think_reason_learn.core.llms._schemas",
         "documentation": {}
     },
@@ -1611,7 +1807,7 @@
         "kind": 5,
         "importPath": "think_reason_learn.core.llms._schemas",
         "description": "think_reason_learn.core.llms._schemas",
-        "peekOfCode": "NOT_GIVEN = NotGiven()\n@dataclass(slots=True)\nclass TokenCount:\n    \"\"\"Tokens used in an LLM call.\n    Attributes:\n        provider: The provider of the LLM.\n        model: The LLM model used.\n        value: The token count.\n    \"\"\"\n    provider: LLMProvider",
+        "peekOfCode": "NOT_GIVEN = NotGiven()\n@dataclass(slots=True)\nclass TokenCount:\n    \"\"\"A token count from an LLM.\"\"\"\n    provider: LLMProvider = field(metadata={\"description\": \"The provider of the LLM.\"})\n    model: LLMChatModel = field(metadata={\"description\": \"The LLM model used.\"})\n    value: int | None = field(\n        default=None, metadata={\"description\": \"The token count.\"}\n    )",
         "detail": "think_reason_learn.core.llms._schemas",
         "documentation": {}
     },
@@ -1710,7 +1906,7 @@
         "kind": 6,
         "importPath": "think_reason_learn.gptree._gptree",
         "description": "think_reason_learn.gptree._gptree",
-        "peekOfCode": "class NodeQuestion:\n    \"\"\"A question for generated at a node.\n    Attributes:\n        value: the question text.\n        choices: the answer choices for the question.\n        question_type: the type of the question.\n        df_column: the name of the column in the tree's training data that contains\n            the question.\n        score: the score of the question in the node. E.g, gini impurity.\n    \"\"\"",
+        "peekOfCode": "class NodeQuestion:\n    \"\"\"A question for generated at a node.\"\"\"\n    value: str = field(metadata={\"description\": \"The question text.\"})\n    choices: List[str] = field(\n        metadata={\"description\": \"The answer choices for the question.\"}\n    )\n    question_type: QuestionType = field(\n        metadata={\"description\": \"The type of the question.\"}\n    )\n    df_column: str = field(",
         "detail": "think_reason_learn.gptree._gptree",
         "documentation": {}
     },
@@ -1728,7 +1924,7 @@
         "kind": 6,
         "importPath": "think_reason_learn.gptree._gptree",
         "description": "think_reason_learn.gptree._gptree",
-        "peekOfCode": "class Questions(BaseModel):\n    questions: List[Question]\n    cumulative_memory: str = Field(..., description=CUMULATIVE_MEMORY_INSTRUCTIONS)\nclass Answer(BaseModel):\n    answer: str\n@dataclass(slots=True)\nclass Node:\n    \"\"\"A Node represents a decision point in GPTree.\n    Attributes:\n        id: The id of the node.",
+        "peekOfCode": "class Questions(BaseModel):\n    questions: List[Question]\n    cumulative_memory: str = Field(..., description=CUMULATIVE_MEMORY_INSTRUCTIONS)\nclass Answer(BaseModel):\n    answer: str\n@dataclass(slots=True)\nclass Node:\n    \"\"\"A Node represents a decision point in GPTree.\"\"\"\n    id: int = field(metadata={\"description\": \"The id of the node.\"})\n    label: str = field(metadata={\"description\": \"The label of the node.\"})",
         "detail": "think_reason_learn.gptree._gptree",
         "documentation": {}
     },
@@ -1737,7 +1933,7 @@
         "kind": 6,
         "importPath": "think_reason_learn.gptree._gptree",
         "description": "think_reason_learn.gptree._gptree",
-        "peekOfCode": "class Answer(BaseModel):\n    answer: str\n@dataclass(slots=True)\nclass Node:\n    \"\"\"A Node represents a decision point in GPTree.\n    Attributes:\n        id: The id of the node.\n        label: The label of the node.\n        question: The chosen question at this node. E.g, if criterion is gini, then\n            the question with the lowest gini impurity.",
+        "peekOfCode": "class Answer(BaseModel):\n    answer: str\n@dataclass(slots=True)\nclass Node:\n    \"\"\"A Node represents a decision point in GPTree.\"\"\"\n    id: int = field(metadata={\"description\": \"The id of the node.\"})\n    label: str = field(metadata={\"description\": \"The label of the node.\"})\n    question: NodeQuestion | None = field(\n        default=None,\n        metadata={",
         "detail": "think_reason_learn.gptree._gptree",
         "documentation": {}
     },
@@ -1746,7 +1942,7 @@
         "kind": 6,
         "importPath": "think_reason_learn.gptree._gptree",
         "description": "think_reason_learn.gptree._gptree",
-        "peekOfCode": "class Node:\n    \"\"\"A Node represents a decision point in GPTree.\n    Attributes:\n        id: The id of the node.\n        label: The label of the node.\n        question: The chosen question at this node. E.g, if criterion is gini, then\n            the question with the lowest gini impurity.\n        questions: All questions that have been generated at this node.\n        cumulative_memory: The cumulative memory context generated at this node.\n        split_ratios: Samples split at this node per answer choice of the",
+        "peekOfCode": "class Node:\n    \"\"\"A Node represents a decision point in GPTree.\"\"\"\n    id: int = field(metadata={\"description\": \"The id of the node.\"})\n    label: str = field(metadata={\"description\": \"The label of the node.\"})\n    question: NodeQuestion | None = field(\n        default=None,\n        metadata={\n            \"description\": \"The chosen question at this node. E.g, \"\n            \"if criterion is gini, then the question with the lowest gini impurity.\"\n        },",
         "detail": "think_reason_learn.gptree._gptree",
         "documentation": {}
     },
@@ -1773,7 +1969,7 @@
         "kind": 5,
         "importPath": "think_reason_learn.gptree._gptree",
         "description": "think_reason_learn.gptree._gptree",
-        "peekOfCode": "logger = logging.getLogger(__name__)\nIndexArray = npt.NDArray[np.intp]\n@dataclass(slots=True)\nclass NodeQuestion:\n    \"\"\"A question for generated at a node.\n    Attributes:\n        value: the question text.\n        choices: the answer choices for the question.\n        question_type: the type of the question.\n        df_column: the name of the column in the tree's training data that contains",
+        "peekOfCode": "logger = logging.getLogger(__name__)\nIndexArray = npt.NDArray[np.intp]\n@dataclass(slots=True)\nclass NodeQuestion:\n    \"\"\"A question for generated at a node.\"\"\"\n    value: str = field(metadata={\"description\": \"The question text.\"})\n    choices: List[str] = field(\n        metadata={\"description\": \"The answer choices for the question.\"}\n    )\n    question_type: QuestionType = field(",
         "detail": "think_reason_learn.gptree._gptree",
         "documentation": {}
     },
@@ -1782,7 +1978,7 @@
         "kind": 5,
         "importPath": "think_reason_learn.gptree._gptree",
         "description": "think_reason_learn.gptree._gptree",
-        "peekOfCode": "IndexArray = npt.NDArray[np.intp]\n@dataclass(slots=True)\nclass NodeQuestion:\n    \"\"\"A question for generated at a node.\n    Attributes:\n        value: the question text.\n        choices: the answer choices for the question.\n        question_type: the type of the question.\n        df_column: the name of the column in the tree's training data that contains\n            the question.",
+        "peekOfCode": "IndexArray = npt.NDArray[np.intp]\n@dataclass(slots=True)\nclass NodeQuestion:\n    \"\"\"A question for generated at a node.\"\"\"\n    value: str = field(metadata={\"description\": \"The question text.\"})\n    choices: List[str] = field(\n        metadata={\"description\": \"The answer choices for the question.\"}\n    )\n    question_type: QuestionType = field(\n        metadata={\"description\": \"The type of the question.\"}",
         "detail": "think_reason_learn.gptree._gptree",
         "documentation": {}
     },

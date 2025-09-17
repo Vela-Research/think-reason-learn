@@ -1,37 +1,67 @@
 num_questions_tag = "<number_of_questions>"
 INSTRUCTIONS_FOR_GENERATING_QUESTION_GEN_INSTRUCTIONS = f"""\
-You are part of a team of experts that are building a decision tree model (GPTree) \
-for a classification task.
-When given a task description, you need to generate clear and detailed instructions \
-template for generating questions for the tree at a Node.
-Your instructions template will inform the question generator in your team to generate \
-questions for the tree at a Node.
-The number of questions to generate is not known now, so use the tag \
-{num_questions_tag} as a placeholder in your instructions template.
-The instructions template should be in a format that is easy for the question \
-generator to understand and generate questions purposely for this task.
-The questions must always have definite choices as answers (binary or multi-class).
+You are a helper LLM that writes an instructions template for a question
+generator used in a GPTree classification task.
 
-Generate only the instructions template without prefatory text or labels. Output the \
-raw instructions that will be sent directly to the question generator.
+Goal:
+- Produce a concise, reusable template that instructs a question-generator LLM
+  to generate {num_questions_tag} discriminative questions per node.
+- The template must NOT include prefatory text or labels—return only the
+  template content.
+- Allow the generator to decide what to ask based on the task description and
+  the rolling cumulative memory, without over-constraining its creativity.
+
+Requirements the template should convey to the generator:
+- Each question must be clear, brief, and domain-appropriate useful for the
+  classification task.
+- Each question must include explicit answer choices (binary or multi-class) that are
+  mutually exclusive and collectively cover likely outcomes.
+- Avoid redundant or trivially correlated questions; promote diverse angles that
+  meaningfully split the data based on the classification task.
+- Treat any provided cumulative memory as soft guidance, not a hard constraint.
+- Do not leak labels or training answers; do not fabricate data or assumptions.
+
+Return:
+- Only the instructions template text that will be sent to the question
+  generator, and it must contain the placeholder {num_questions_tag} exactly
+  once where the number of questions will be substituted later.
 """
-"Instructions for an LLM to generate instructions for generating questions."
+"Instructions template generator for GPTree question generation."
 
 
 QUESTION_ANSWER_INSTRUCTIONS = """\
-You are part of a team of experts that are building a decision tree model (GPTree) \
-for a classification task.
-When given a question and a sample from the data, your task is to answer the question \
-for the sample per the sample given.
+You are an answering agent in a GPTree classification pipeline.
+
+Given:
+- A question,
+- A set of allowed answer choices,
+- One sample (text),
+
+Task:
+- Choose exactly one answer from the provided choices that best fits the sample.
+- Base your decision solely on the sample and the question; do not invent new choices.
+- If multiple choices seem plausible, pick the one most strongly supported
+  by the sample and be deterministic.
+- If none fit perfectly, choose the closest match.
+
+Output:
+- Return only the chosen answer string—no explanations, punctuation, or extra text.
 """
-"Instructions for an LLM to answer a question for a sample."
+"Instructions for consistently answering with one of the provided choices."
 
 
 CUMULATIVE_MEMORY_INSTRUCTIONS = """\
-Based on the previous cummulative memory context and what you just learned, \
-give a brief advice that can be passed to the next node as cummulative memory context \
-during it's questions generation. \
-This should inform the next node about what happened here and the previous nodes and \
-what it should focus on.
+Using the prior cumulative memory (if any) and what was just learned at this node,
+write a brief note for the next node.
+
+Guidelines:
+- Summarize key observations and outcomes so far at a high level, and provide gentle
+  hints or priorities for the next node.
+- Treat this as guidance, not a constraint; avoid prescriptive language.
+- Do not repeat raw samples or sensitive details; avoid long quotes.
+- Keep it concise (1-3 sentences).
+
+Return:
+- Only the cumulative memory text to pass forward.
 """
-"Instructions for an LLM to use cummulative memory context."
+"Instructions for producing concise, non-restrictive cumulative memory."

@@ -355,15 +355,16 @@ class GPTree:
                 q = current.question
                 label_lines.append(_truncate(f"Q: {q.value}"))
                 label_lines.append(f"choices: {', '.join(q.choices)}")
-            if current.split_ratios is not None:
-                label_lines.append(
-                    f"split: {', '.join(str(x) for x in current.split_ratios)}"
-                )
             if current.class_distribution:
                 dist_str = ", ".join(
                     f"{k}:{v}" for k, v in current.class_distribution.items()
                 )
-                label_lines.append(_truncate(f"dist: {dist_str}"))
+                label_lines.append(_truncate(f"Label distribution: {dist_str}"))
+            if current.split_ratios is not None:
+                label_lines.append(
+                    "Answer distribution: "
+                    f"{', '.join(str(x) for x in current.split_ratios)}"
+                )
 
             node_label = _escape("\n".join(label_lines))
             dot.node(  # type: ignore

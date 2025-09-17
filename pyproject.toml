@@ -15,7 +15,7 @@ classifiers = [
 ]
 
 [tool.poetry.dependencies]
-python = ">=3.13,<3.14"
+python = ">=3.13"
 pydantic = "^2.11.7"
 pydantic-settings = "^2.10.1"
 google-genai = "^1.33.0"

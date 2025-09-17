@@ -1791,7 +1791,7 @@
         "kind": 5,
         "importPath": "think_reason_learn.gptree._prompts",
         "description": "think_reason_learn.gptree._prompts",
-        "peekOfCode": "num_questions_tag = \"<number_of_questions>\"\nINSTRUCTIONS_FOR_GENERATING_QUESTION_GEN_INSTRUCTIONS = f\"\"\"\\\nYou are part of a team of experts that are building a decision tree model (GPTree) \\\nfor a classification task.\nWhen given a task description, you need to generate clear and detailed instructions \\\ntemplate for generating questions for the tree at a Node.\nYour instructions template will inform the question generator in your team to generate \\\nquestions for the tree at a Node.\nThe number of questions to generate is not known now, so use the tag \\\n{num_questions_tag} as a placeholder in your instructions template.",
+        "peekOfCode": "num_questions_tag = \"<number_of_questions>\"\nINSTRUCTIONS_FOR_GENERATING_QUESTION_GEN_INSTRUCTIONS = f\"\"\"\\\nYou are a helper LLM that writes an instructions template for a question\ngenerator used in a GPTree classification task.\nGoal:\n- Produce a concise, reusable template that instructs a question-generator LLM\n  to generate {num_questions_tag} discriminative questions per node.\n- The template must NOT include prefatory text or labels—return only the\n  template content.\n- Allow the generator to decide what to ask based on the task description and",
         "detail": "think_reason_learn.gptree._prompts",
         "documentation": {}
     },
@@ -1800,7 +1800,7 @@
         "kind": 5,
         "importPath": "think_reason_learn.gptree._prompts",
         "description": "think_reason_learn.gptree._prompts",
-        "peekOfCode": "INSTRUCTIONS_FOR_GENERATING_QUESTION_GEN_INSTRUCTIONS = f\"\"\"\\\nYou are part of a team of experts that are building a decision tree model (GPTree) \\\nfor a classification task.\nWhen given a task description, you need to generate clear and detailed instructions \\\ntemplate for generating questions for the tree at a Node.\nYour instructions template will inform the question generator in your team to generate \\\nquestions for the tree at a Node.\nThe number of questions to generate is not known now, so use the tag \\\n{num_questions_tag} as a placeholder in your instructions template.\nThe instructions template should be in a format that is easy for the question \\",
+        "peekOfCode": "INSTRUCTIONS_FOR_GENERATING_QUESTION_GEN_INSTRUCTIONS = f\"\"\"\\\nYou are a helper LLM that writes an instructions template for a question\ngenerator used in a GPTree classification task.\nGoal:\n- Produce a concise, reusable template that instructs a question-generator LLM\n  to generate {num_questions_tag} discriminative questions per node.\n- The template must NOT include prefatory text or labels—return only the\n  template content.\n- Allow the generator to decide what to ask based on the task description and\n  the rolling cumulative memory, without over-constraining its creativity.",
         "detail": "think_reason_learn.gptree._prompts",
         "documentation": {}
     },
@@ -1809,7 +1809,7 @@
         "kind": 5,
         "importPath": "think_reason_learn.gptree._prompts",
         "description": "think_reason_learn.gptree._prompts",
-        "peekOfCode": "QUESTION_ANSWER_INSTRUCTIONS = \"\"\"\\\nYou are part of a team of experts that are building a decision tree model (GPTree) \\\nfor a classification task.\nWhen given a question and a sample from the data, your task is to answer the question \\\nfor the sample per the sample given.\n\"\"\"\n\"Instructions for an LLM to answer a question for a sample.\"\nCUMULATIVE_MEMORY_INSTRUCTIONS = \"\"\"\\\nBased on the previous cummulative memory context and what you just learned, \\\ngive a brief advice that can be passed to the next node as cummulative memory context \\",
+        "peekOfCode": "QUESTION_ANSWER_INSTRUCTIONS = \"\"\"\\\nYou are an answering agent in a GPTree classification pipeline.\nGiven:\n- A question,\n- A set of allowed answer choices,\n- One sample (text),\nTask:\n- Choose exactly one answer from the provided choices that best fits the sample.\n- Base your decision solely on the sample and the question; do not invent new choices.\n- If multiple choices seem plausible, pick the one most strongly supported",
         "detail": "think_reason_learn.gptree._prompts",
         "documentation": {}
     },
@@ -1818,7 +1818,7 @@
         "kind": 5,
         "importPath": "think_reason_learn.gptree._prompts",
         "description": "think_reason_learn.gptree._prompts",
-        "peekOfCode": "CUMULATIVE_MEMORY_INSTRUCTIONS = \"\"\"\\\nBased on the previous cummulative memory context and what you just learned, \\\ngive a brief advice that can be passed to the next node as cummulative memory context \\\nduring it's questions generation. \\\nThis should inform the next node about what happened here and the previous nodes and \\\nwhat it should focus on.\n\"\"\"\n\"Instructions for an LLM to use cummulative memory context.\"",
+        "peekOfCode": "CUMULATIVE_MEMORY_INSTRUCTIONS = \"\"\"\\\nUsing the prior cumulative memory (if any) and what was just learned at this node,\nwrite a brief note for the next node.\nGuidelines:\n- Summarize key observations and outcomes so far at a high level, and provide gentle\n  hints or priorities for the next node.\n- Treat this as guidance, not a constraint; avoid prescriptive language.\n- Do not repeat raw samples or sensitive details; avoid long quotes.\n- Keep it concise (1-3 sentences).\nReturn:",
         "detail": "think_reason_learn.gptree._prompts",
         "documentation": {}
     },

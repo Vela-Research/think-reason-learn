@@ -57,6 +57,14 @@
         "documentation": {}
     },
     {
+        "label": "annotations",
+        "importPath": "__future__",
+        "description": "__future__",
+        "isExtraImport": true,
+        "detail": "__future__",
+        "documentation": {}
+    },
+    {
         "label": "os",
         "kind": 6,
         "isExtraImport": true,
@@ -81,6 +89,14 @@
         "importPath": "sys",
         "description": "sys",
         "detail": "sys",
+        "documentation": {}
+    },
+    {
+        "label": "Path",
+        "importPath": "pathlib",
+        "description": "pathlib",
+        "isExtraImport": true,
+        "detail": "pathlib",
         "documentation": {}
     },
     {
@@ -516,6 +532,78 @@
         "documentation": {}
     },
     {
+        "label": "List",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Dict",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Literal",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "cast",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Type",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Tuple",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "AsyncGenerator",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Any",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Set",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
         "label": "Dict",
         "importPath": "typing",
         "description": "typing",
@@ -694,6 +782,30 @@
     },
     {
         "label": "BaseModel",
+        "importPath": "pydantic",
+        "description": "pydantic",
+        "isExtraImport": true,
+        "detail": "pydantic",
+        "documentation": {}
+    },
+    {
+        "label": "BaseModel",
+        "importPath": "pydantic",
+        "description": "pydantic",
+        "isExtraImport": true,
+        "detail": "pydantic",
+        "documentation": {}
+    },
+    {
+        "label": "create_model",
+        "importPath": "pydantic",
+        "description": "pydantic",
+        "isExtraImport": true,
+        "detail": "pydantic",
+        "documentation": {}
+    },
+    {
+        "label": "Field",
         "importPath": "pydantic",
         "description": "pydantic",
         "isExtraImport": true,
@@ -1008,6 +1120,30 @@
         "documentation": {}
     },
     {
+        "label": "dataclass",
+        "importPath": "dataclasses",
+        "description": "dataclasses",
+        "isExtraImport": true,
+        "detail": "dataclasses",
+        "documentation": {}
+    },
+    {
+        "label": "field",
+        "importPath": "dataclasses",
+        "description": "dataclasses",
+        "isExtraImport": true,
+        "detail": "dataclasses",
+        "documentation": {}
+    },
+    {
+        "label": "asdict",
+        "importPath": "dataclasses",
+        "description": "dataclasses",
+        "isExtraImport": true,
+        "detail": "dataclasses",
+        "documentation": {}
+    },
+    {
         "label": "BaseSettings",
         "importPath": "pydantic_settings",
         "description": "pydantic_settings",
@@ -1032,14 +1168,6 @@
         "documentation": {}
     },
     {
-        "label": "JSONValue",
-        "importPath": "think_reason_learn.core._types",
-        "description": "think_reason_learn.core._types",
-        "isExtraImport": true,
-        "detail": "think_reason_learn.core._types",
-        "documentation": {}
-    },
-    {
         "label": "asyncio",
         "kind": 6,
         "isExtraImport": true,
@@ -1057,11 +1185,35 @@
         "documentation": {}
     },
     {
+        "label": "deque",
+        "importPath": "collections",
+        "description": "collections",
+        "isExtraImport": true,
+        "detail": "collections",
+        "documentation": {}
+    },
+    {
         "label": "uuid4",
         "importPath": "uuid",
         "description": "uuid",
         "isExtraImport": true,
         "detail": "uuid",
+        "documentation": {}
+    },
+    {
+        "label": "uuid4",
+        "importPath": "uuid",
+        "description": "uuid",
+        "isExtraImport": true,
+        "detail": "uuid",
+        "documentation": {}
+    },
+    {
+        "label": "deepcopy",
+        "importPath": "copy",
+        "description": "copy",
+        "isExtraImport": true,
+        "detail": "copy",
         "documentation": {}
     },
     {
@@ -1128,18 +1280,26 @@
     },
     {
         "label": "LLMChoice",
-        "importPath": "think_reason_learn.core.llms.schemas",
-        "description": "think_reason_learn.core.llms.schemas",
+        "importPath": "think_reason_learn.core.llms",
+        "description": "think_reason_learn.core.llms",
         "isExtraImport": true,
-        "detail": "think_reason_learn.core.llms.schemas",
+        "detail": "think_reason_learn.core.llms",
         "documentation": {}
     },
     {
         "label": "TokenCount",
-        "importPath": "think_reason_learn.core.llms.schemas",
-        "description": "think_reason_learn.core.llms.schemas",
+        "importPath": "think_reason_learn.core.llms",
+        "description": "think_reason_learn.core.llms",
         "isExtraImport": true,
-        "detail": "think_reason_learn.core.llms.schemas",
+        "detail": "think_reason_learn.core.llms",
+        "documentation": {}
+    },
+    {
+        "label": "llm",
+        "importPath": "think_reason_learn.core.llms",
+        "description": "think_reason_learn.core.llms",
+        "isExtraImport": true,
+        "detail": "think_reason_learn.core.llms",
         "documentation": {}
     },
     {
@@ -1172,6 +1332,54 @@
         "description": "think_reason_learn.core._exceptions",
         "isExtraImport": true,
         "detail": "think_reason_learn.core._exceptions",
+        "documentation": {}
+    },
+    {
+        "label": "DataError",
+        "importPath": "think_reason_learn.core._exceptions",
+        "description": "think_reason_learn.core._exceptions",
+        "isExtraImport": true,
+        "detail": "think_reason_learn.core._exceptions",
+        "documentation": {}
+    },
+    {
+        "label": "LLMError",
+        "importPath": "think_reason_learn.core._exceptions",
+        "description": "think_reason_learn.core._exceptions",
+        "isExtraImport": true,
+        "detail": "think_reason_learn.core._exceptions",
+        "documentation": {}
+    },
+    {
+        "label": "CorruptionError",
+        "importPath": "think_reason_learn.core._exceptions",
+        "description": "think_reason_learn.core._exceptions",
+        "isExtraImport": true,
+        "detail": "think_reason_learn.core._exceptions",
+        "documentation": {}
+    },
+    {
+        "label": "JSONValue",
+        "importPath": "think_reason_learn.core._types",
+        "description": "think_reason_learn.core._types",
+        "isExtraImport": true,
+        "detail": "think_reason_learn.core._types",
+        "documentation": {}
+    },
+    {
+        "label": "LLMChoice",
+        "importPath": "think_reason_learn.core.llms.schemas",
+        "description": "think_reason_learn.core.llms.schemas",
+        "isExtraImport": true,
+        "detail": "think_reason_learn.core.llms.schemas",
+        "documentation": {}
+    },
+    {
+        "label": "TokenCount",
+        "importPath": "think_reason_learn.core.llms.schemas",
+        "description": "think_reason_learn.core.llms.schemas",
+        "isExtraImport": true,
+        "detail": "think_reason_learn.core.llms.schemas",
         "documentation": {}
     },
     {
@@ -1706,11 +1914,92 @@
         "documentation": {}
     },
     {
+        "label": "NodeQuestion",
+        "kind": 6,
+        "importPath": "think_reason_learn.gptree._gptree",
+        "description": "think_reason_learn.gptree._gptree",
+        "peekOfCode": "class NodeQuestion:\n    \"\"\"A question for generated at a node.\n    Attributes:\n        value: the question text.\n        choices: the answer choices for the question.\n        question_type: the type of the question.\n        df_column: the name of the column in the tree's training data that contains\n            the question.\n        score: the score of the question in the node. E.g, gini impurity.\n    \"\"\"",
+        "detail": "think_reason_learn.gptree._gptree",
+        "documentation": {}
+    },
+    {
+        "label": "Question",
+        "kind": 6,
+        "importPath": "think_reason_learn.gptree._gptree",
+        "description": "think_reason_learn.gptree._gptree",
+        "peekOfCode": "class Question(BaseModel):\n    value: str\n    choices: List[str]\n    question_type: QuestionType\nclass Questions(BaseModel):\n    questions: List[Question]\n    cumulative_memory: str = Field(..., description=CUMULATIVE_MEMORY_INSTRUCTIONS)\nclass Answer(BaseModel):\n    answer: str\n@dataclass(slots=True)",
+        "detail": "think_reason_learn.gptree._gptree",
+        "documentation": {}
+    },
+    {
+        "label": "Questions",
+        "kind": 6,
+        "importPath": "think_reason_learn.gptree._gptree",
+        "description": "think_reason_learn.gptree._gptree",
+        "peekOfCode": "class Questions(BaseModel):\n    questions: List[Question]\n    cumulative_memory: str = Field(..., description=CUMULATIVE_MEMORY_INSTRUCTIONS)\nclass Answer(BaseModel):\n    answer: str\n@dataclass(slots=True)\nclass Node:\n    \"\"\"A Node represents a decision point in GPTree.\n    Attributes:\n        id: The id of the node.",
+        "detail": "think_reason_learn.gptree._gptree",
+        "documentation": {}
+    },
+    {
+        "label": "Answer",
+        "kind": 6,
+        "importPath": "think_reason_learn.gptree._gptree",
+        "description": "think_reason_learn.gptree._gptree",
+        "peekOfCode": "class Answer(BaseModel):\n    answer: str\n@dataclass(slots=True)\nclass Node:\n    \"\"\"A Node represents a decision point in GPTree.\n    Attributes:\n        id: The id of the node.\n        label: The label of the node.\n        question: The chosen question at this node. E.g, if criterion is gini, then\n            the question with the lowest gini impurity.",
+        "detail": "think_reason_learn.gptree._gptree",
+        "documentation": {}
+    },
+    {
+        "label": "Node",
+        "kind": 6,
+        "importPath": "think_reason_learn.gptree._gptree",
+        "description": "think_reason_learn.gptree._gptree",
+        "peekOfCode": "class Node:\n    \"\"\"A Node represents a decision point in GPTree.\n    Attributes:\n        id: The id of the node.\n        label: The label of the node.\n        question: The chosen question at this node. E.g, if criterion is gini, then\n            the question with the lowest gini impurity.\n        questions: All questions that have been generated at this node.\n        cumulative_memory: The cumulative memory context generated at this node.\n        split_ratios: Samples split at this node per answer choice of the",
+        "detail": "think_reason_learn.gptree._gptree",
+        "documentation": {}
+    },
+    {
+        "label": "BuildTask",
+        "kind": 6,
+        "importPath": "think_reason_learn.gptree._gptree",
+        "description": "think_reason_learn.gptree._gptree",
+        "peekOfCode": "class BuildTask:\n    node_id: int\n    parent_id: int | None\n    depth: int\n    label: str\n    sample_indices: IndexArray\nclass GPTree:\n    \"\"\"LLM based decision tree classifier.\"\"\"\n    def __init__(\n        self,",
+        "detail": "think_reason_learn.gptree._gptree",
+        "documentation": {}
+    },
+    {
+        "label": "GPTree",
+        "kind": 6,
+        "importPath": "think_reason_learn.gptree._gptree",
+        "description": "think_reason_learn.gptree._gptree",
+        "peekOfCode": "class GPTree:\n    \"\"\"LLM based decision tree classifier.\"\"\"\n    def __init__(\n        self,\n        qgen_llmc: List[LLMChoice],\n        critic_llmc: List[LLMChoice],\n        qgen_instr_llmc: List[LLMChoice],\n        qanswer_llmc: List[LLMChoice] | None = None,\n        qgen_temperature: float = 0.0,\n        critic_temperature: float = 0.0,",
+        "detail": "think_reason_learn.gptree._gptree",
+        "documentation": {}
+    },
+    {
+        "label": "logger",
+        "kind": 5,
+        "importPath": "think_reason_learn.gptree._gptree",
+        "description": "think_reason_learn.gptree._gptree",
+        "peekOfCode": "logger = logging.getLogger(__name__)\nIndexArray = npt.NDArray[np.intp]\n@dataclass(slots=True)\nclass NodeQuestion:\n    \"\"\"A question for generated at a node.\n    Attributes:\n        value: the question text.\n        choices: the answer choices for the question.\n        question_type: the type of the question.\n        df_column: the name of the column in the tree's training data that contains",
+        "detail": "think_reason_learn.gptree._gptree",
+        "documentation": {}
+    },
+    {
+        "label": "IndexArray",
+        "kind": 5,
+        "importPath": "think_reason_learn.gptree._gptree",
+        "description": "think_reason_learn.gptree._gptree",
+        "peekOfCode": "IndexArray = npt.NDArray[np.intp]\n@dataclass(slots=True)\nclass NodeQuestion:\n    \"\"\"A question for generated at a node.\n    Attributes:\n        value: the question text.\n        choices: the answer choices for the question.\n        question_type: the type of the question.\n        df_column: the name of the column in the tree's training data that contains\n            the question.",
+        "detail": "think_reason_learn.gptree._gptree",
+        "documentation": {}
+    },
+    {
         "label": "num_questions_tag",
         "kind": 5,
         "importPath": "think_reason_learn.gptree._prompts",
         "description": "think_reason_learn.gptree._prompts",
-        "peekOfCode": "num_questions_tag = \"<number_of_questions>\"\nINSTRUCTIONS_FOR_GENERATING_QUESTION_GEN_INSTRUCTIONS = f\"\"\"\\\nYou are part of a team of experts that are building a decision tree model (GPTree) for a classification task.\nWhen given a task description, you need to generate clear and detailed instructions template for generating questions for the tree at a Node.\nYour instructions template will inform the question generator in your team to generate questions for the tree at a Node.\nThe number of questions to generate is not known now, so use the tag {num_questions_tag} as a placeholder in your instructions template.\nThe instructions template should be in a format that is easy for the question generator to understand and generate questions purposely for this task.\nThe questions must always have definite choices as answers (binary or multi-class).\nGenerate only the instructions template without prefatory text or labels. Output the raw instructions that will be sent directly to the question generator.\n\"\"\"",
+        "peekOfCode": "num_questions_tag = \"<number_of_questions>\"\nINSTRUCTIONS_FOR_GENERATING_QUESTION_GEN_INSTRUCTIONS = f\"\"\"\\\nYou are part of a team of experts that are building a decision tree model (GPTree) \\\nfor a classification task.\nWhen given a task description, you need to generate clear and detailed instructions \\\ntemplate for generating questions for the tree at a Node.\nYour instructions template will inform the question generator in your team to generate \\\nquestions for the tree at a Node.\nThe number of questions to generate is not known now, so use the tag \\\n{num_questions_tag} as a placeholder in your instructions template.",
         "detail": "think_reason_learn.gptree._prompts",
         "documentation": {}
     },
@@ -1719,7 +2008,7 @@
         "kind": 5,
         "importPath": "think_reason_learn.gptree._prompts",
         "description": "think_reason_learn.gptree._prompts",
-        "peekOfCode": "INSTRUCTIONS_FOR_GENERATING_QUESTION_GEN_INSTRUCTIONS = f\"\"\"\\\nYou are part of a team of experts that are building a decision tree model (GPTree) for a classification task.\nWhen given a task description, you need to generate clear and detailed instructions template for generating questions for the tree at a Node.\nYour instructions template will inform the question generator in your team to generate questions for the tree at a Node.\nThe number of questions to generate is not known now, so use the tag {num_questions_tag} as a placeholder in your instructions template.\nThe instructions template should be in a format that is easy for the question generator to understand and generate questions purposely for this task.\nThe questions must always have definite choices as answers (binary or multi-class).\nGenerate only the instructions template without prefatory text or labels. Output the raw instructions that will be sent directly to the question generator.\n\"\"\"\n\"Instructions for an LLM to generate instructions for generating questions.\"",
+        "peekOfCode": "INSTRUCTIONS_FOR_GENERATING_QUESTION_GEN_INSTRUCTIONS = f\"\"\"\\\nYou are part of a team of experts that are building a decision tree model (GPTree) \\\nfor a classification task.\nWhen given a task description, you need to generate clear and detailed instructions \\\ntemplate for generating questions for the tree at a Node.\nYour instructions template will inform the question generator in your team to generate \\\nquestions for the tree at a Node.\nThe number of questions to generate is not known now, so use the tag \\\n{num_questions_tag} as a placeholder in your instructions template.\nThe instructions template should be in a format that is easy for the question \\",
         "detail": "think_reason_learn.gptree._prompts",
         "documentation": {}
     },
@@ -1728,16 +2017,16 @@
         "kind": 5,
         "importPath": "think_reason_learn.gptree._prompts",
         "description": "think_reason_learn.gptree._prompts",
-        "peekOfCode": "QUESTION_ANSWER_INSTRUCTIONS = \"\"\"\\\nYou are part of a team of experts that are building a decision tree model (GPTree) for a classification task.\nWhen given a question and a sample from the data, your task is to answer the question for the sample per the sample given.\n\"\"\"\n\"Instructions for an LLM to answer a question for a sample.\"\nCUMMULATIVE_MEMORY_INSTRUCTIONS = \"\"\"\\\nBased on the previous cummulative memory context and what you just learned, \\\ngive a brief advice that can be passed to the next node as cummulative memory context during it's questions generation. \\\nThis should inform the next node about what happened here and the previous nodes and what it should focus on.\n\"\"\"",
+        "peekOfCode": "QUESTION_ANSWER_INSTRUCTIONS = \"\"\"\\\nYou are part of a team of experts that are building a decision tree model (GPTree) \\\nfor a classification task.\nWhen given a question and a sample from the data, your task is to answer the question \\\nfor the sample per the sample given.\n\"\"\"\n\"Instructions for an LLM to answer a question for a sample.\"\nCUMULATIVE_MEMORY_INSTRUCTIONS = \"\"\"\\\nBased on the previous cummulative memory context and what you just learned, \\\ngive a brief advice that can be passed to the next node as cummulative memory context \\",
         "detail": "think_reason_learn.gptree._prompts",
         "documentation": {}
     },
     {
-        "label": "CUMMULATIVE_MEMORY_INSTRUCTIONS",
+        "label": "CUMULATIVE_MEMORY_INSTRUCTIONS",
         "kind": 5,
         "importPath": "think_reason_learn.gptree._prompts",
         "description": "think_reason_learn.gptree._prompts",
-        "peekOfCode": "CUMMULATIVE_MEMORY_INSTRUCTIONS = \"\"\"\\\nBased on the previous cummulative memory context and what you just learned, \\\ngive a brief advice that can be passed to the next node as cummulative memory context during it's questions generation. \\\nThis should inform the next node about what happened here and the previous nodes and what it should focus on.\n\"\"\"\n\"Instructions for an LLM to use cummulative memory context.\"",
+        "peekOfCode": "CUMULATIVE_MEMORY_INSTRUCTIONS = \"\"\"\\\nBased on the previous cummulative memory context and what you just learned, \\\ngive a brief advice that can be passed to the next node as cummulative memory context \\\nduring it's questions generation. \\\nThis should inform the next node about what happened here and the previous nodes and \\\nwhat it should focus on.\n\"\"\"\n\"Instructions for an LLM to use cummulative memory context.\"",
         "detail": "think_reason_learn.gptree._prompts",
         "documentation": {}
     },
@@ -1782,7 +2071,7 @@
         "kind": 6,
         "importPath": "think_reason_learn.gptree.gptree",
         "description": "think_reason_learn.gptree.gptree",
-        "peekOfCode": "class Question(BaseModel):\n    value: str\n    choices: List[str]\n    question_type: QuestionType\nclass Questions(BaseModel):\n    questions: List[Question]\n    cummulative_memory: str = Field(..., description=CUMMULATIVE_MEMORY_INSTRUCTIONS)\nclass Answer(BaseModel):\n    answer: str\n@dataclass(slots=True)",
+        "peekOfCode": "class Question(BaseModel):\n    value: str\n    choices: List[str]\n    question_type: QuestionType\nclass Questions(BaseModel):\n    questions: List[Question]\n    cummulative_memory: str = Field(..., description=CUMULATIVE_MEMORY_INSTRUCTIONS)\nclass Answer(BaseModel):\n    answer: str\n@dataclass(slots=True)",
         "detail": "think_reason_learn.gptree.gptree",
         "documentation": {}
     },
@@ -1791,7 +2080,7 @@
         "kind": 6,
         "importPath": "think_reason_learn.gptree.gptree",
         "description": "think_reason_learn.gptree.gptree",
-        "peekOfCode": "class Questions(BaseModel):\n    questions: List[Question]\n    cummulative_memory: str = Field(..., description=CUMMULATIVE_MEMORY_INSTRUCTIONS)\nclass Answer(BaseModel):\n    answer: str\n@dataclass(slots=True)\nclass Node:\n    \"\"\"\n    A Node represents a decision point in GPTree.\n    Attributes",
+        "peekOfCode": "class Questions(BaseModel):\n    questions: List[Question]\n    cummulative_memory: str = Field(..., description=CUMULATIVE_MEMORY_INSTRUCTIONS)\nclass Answer(BaseModel):\n    answer: str\n@dataclass(slots=True)\nclass Node:\n    \"\"\"\n    A Node represents a decision point in GPTree.\n    Attributes",
         "detail": "think_reason_learn.gptree.gptree",
         "documentation": {}
     },

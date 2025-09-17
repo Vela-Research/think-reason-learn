@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 import asyncio
 from typing import List, Dict, Literal, cast, Type, Tuple, AsyncGenerator, Any
+from typing import Set
+from collections import deque
 import logging
 import contextlib
 from dataclasses import dataclass, field, asdict
@@ -1406,3 +1408,129 @@ class GPTree:
             for task in tasks:
                 if not task.done():
                     task.cancel()
+
+    def prun_tree(self, node_id: int) -> None:
+        """Prun a the tree from the Node with id `node_id`"""
+        node = self._nodes.get(node_id)
+        if node is None:
+            raise ValueError(f"Node with id {node_id} not found on tree.")
+        if node.is_leaf:
+            raise ValueError(f"Node with id {node_id} is a leaf node. Cannot prune.")
+
+        to_remove: Set[int] = set()
+        stack: List[Node] = list(node.children or [])
+        while stack:
+            n = stack.pop()
+            to_remove.add(n.id)
+            if n.children:
+                stack.extend(n.children)
+
+        for rid in to_remove:
+            self._nodes.pop(rid, None)
+
+        self._frontier = [
+            t
+            for t in self._frontier
+            if t.node_id not in to_remove
+            and (t.parent_id is None or t.parent_id not in to_remove)
+        ]
+
+        node.children = None
+        node.question = None
+        node.questions = []
+        node.split_ratios = None
+
+        self._save()
+
+    def reset_node_ids(self, *, strict: bool = True) -> Dict[int, int]:
+        """Reassign node ids in BFS order starting from root as 0.
+
+        Updates nodes, parent references, and frontier tasks. Optionally saves.
+
+        Parameters
+        ----------
+        strict: bool, default=True
+            If True, raises on any frontier task referencing unknown nodes; if False, drops them.
+
+        Returns
+        -------
+        Dict[int, int]
+            Mapping from old_id to new_id.
+        """
+        if not self._nodes:
+            return {}
+
+        root_id = (
+            0
+            if 0 in self._nodes
+            else next(
+                (nid for nid, n in self._nodes.items() if n.parent_id is None), None
+            )
+        )
+        if root_id is None:
+            raise CorruptionError("Could not determine root node for id reset")
+
+        # BFS to build mapping and depths
+        old_to_new: Dict[int, int] = {}
+        depth_map: Dict[int, int] = {}
+        q: deque[int] = deque([root_id])
+        depth_map[root_id] = 0
+        while q:
+            oid = q.popleft()
+            if oid in old_to_new:
+                continue
+            new_id = len(old_to_new)
+            old_to_new[oid] = new_id
+            node = self._nodes.get(oid)
+            if node is None:
+                continue
+            for child in node.children or []:
+                q.append(child.id)
+                if child.id not in depth_map:
+                    depth_map[child.id] = depth_map[oid] + 1
+
+        if len(old_to_new) != len(self._nodes):
+            raise CorruptionError(
+                "Tree graph is disconnected or invalid; cannot safely reset ids"
+            )
+
+        # Apply mapping to nodes and rebuild node map
+        new_nodes: Dict[int, Node] = {}
+        # Capture original list to avoid re-iteration issues while mutating ids
+        original_nodes: List[Tuple[int, Node]] = list(self._nodes.items())
+        for old_id, node in original_nodes:
+            node.id = old_to_new[old_id]
+            node.parent_id = (
+                old_to_new[node.parent_id] if node.parent_id is not None else None
+            )
+            new_nodes[node.id] = node
+
+        self._nodes = new_nodes
+        self._node_counter = max(self._nodes.keys()) if self._nodes else 0
+
+        # Remap frontier tasks
+        remapped_frontier: List[BuildTask] = []
+        for t in self._frontier:
+            if t.node_id not in old_to_new or (
+                t.parent_id is not None and t.parent_id not in old_to_new
+            ):
+                if strict:
+                    raise DataError(
+                        f"Frontier references unknown node(s): {t.node_id}, {t.parent_id}"
+                    )
+                continue
+            remapped_frontier.append(
+                BuildTask(
+                    node_id=old_to_new[t.node_id],
+                    parent_id=(
+                        old_to_new[t.parent_id] if t.parent_id is not None else None
+                    ),
+                    depth=depth_map.get(t.node_id, t.depth),
+                    label=t.label,
+                    sample_indices=t.sample_indices,
+                )
+            )
+        self._frontier = remapped_frontier
+        self._save()
+
+        return old_to_new

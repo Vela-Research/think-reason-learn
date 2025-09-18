@@ -57,6 +57,14 @@
         "documentation": {}
     },
     {
+        "label": "annotations",
+        "importPath": "__future__",
+        "description": "__future__",
+        "isExtraImport": true,
+        "detail": "__future__",
+        "documentation": {}
+    },
+    {
         "label": "os",
         "kind": 6,
         "isExtraImport": true,
@@ -81,6 +89,14 @@
         "importPath": "sys",
         "description": "sys",
         "detail": "sys",
+        "documentation": {}
+    },
+    {
+        "label": "Path",
+        "importPath": "pathlib",
+        "description": "pathlib",
+        "isExtraImport": true,
+        "detail": "pathlib",
         "documentation": {}
     },
     {
@@ -604,6 +620,94 @@
         "documentation": {}
     },
     {
+        "label": "List",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Self",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Tuple",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "cast",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Generator",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Any",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Literal",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Iterable",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "AsyncGenerator",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Literal",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "TypeAlias",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
         "label": "logging",
         "kind": 6,
         "isExtraImport": true,
@@ -718,6 +822,22 @@
     },
     {
         "label": "create_model",
+        "importPath": "pydantic",
+        "description": "pydantic",
+        "isExtraImport": true,
+        "detail": "pydantic",
+        "documentation": {}
+    },
+    {
+        "label": "Field",
+        "importPath": "pydantic",
+        "description": "pydantic",
+        "isExtraImport": true,
+        "detail": "pydantic",
+        "documentation": {}
+    },
+    {
+        "label": "BaseModel",
         "importPath": "pydantic",
         "description": "pydantic",
         "isExtraImport": true,
@@ -1073,6 +1193,22 @@
         "documentation": {}
     },
     {
+        "label": "uuid4",
+        "importPath": "uuid",
+        "description": "uuid",
+        "isExtraImport": true,
+        "detail": "uuid",
+        "documentation": {}
+    },
+    {
+        "label": "deepcopy",
+        "importPath": "copy",
+        "description": "copy",
+        "isExtraImport": true,
+        "detail": "copy",
+        "documentation": {}
+    },
+    {
         "label": "deepcopy",
         "importPath": "copy",
         "description": "copy",
@@ -1159,27 +1295,75 @@
         "documentation": {}
     },
     {
-        "label": "DataError",
-        "importPath": "think_reason_learn.core._exceptions",
-        "description": "think_reason_learn.core._exceptions",
+        "label": "LLMChoice",
+        "importPath": "think_reason_learn.core.llms",
+        "description": "think_reason_learn.core.llms",
         "isExtraImport": true,
-        "detail": "think_reason_learn.core._exceptions",
+        "detail": "think_reason_learn.core.llms",
+        "documentation": {}
+    },
+    {
+        "label": "llm",
+        "importPath": "think_reason_learn.core.llms",
+        "description": "think_reason_learn.core.llms",
+        "isExtraImport": true,
+        "detail": "think_reason_learn.core.llms",
+        "documentation": {}
+    },
+    {
+        "label": "TokenCount",
+        "importPath": "think_reason_learn.core.llms",
+        "description": "think_reason_learn.core.llms",
+        "isExtraImport": true,
+        "detail": "think_reason_learn.core.llms",
+        "documentation": {}
+    },
+    {
+        "label": "DataError",
+        "importPath": "think_reason_learn.core.exceptions",
+        "description": "think_reason_learn.core.exceptions",
+        "isExtraImport": true,
+        "detail": "think_reason_learn.core.exceptions",
         "documentation": {}
     },
     {
         "label": "LLMError",
-        "importPath": "think_reason_learn.core._exceptions",
-        "description": "think_reason_learn.core._exceptions",
+        "importPath": "think_reason_learn.core.exceptions",
+        "description": "think_reason_learn.core.exceptions",
         "isExtraImport": true,
-        "detail": "think_reason_learn.core._exceptions",
+        "detail": "think_reason_learn.core.exceptions",
         "documentation": {}
     },
     {
         "label": "CorruptionError",
-        "importPath": "think_reason_learn.core._exceptions",
-        "description": "think_reason_learn.core._exceptions",
+        "importPath": "think_reason_learn.core.exceptions",
+        "description": "think_reason_learn.core.exceptions",
         "isExtraImport": true,
-        "detail": "think_reason_learn.core._exceptions",
+        "detail": "think_reason_learn.core.exceptions",
+        "documentation": {}
+    },
+    {
+        "label": "CorruptionError",
+        "importPath": "think_reason_learn.core.exceptions",
+        "description": "think_reason_learn.core.exceptions",
+        "isExtraImport": true,
+        "detail": "think_reason_learn.core.exceptions",
+        "documentation": {}
+    },
+    {
+        "label": "DataError",
+        "importPath": "think_reason_learn.core.exceptions",
+        "description": "think_reason_learn.core.exceptions",
+        "isExtraImport": true,
+        "detail": "think_reason_learn.core.exceptions",
+        "documentation": {}
+    },
+    {
+        "label": "LLMError",
+        "importPath": "think_reason_learn.core.exceptions",
+        "description": "think_reason_learn.core.exceptions",
+        "isExtraImport": true,
+        "detail": "think_reason_learn.core.exceptions",
         "documentation": {}
     },
     {
@@ -1188,6 +1372,14 @@
         "description": "think_reason_learn.core._types",
         "isExtraImport": true,
         "detail": "think_reason_learn.core._types",
+        "documentation": {}
+    },
+    {
+        "label": "find_spec",
+        "importPath": "importlib.util",
+        "description": "importlib.util",
+        "isExtraImport": true,
+        "detail": "importlib.util",
         "documentation": {}
     },
     {
@@ -1830,33 +2022,6 @@
         "documentation": {}
     },
     {
-        "label": "DataError",
-        "kind": 6,
-        "importPath": "think_reason_learn.core._exceptions",
-        "description": "think_reason_learn.core._exceptions",
-        "peekOfCode": "class DataError(Exception):\n    \"\"\"Data not in the expected format.\"\"\"\nclass LLMError(Exception):\n    \"\"\"LLM failed to respond.\"\"\"\nclass CorruptionError(Exception):\n    \"\"\"Internal state corruption detected. A model's state is corrupted.\"\"\"",
-        "detail": "think_reason_learn.core._exceptions",
-        "documentation": {}
-    },
-    {
-        "label": "LLMError",
-        "kind": 6,
-        "importPath": "think_reason_learn.core._exceptions",
-        "description": "think_reason_learn.core._exceptions",
-        "peekOfCode": "class LLMError(Exception):\n    \"\"\"LLM failed to respond.\"\"\"\nclass CorruptionError(Exception):\n    \"\"\"Internal state corruption detected. A model's state is corrupted.\"\"\"",
-        "detail": "think_reason_learn.core._exceptions",
-        "documentation": {}
-    },
-    {
-        "label": "CorruptionError",
-        "kind": 6,
-        "importPath": "think_reason_learn.core._exceptions",
-        "description": "think_reason_learn.core._exceptions",
-        "peekOfCode": "class CorruptionError(Exception):\n    \"\"\"Internal state corruption detected. A model's state is corrupted.\"\"\"",
-        "detail": "think_reason_learn.core._exceptions",
-        "documentation": {}
-    },
-    {
         "label": "SingletonMeta",
         "kind": 6,
         "importPath": "think_reason_learn.core._singleton",
@@ -1899,6 +2064,33 @@
         "description": "think_reason_learn.core._types",
         "peekOfCode": "JSONValue = Union[JSONScalar, Dict[str, \"JSONValue\"], List[\"JSONValue\"]]",
         "detail": "think_reason_learn.core._types",
+        "documentation": {}
+    },
+    {
+        "label": "DataError",
+        "kind": 6,
+        "importPath": "think_reason_learn.core.exceptions",
+        "description": "think_reason_learn.core.exceptions",
+        "peekOfCode": "class DataError(Exception):\n    \"\"\"Data not in the expected format.\"\"\"\nclass LLMError(Exception):\n    \"\"\"LLM failed to respond.\"\"\"\nclass CorruptionError(Exception):\n    \"\"\"Internal state corruption detected. A model's state is corrupted.\"\"\"",
+        "detail": "think_reason_learn.core.exceptions",
+        "documentation": {}
+    },
+    {
+        "label": "LLMError",
+        "kind": 6,
+        "importPath": "think_reason_learn.core.exceptions",
+        "description": "think_reason_learn.core.exceptions",
+        "peekOfCode": "class LLMError(Exception):\n    \"\"\"LLM failed to respond.\"\"\"\nclass CorruptionError(Exception):\n    \"\"\"Internal state corruption detected. A model's state is corrupted.\"\"\"",
+        "detail": "think_reason_learn.core.exceptions",
+        "documentation": {}
+    },
+    {
+        "label": "CorruptionError",
+        "kind": 6,
+        "importPath": "think_reason_learn.core.exceptions",
+        "description": "think_reason_learn.core.exceptions",
+        "peekOfCode": "class CorruptionError(Exception):\n    \"\"\"Internal state corruption detected. A model's state is corrupted.\"\"\"",
+        "detail": "think_reason_learn.core.exceptions",
         "documentation": {}
     },
     {
@@ -2014,7 +2206,7 @@
         "kind": 5,
         "importPath": "think_reason_learn.gptree._prompts",
         "description": "think_reason_learn.gptree._prompts",
-        "peekOfCode": "CUMULATIVE_MEMORY_INSTRUCTIONS = \"\"\"\\\nUsing the prior cumulative memory (if any) and what was just learned at this node,\nwrite a brief note for the next node.\nGuidelines:\n- Summarize key observations and outcomes so far at a high level, and provide gentle\n  hints or priorities for the next node.\n- Treat this as guidance, not a constraint; avoid prescriptive language.\n- Do not repeat raw samples or sensitive details; avoid long quotes.\n- Keep it concise (1-3 sentences).\nReturn:",
+        "peekOfCode": "CUMULATIVE_MEMORY_INSTRUCTIONS = \"\"\"\\\nUsing the prior cumulative memory (if any) and what was just learned at this node,\nwrite a brief note for the next node. Do not discard the prior cumulative memory\nbut build on it.\nGuidelines:\n- Summarize key observations and outcomes so far at a high level, and provide gentle\n  hints or priorities for the next node.\n- Treat this as guidance, not a constraint; avoid prescriptive language.\n- Do not repeat raw samples or sensitive details; avoid long quotes.\n- Keep it concise (1-5 sentences).",
         "detail": "think_reason_learn.gptree._prompts",
         "documentation": {}
     },
@@ -2043,6 +2235,78 @@
         "description": "think_reason_learn.gptree._types",
         "peekOfCode": "Criterion = Literal[\"gini\"]",
         "detail": "think_reason_learn.gptree._types",
+        "documentation": {}
+    },
+    {
+        "label": "num_questions_tag",
+        "kind": 5,
+        "importPath": "think_reason_learn.rrf._prompts",
+        "description": "think_reason_learn.rrf._prompts",
+        "peekOfCode": "num_questions_tag = \"<number_of_questions>\"\nQUESTION_GEN_INSTRUCTIONS = f\"\"\"\\\nYou are part of an intelligent team of LLMs generating YES/NO questions for a \nbinary classification task.\nGiven:\n- A task description\nTask:\n- Generate a prompt/instructions template that instructs a question-generator LLM\n  to generate {num_questions_tag} YES/NO distinctive questions that are discriminative \n  for the task.",
+        "detail": "think_reason_learn.rrf._prompts",
+        "documentation": {}
+    },
+    {
+        "label": "QUESTION_GEN_INSTRUCTIONS",
+        "kind": 5,
+        "importPath": "think_reason_learn.rrf._prompts",
+        "description": "think_reason_learn.rrf._prompts",
+        "peekOfCode": "QUESTION_GEN_INSTRUCTIONS = f\"\"\"\\\nYou are part of an intelligent team of LLMs generating YES/NO questions for a \nbinary classification task.\nGiven:\n- A task description\nTask:\n- Generate a prompt/instructions template that instructs a question-generator LLM\n  to generate {num_questions_tag} YES/NO distinctive questions that are discriminative \n  for the task.\n- Let the question-generator LLM understand the task and generate questions that are",
+        "detail": "think_reason_learn.rrf._prompts",
+        "documentation": {}
+    },
+    {
+        "label": "CUMULATIVE_MEMORY_INSTRUCTIONS",
+        "kind": 5,
+        "importPath": "think_reason_learn.rrf._prompts",
+        "description": "think_reason_learn.rrf._prompts",
+        "peekOfCode": "CUMULATIVE_MEMORY_INSTRUCTIONS = \"\"\"\\\nUsing the prior cumulative memory (if any) and what was just learned at this generation,\nwrite a brief note for the next generation. Do not discard the prior cumulative memory\nbut build on it.\nGuidelines:\n- Summarize key observations and outcomes so far at a high level, and provide gentle\n  hints or priorities for the next generation.\n- Treat this as guidance, not a constraint; avoid prescriptive language.\n- Do not repeat raw samples or sensitive details; avoid long quotes.\n- Keep it concise (1-5 sentences).",
+        "detail": "think_reason_learn.rrf._prompts",
+        "documentation": {}
+    },
+    {
+        "label": "QUESTION_ANSWER_INSTRUCTIONS",
+        "kind": 5,
+        "importPath": "think_reason_learn.rrf._prompts",
+        "description": "think_reason_learn.rrf._prompts",
+        "peekOfCode": "QUESTION_ANSWER_INSTRUCTIONS = \"\"\"\\\nYou are an answering agent in a RRF classification pipeline.\nGiven:\n- A question,\n- One sample (text),\nTask:\n- Answer, YES/NO question based on the sample.\n- Be deterministic.\nOutput:\n- Return only the chosen answer string—no explanations, punctuation, or extra text.",
+        "detail": "think_reason_learn.rrf._prompts",
+        "documentation": {}
+    },
+    {
+        "label": "Questions",
+        "kind": 6,
+        "importPath": "think_reason_learn.rrf._rrf",
+        "description": "think_reason_learn.rrf._rrf",
+        "peekOfCode": "class Questions(BaseModel):\n    questions: List[str] = Field(..., description=\"The list of generated questions.\")\n    cumulative_memory: str = Field(..., description=CUMULATIVE_MEMORY_INSTRUCTIONS)\nclass Answer(BaseModel):\n    answer: Literal[\"YES\", \"NO\"]\nclass RRF:\n    \"\"\"Random Rule Forest.\"\"\"\n    def __init__(\n        self,\n        qgen_llmc: List[LLMChoice],",
+        "detail": "think_reason_learn.rrf._rrf",
+        "documentation": {}
+    },
+    {
+        "label": "Answer",
+        "kind": 6,
+        "importPath": "think_reason_learn.rrf._rrf",
+        "description": "think_reason_learn.rrf._rrf",
+        "peekOfCode": "class Answer(BaseModel):\n    answer: Literal[\"YES\", \"NO\"]\nclass RRF:\n    \"\"\"Random Rule Forest.\"\"\"\n    def __init__(\n        self,\n        qgen_llmc: List[LLMChoice],\n        qanswer_llmc: List[LLMChoice] | None = None,\n        qgen_temperature: float = 0.0,\n        qanswer_temperature: float = 0.0,",
+        "detail": "think_reason_learn.rrf._rrf",
+        "documentation": {}
+    },
+    {
+        "label": "RRF",
+        "kind": 6,
+        "importPath": "think_reason_learn.rrf._rrf",
+        "description": "think_reason_learn.rrf._rrf",
+        "peekOfCode": "class RRF:\n    \"\"\"Random Rule Forest.\"\"\"\n    def __init__(\n        self,\n        qgen_llmc: List[LLMChoice],\n        qanswer_llmc: List[LLMChoice] | None = None,\n        qgen_temperature: float = 0.0,\n        qanswer_temperature: float = 0.0,\n        llm_semaphore_limit: int = 3,\n        embedding_model: EmbeddingModel = \"hashed_bag_of_words\",",
+        "detail": "think_reason_learn.rrf._rrf",
+        "documentation": {}
+    },
+    {
+        "label": "logger",
+        "kind": 5,
+        "importPath": "think_reason_learn.rrf._rrf",
+        "description": "think_reason_learn.rrf._rrf",
+        "peekOfCode": "logger = logging.getLogger(__name__)\nclass Questions(BaseModel):\n    questions: List[str] = Field(..., description=\"The list of generated questions.\")\n    cumulative_memory: str = Field(..., description=CUMULATIVE_MEMORY_INSTRUCTIONS)\nclass Answer(BaseModel):\n    answer: Literal[\"YES\", \"NO\"]\nclass RRF:\n    \"\"\"Random Rule Forest.\"\"\"\n    def __init__(\n        self,",
+        "detail": "think_reason_learn.rrf._rrf",
         "documentation": {}
     }
 ]

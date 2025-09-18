@@ -77,7 +77,6 @@ class LLM(metaclass=SingletonMeta):
         response_format: Type[T] = str,
         instructions: str | NotGiven | None = NOT_GIVEN,
         temperature: float | NotGiven | None = NOT_GIVEN,
-        verbose: bool = False,
         **kwargs: Dict[str, Any],
     ) -> LLMResponse[T]:
         """Respond to a query using the LLM synchronously.
@@ -88,7 +87,6 @@ class LLM(metaclass=SingletonMeta):
             response_format: The response format to use.
             instructions: Optional instructions to use.
             temperature: Optional temperature to use.
-            verbose: Whether to log info.
             **kwargs: Additional arguments to pass to the LLM. For:
 
                 - OpenAI: ``openai.OpenAI.responses.parse`` or
@@ -113,7 +111,7 @@ class LLM(metaclass=SingletonMeta):
         llm_priority_models = self._val_llm_priority_and_api_keys(llm_priority)
 
         for idx, llmp in enumerate(llm_priority_models, 1):
-            if idx > 1 and verbose:
+            if idx > 1:
                 logger.warning(f"Falling back to {llmp.model} by {llmp.provider}...")
 
             if llmp.provider == "google":
@@ -124,7 +122,6 @@ class LLM(metaclass=SingletonMeta):
                     response_format=response_format,
                     instructions=instructions or None,
                     temperature=temperature or None,
-                    verbose=verbose,
                     raise_=raise_,
                     **kwargs,
                 )
@@ -147,7 +144,6 @@ class LLM(metaclass=SingletonMeta):
                         if not isinstance(temperature, NotGiven)
                         else NOT_GIVEN.OPENAI_NOT_GIVEN
                     ),
-                    verbose=verbose,
                     raise_=raise_,
                     **kwargs,
                 )
@@ -162,7 +158,6 @@ class LLM(metaclass=SingletonMeta):
                     response_format=response_format,
                     instructions=instructions or NOT_GIVEN.ANTHROPIC_NOT_GIVEN,
                     temperature=temperature or NOT_GIVEN.ANTHROPIC_NOT_GIVEN,
-                    verbose=verbose,
                     raise_=raise_,
                     **kwargs,
                 )
@@ -177,7 +172,6 @@ class LLM(metaclass=SingletonMeta):
                     response_format=response_format,
                     instructions=instructions or None,
                     temperature=temperature or None,
-                    verbose=verbose,
                     raise_=raise_,
                     **kwargs,
                 )
@@ -190,7 +184,6 @@ class LLM(metaclass=SingletonMeta):
             "Query: {query}\n"
             "Instructions: {instructions}\n"
             "Temperature: {temperature}\n"
-            "Verbose: {verbose}\n"
             "**kwargs: {kwargs}"
         )
 
@@ -201,7 +194,6 @@ class LLM(metaclass=SingletonMeta):
         response_format: Type[T],
         instructions: str | NotGiven | None = NOT_GIVEN,
         temperature: float | NotGiven | None = NOT_GIVEN,
-        verbose: bool = False,
         **kwargs: Dict[str, Any],
     ) -> LLMResponse[T]:
         """Respond to a query using the LLM asynchronously.
@@ -212,7 +204,6 @@ class LLM(metaclass=SingletonMeta):
             response_format: The response format to use.
             instructions: Optional instructions to use.
             temperature: Optional temperature to use.
-            verbose: Whether to log info.
             **kwargs: Additional arguments to pass to the LLM. For:
 
                 - OpenAI: ``openai.OpenAI.responses.parse`` or
@@ -237,7 +228,7 @@ class LLM(metaclass=SingletonMeta):
         llm_priority_models = self._val_llm_priority_and_api_keys(llm_priority)
 
         for idx, llmp in enumerate(llm_priority_models, 1):
-            if idx > 1 and verbose:
+            if idx > 1:
                 logger.warning(f"Falling back to {llmp.model} from {llmp.provider}...")
 
             if llmp.provider == "google":
@@ -248,7 +239,6 @@ class LLM(metaclass=SingletonMeta):
                     response_format=response_format,
                     instructions=instructions or None,
                     temperature=temperature or None,
-                    verbose=verbose,
                     raise_=raise_,
                     **kwargs,
                 )
@@ -271,7 +261,6 @@ class LLM(metaclass=SingletonMeta):
                         if not isinstance(temperature, NotGiven)
                         else NOT_GIVEN.OPENAI_NOT_GIVEN
                     ),
-                    verbose=verbose,
                     raise_=raise_,
                     **kwargs,
                 )
@@ -286,7 +275,6 @@ class LLM(metaclass=SingletonMeta):
                     response_format=response_format,
                     instructions=instructions or NOT_GIVEN.ANTHROPIC_NOT_GIVEN,
                     temperature=temperature or NOT_GIVEN.ANTHROPIC_NOT_GIVEN,
-                    verbose=verbose,
                     raise_=raise_,
                     **kwargs,
                 )
@@ -301,7 +289,6 @@ class LLM(metaclass=SingletonMeta):
                     response_format=response_format,
                     instructions=instructions or None,
                     temperature=temperature or None,
-                    verbose=verbose,
                     raise_=raise_,
                     **kwargs,
                 )

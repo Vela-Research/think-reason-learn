@@ -6,7 +6,8 @@
 Think Reason Learn
 ==================
 
-Production-grade, async-first library for interpretable, LLM-powered trees and ensembles.
+An innovative Python library that fuses large language models with interpretable machine learning,
+providing production-grade tools for building transparent, explainable AI systems.
 
 .. toctree::
    :maxdepth: 2

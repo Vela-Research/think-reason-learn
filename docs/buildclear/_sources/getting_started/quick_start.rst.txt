@@ -1,8 +1,8 @@
 Quick Start
-===========
+-----------
 
 GPTree
-------
+~~~~~~
 
 .. code-block:: python
 
@@ -80,11 +80,11 @@ GPTree
        print(pred)
 
 RRF
----
+~~~
 
 TODO: Add RRF quick start example.
 
 GPT-HTree
----------
+~~~~~~~~~
 
 TODO: Add GPT-HTree quick start example.

@@ -49,6 +49,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.ruff]
 line-length = 88
+target-version = "py313" 
 
 [tool.ruff.lint]
 select = ["E", "F", "D"]   # E/F for pyflakes + pycodestyle, D for docstrings

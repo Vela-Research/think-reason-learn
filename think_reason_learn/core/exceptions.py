@@ -1,3 +1,6 @@
+"""Exceptions for the core module."""
+
+
 class DataError(Exception):
     """Data not in the expected format."""
 

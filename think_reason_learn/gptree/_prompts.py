@@ -52,16 +52,14 @@ Output:
 
 CUMULATIVE_MEMORY_INSTRUCTIONS = """\
 Using the prior cumulative memory (if any) and what was just learned at this node,
-write a brief note for the next node.
+write a brief note for the next node. Do not discard the prior cumulative memory
+but build on it.
 
 Guidelines:
 - Summarize key observations and outcomes so far at a high level, and provide gentle
   hints or priorities for the next node.
 - Treat this as guidance, not a constraint; avoid prescriptive language.
 - Do not repeat raw samples or sensitive details; avoid long quotes.
-- Keep it concise (1-3 sentences).
-
-Return:
-- Only the cumulative memory text to pass forward.
+- Keep it concise (1-5 sentences).
 """
 "Instructions for producing concise, non-restrictive cumulative memory."

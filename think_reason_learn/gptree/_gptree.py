@@ -26,7 +26,7 @@ import numpy.typing as npt
 import pandas as pd
 
 from think_reason_learn.core.llms import LLMChoice, TokenCount, llm
-from think_reason_learn.core._exceptions import DataError, LLMError, CorruptionError
+from think_reason_learn.core.exceptions import DataError, LLMError, CorruptionError
 from ._types import QuestionType, Criterion
 from ._prompts import INSTRUCTIONS_FOR_GENERATING_QUESTION_GEN_INSTRUCTIONS
 from ._prompts import num_questions_tag, QUESTION_ANSWER_INSTRUCTIONS
@@ -161,23 +161,27 @@ class GPTree:
         qgen_temperature: float = 0.0,
         critic_temperature: float = 0.0,
         qgen_instr_gen_temperature: float = 0.0,
+        qanswer_temperature: float = 0.0,
         criterion: Criterion = "gini",
         max_depth: int | None = None,
         max_node_width: int = 3,
         min_samples_leaf: int = 1,
         max_clusters: int | None = None,
-        llm_semaphore_limit: int = 3,
+        llm_semaphore_limit: int = 5,
         min_question_candidates: int = 3,
         max_question_candidates: int = 10,
         expert_advice: str | None = None,
-        context_samples_n: int = 30,
+        n_samples_as_context: int = 30,
         class_ratio: Dict[str, int] | Literal["balanced"] = "balanced",
         use_critic: bool = False,
         save_path: str | Path | None = None,
-        save_training_data: bool = False,
         name: str | None = None,
     ):
         """Decision tree guided by LLMs.
+
+        Note that GPTree auto saves the tree after each node is built.
+        When you call `.save()` manually, it will save the tree with only
+        production level data.
 
         Args:
             qgen_llmc: LLMs to use for question generation, in priority order.
@@ -189,6 +193,7 @@ class GPTree:
             critic_temperature: Sampling temperature for critique.
             qgen_instr_gen_temperature: Sampling temperature for generating
                 instructions.
+            qanswer_temperature: Sampling temperature for answering questions.
             criterion: Splitting criterion. Currently only "gini".
             max_depth: Maximum tree depth. If None, grow until pure/min samples.
             max_node_width: Maximum children per node.
@@ -196,20 +201,22 @@ class GPTree:
             max_clusters: Max out-degree for clustering nodes.
             llm_semaphore_limit: Max concurrent LLM calls.
             min_question_candidates: Min number of questions per node.
-            max_question_candidates: Max number of questions per node.
+            max_question_candidates: Max number of questions per node. Max 15
             expert_advice: Human-provided hints for generation.
-            context_samples_n: Number of samples used as context in generation.
+            n_samples_as_context: Number of samples used as context in generation.
             class_ratio: Strategy for class sampling ("balanced" or dict of ratios).
             use_critic: Whether to critique generated questions.
             save_path: Directory to save checkpoints/models.
-            save_training_data: Whether to save training data.
             name: Name of the tree instance.
         """
+        assert max_question_candidates <= 15, "max_question_candidates must be <= 15"
+
         self.qgen_llmc = qgen_llmc
         self.critic_llmc = critic_llmc
         self.qgen_instr_llmc = qgen_instr_llmc
         self.qanswer_llmc = qanswer_llmc or qgen_llmc
         self.qgen_temperature = qgen_temperature
+        self.qanswer_temperature = qanswer_temperature
         self.critic_temperature = critic_temperature
         self.qgen_instr_gen_temperature = qgen_instr_gen_temperature
         self.criterion = criterion
@@ -221,11 +228,10 @@ class GPTree:
         self.min_question_candidates = min_question_candidates
         self.max_question_candidates = max_question_candidates
         self._expert_advice = expert_advice
-        self.context_samples_n = context_samples_n
+        self.n_samples_as_context = n_samples_as_context
         self.class_ratio = class_ratio
         self.use_critic = use_critic
         self.save_path: Path = self._set_save_path(save_path)
-        self.save_training_data = save_training_data
         self.name: str = self._get_name(name)
 
         self._token_usage: List[TokenCount] = []
@@ -235,7 +241,7 @@ class GPTree:
         self._y: npt.NDArray[np.str_] | None = None
         self._nodes: Dict[int, Node] = {}
         self._node_counter = 0
-        self._llm_semaphore = asyncio.Semaphore(llm_semaphore_limit)
+        self.__llm_semaphore: asyncio.Semaphore | None = None
         self._qgen_instructions_template: str | None = None
         self._critic_instructions_template: str | None = None
         self._X_column = "data"
@@ -243,6 +249,12 @@ class GPTree:
         self._task_description: str | None = None
 
         self._frontier: List[BuildTask] = []  # Frontier for resumable training
+
+    @property
+    def _llm_semaphore(self) -> asyncio.Semaphore:
+        if self.__llm_semaphore is None:
+            self.__llm_semaphore = asyncio.Semaphore(self.llm_semaphore_limit)
+        return self.__llm_semaphore
 
     def get_root_id(self) -> int | None:
         """Get the root node id."""
@@ -275,12 +287,8 @@ class GPTree:
 
     @property
     def token_usage(self) -> List[TokenCount]:
-        """Accumulates per-call token usage across provider/model pairs."""
+        """Accumulated per-call token usage across provider/model pairs."""
         return self._token_usage
-
-    @token_usage.setter
-    def token_usage(self, value: List[TokenCount]) -> None:
-        self._token_usage = value
 
     @property
     def question_gen_instructions_template(self) -> str | None:
@@ -449,9 +457,12 @@ class GPTree:
 
     def _set_save_path(self, save_path: str | Path | None) -> Path:
         if save_path is None:
-            return (Path(os.getcwd()) / "gptrees").resolve()
+            return (Path(os.getcwd()) / "gptrees" / self.name).resolve()
         else:
-            return Path(save_path).resolve()
+            save_path = Path(save_path).resolve()
+            if save_path.is_file():
+                raise ValueError("Please provide a directory, not a file.")
+            return save_path
 
     @classmethod
     def load(cls, path: str | Path) -> "GPTree":
@@ -463,31 +474,25 @@ class GPTree:
         Returns:
             Reconstructed GPTree instance.
         """
-        path = Path(path).resolve()
-
-        if path.is_dir():
-            candidates = sorted(path.glob("*_gptree.json"))
-            if not candidates:
-                raise FileNotFoundError(
-                    f"No '*_gptree.json' found in directory: {path}"
-                )
-            tree_json_path = candidates[0]
-            save_dir = path
+        base = Path(path)
+        if base.is_dir():
+            tree_json_path = base / "gptree.json"
+            if not tree_json_path.exists():
+                raise FileNotFoundError(f"'gptree.json' not found in directory: {base}")
         else:
-            tree_json_path = path
-            save_dir = path.parent
+            raise ValueError("Please provide a directory, not a file.")
 
         payload = orjson.loads(tree_json_path.read_bytes())
 
         name: str = payload.get("tree_name")
         params = payload.get("params", {})
-        llm_priorities = payload.get("llm_priorities", {})
+        llm_choices = payload.get("llm_choices", {})
         templates = payload.get("templates", {})
 
         instance = cls(
-            qgen_llmc=llm_priorities.get("qgen_llmc", []),
-            critic_llmc=llm_priorities.get("critic_llmc", []),
-            qgen_instr_llmc=llm_priorities.get("qgen_instr_llmc", []),
+            qgen_llmc=llm_choices.get("qgen_llmc", []),
+            critic_llmc=llm_choices.get("critic_llmc", []),
+            qgen_instr_llmc=llm_choices.get("qgen_instr_llmc", []),
             qgen_temperature=params.get("qgen_temperature", 0.0),
             critic_temperature=params.get("critic_temperature", 0.0),
             qgen_instr_gen_temperature=params.get("qgen_instr_gen_temperature", 0.0),
@@ -496,15 +501,14 @@ class GPTree:
             max_node_width=params.get("max_node_width", 3),
             min_samples_leaf=params.get("min_samples_leaf", 1),
             max_clusters=params.get("max_clusters"),
-            llm_semaphore_limit=params.get("llm_semaphore_limit", 3),
+            llm_semaphore_limit=params.get("llm_semaphore_limit", 5),
             min_question_candidates=params.get("min_question_candidates", 3),
             max_question_candidates=params.get("max_question_candidates", 10),
             expert_advice=payload.get("expert_advice"),
-            context_samples_n=params.get("context_samples_n", 30),
+            n_samples_as_context=params.get("n_samples_as_context", 30),
             class_ratio=params.get("class_ratio", "balanced"),
             use_critic=params.get("use_critic", False),
-            save_path=save_dir,
-            save_training_data=payload.get("save_training_data", False),
+            save_path=base,
             name=name,
         )
 
@@ -594,7 +598,7 @@ class GPTree:
             instance._frontier.append(frontier_task)
 
         # token usage
-        instance.token_usage = []
+        instance._token_usage = []
         for tu in payload.get("token_usage", []):
             try:
                 token_count = TokenCount(
@@ -604,14 +608,12 @@ class GPTree:
                 )
             except Exception as e:
                 raise DataError(f"Invalid token usage entry in saved data: {tu}") from e
-            instance.token_usage.append(token_count)
+            instance._token_usage.append(token_count)
 
         # load training data if present
-        data_csv_default = save_dir / f"{name}_data.csv"
-        fallback_csv = save_dir / "data.csv"
-        data_csv_path = data_csv_default if data_csv_default.exists() else fallback_csv
-        if data_csv_path.exists():
-            df = pd.read_csv(data_csv_path)  # type: ignore
+        data_parquet_path = base / "data.parquet"
+        if data_parquet_path.exists():
+            df = pd.read_parquet(data_parquet_path)  # type: ignore
             if "y" in df.columns:
                 instance._y = df["y"].to_numpy(dtype=np.str_)  # type: ignore
                 instance._X = df.drop(columns=["y"])  # type: ignore
@@ -620,36 +622,45 @@ class GPTree:
                 instance._y = None
 
         # Ensure save_path and name align with loaded data
-        instance.save_path = save_dir
+        instance.save_path = base
         instance.name = name
 
         return instance
 
-    def _save(self):
-        self.save_path.mkdir(parents=True, exist_ok=True)
+    def save(
+        self,
+        dir_path: str | Path | None = None,
+        for_production: bool = False,
+    ) -> None:
+        """Save model config to JSON and dataframes to parquet in a directory.
 
-        tree_json_path = self.save_path / f"{self.name}_gptree.json"
+        If dir_path is None, uses `<self.save_path>/<self.name>`.
+        If for_production is True, does not save the training dataframe.
+
+        Args:
+            dir_path: The directory to save the tree to.
+            for_production: Whether to save the tree for production.
+        """
+        base = Path(dir_path) if dir_path is not None else (self.save_path / self.name)
+        if not base.is_dir():
+            raise ValueError("Please provide a directory.")
+        base.mkdir(parents=True, exist_ok=True)
 
         nodes_serialized = [asdict(node) for node in self._nodes.values()]
         frontier_serialized = [asdict(t) for t in self._frontier]
         token_usage_serialized = [asdict(tc) for tc in self.token_usage]
 
         def _serialize_llm_priorities(prios: List[LLMChoice]) -> List[Dict[str, str]]:
-            out: List[Dict[str, str]] = []
-            for p in prios:
-                if isinstance(p, BaseModel):
-                    out.append(p.model_dump())
-                else:
-                    out.append(p)  # type: ignore
-            return out
+            return [  # type: ignore
+                llmc if isinstance(llmc, dict) else llmc.model_dump() for llmc in prios
+            ]
 
         payload: Dict[str, object] = {
             "tree_name": self.name,
             "created_at": datetime.datetime.now().isoformat(),
             "classes": list(self._classes) if self._classes is not None else None,
             "x_column": self._X_column,
-            "save_training_data": self.save_training_data,
-            "save_path": str(self.save_path),
+            "save_path": str(self.save_path) if not for_production else None,
             "params": {
                 "criterion": self.criterion,
                 "max_depth": self.max_depth,
@@ -659,14 +670,14 @@ class GPTree:
                 "llm_semaphore_limit": self.llm_semaphore_limit,
                 "min_question_candidates": self.min_question_candidates,
                 "max_question_candidates": self.max_question_candidates,
-                "context_samples_n": self.context_samples_n,
+                "n_samples_as_context": self.n_samples_as_context,
                 "class_ratio": self.class_ratio,
                 "use_critic": self.use_critic,
                 "qgen_temperature": self.qgen_temperature,
                 "critic_temperature": self.critic_temperature,
                 "qgen_instr_gen_temperature": self.qgen_instr_gen_temperature,
             },
-            "llm_priorities": {
+            "llm_choices": {
                 "qgen_llmc": _serialize_llm_priorities(self.qgen_llmc),
                 "critic_llmc": _serialize_llm_priorities(self.critic_llmc),
                 "qgen_instr_llmc": _serialize_llm_priorities(self.qgen_instr_llmc),
@@ -684,14 +695,14 @@ class GPTree:
         }
         payload_json = orjson.dumps(payload, option=orjson.OPT_SERIALIZE_NUMPY)
 
-        with tree_json_path.open("w", encoding="utf-8") as f:
+        with (base / "gptree.json").open("w", encoding="utf-8") as f:
             f.write(payload_json.decode("utf-8"))
 
-        if self.save_training_data and self._X is not None and self._y is not None:
+        if not for_production and self._X is not None and self._y is not None:
             df_to_save: pd.DataFrame = self._X.copy()
             df_to_save["y"] = self._y
-            data_csv_path = self.save_path / f"{self.name}_data.csv"
-            df_to_save.to_csv(str(data_csv_path), index=True)  # type: ignore
+            data_parquet_path = base / "data.parquet"
+            df_to_save.to_parquet(str(data_parquet_path), index=True)  # type: ignore
 
     @property
     def classes(self) -> List[str] | None:
@@ -731,12 +742,12 @@ class GPTree:
         self,
         instructions_template: str | None = None,
         task_description: str | None = None,
-        verbose: bool = True,
     ) -> str:
         """Initialize question generation instructions template.
 
         This sets the task description for the tree.
         Either sets a custom template or generates one from task description using LLM.
+        For most users, LLM generation is recommended over custom templates.
 
         Args:
             instructions_template: Custom template to use. Must contain
@@ -744,7 +755,6 @@ class GPTree:
                 from task_description using LLM.
             task_description: Description of classification task to help LLM generate
                 the template.
-            verbose: Enable detailed logging output.
 
         Returns:
             The question generation instructions template.
@@ -760,7 +770,7 @@ class GPTree:
         if instructions_template:
             if num_questions_tag not in instructions_template:
                 raise ValueError(
-                    f"Instructions_template must contain the tag '{num_questions_tag}' "
+                    f"instructionstemplate must contain the tag '{num_questions_tag}' "
                     "This tag will be replaced with the number of questions to "
                     "generate at each generation run"
                 )
@@ -775,8 +785,8 @@ class GPTree:
                 response_format=str,
                 instructions=INSTRUCTIONS_FOR_GENERATING_QUESTION_GEN_INSTRUCTIONS,
                 temperature=self.qgen_instr_gen_temperature,
-                verbose=verbose,
             )
+
         if not response.response:
             raise ValueError(
                 "Failed to generate question generation instructions"
@@ -789,6 +799,7 @@ class GPTree:
                 "Failed to generate a valid question generation "
                 "instructions template. Please try again."
             )
+
         if response.average_confidence is not None:
             logger.info(
                 "Generated question generation instructions with "
@@ -808,7 +819,7 @@ class GPTree:
         if not self._qgen_instructions_template:
             raise ValueError(
                 "Question generation instructions template is not set"
-                "Set the template using `init_question_gen_instructions_template`"
+                "Set the template using `set_tasks`"
             )
 
         instructions = self._qgen_instructions_template.replace(
@@ -825,7 +836,6 @@ class GPTree:
         sample_indices: IndexArray,
         cumulative_memory: str | None,
         node_depth: int,
-        verbose: bool,
     ) -> Questions:
         if self._X is None or self._y is None:
             raise ValueError("X and y must be set")
@@ -855,9 +865,9 @@ class GPTree:
         grouped = dict(tuple(X.groupby(y)))  # type: ignore
         for label in y_unique:
             if isinstance(self.class_ratio, dict):
-                n_samples = self.context_samples_n * class_ratio_fractions[label]
+                n_samples = self.n_samples_as_context * class_ratio_fractions[label]
             elif self.class_ratio == "balanced":
-                n_samples = self.context_samples_n / y_unique.shape[0]
+                n_samples = self.n_samples_as_context / y_unique.shape[0]
             else:
                 raise ValueError(f"Invalid class ratio: {self.class_ratio}")
 
@@ -872,8 +882,10 @@ class GPTree:
 
         if self._expert_advice is not None:
             query += f"Consider this expert advice: {self._expert_advice}\n"
-        if cumulative_memory is not None:
-            query += f"Cumulative advice from previous nodes: {cumulative_memory}"
+        cumulative_memory = (
+            cumulative_memory or "No cumulative memory yet. This is the root node."
+        )
+        query += f"Cumulative advice from previous nodes: {cumulative_memory}"
 
         async with self._llm_semaphore:
             response = await llm.respond(
@@ -882,7 +894,6 @@ class GPTree:
                 response_format=Questions,
                 instructions=instructions,
                 temperature=self.qgen_temperature,
-                verbose=verbose,
             )
         self.token_usage.append(
             TokenCount(
@@ -893,9 +904,12 @@ class GPTree:
         )
         questions = response.response
         if questions is None:
-            raise ValueError(
-                f"Could not generate questions\nQuery: {query}"
-                f"\n\nInstructions: {instructions}"
+            raise LLMError(
+                "Could not generate questions. Please try "
+                "again or with a different llm."
+                f"\nQuery: {query[:200]}..."
+                f"\n\nCumulative memory: {cumulative_memory[:200]}..."
+                f"\n\nInstructions: {instructions[:200]}..."
             )
 
         if self.use_critic:
@@ -914,7 +928,6 @@ class GPTree:
         idx: int,
         row: pd.Series,
         question: NodeQuestion,
-        verbose: bool,
     ) -> Tuple[int, Answer] | None:
         AnswerModel = self._make_answer_model(question.choices)
         sample = cast(str, row[self._X_column])
@@ -926,11 +939,10 @@ class GPTree:
                     query=f"Query: {question.value}\n\nSample: {sample}",
                     instructions=QUESTION_ANSWER_INSTRUCTIONS,
                     response_format=AnswerModel,
-                    temperature=self.qgen_temperature,
-                    verbose=verbose,
+                    temperature=self.qanswer_temperature,
                 )
             if response.response is None:
-                raise ValueError("No response from LLM")
+                raise LLMError("No response from LLM")
             if response.average_confidence is not None:
                 logger.debug(
                     f"Confidence: {response.average_confidence} "
@@ -953,7 +965,6 @@ class GPTree:
         self,
         question: NodeQuestion,
         sample_indices: IndexArray,
-        verbose: bool,
     ) -> None:
         """Answer a question for a subset of self._X inplace."""
         if self._X is None or self._y is None:
@@ -968,7 +979,6 @@ class GPTree:
                         idx=int(str(row[0])),
                         row=row[1],
                         question=question,
-                        verbose=verbose,
                     )
                 )
                 for row in X.iterrows()
@@ -992,7 +1002,6 @@ class GPTree:
         depth: int,
         label: str,
         sample_indices: IndexArray,
-        verbose: bool,
     ) -> AsyncGenerator[Node, None]:
         if not any(t.node_id == id for t in self._frontier):
             self._frontier.append(
@@ -1004,7 +1013,7 @@ class GPTree:
                     sample_indices=sample_indices,
                 )
             )
-            self._save()
+            self.save()
 
         if self._stop_training:
             return
@@ -1048,7 +1057,7 @@ class GPTree:
             )
             self._nodes[id] = node
             self._frontier = [t for t in self._frontier if t.node_id != id]
-            self._save()
+            self.save()
             yield node
             return
 
@@ -1059,7 +1068,6 @@ class GPTree:
             sample_indices=sample_indices,
             cumulative_memory=cumulative_memory,
             node_depth=depth,
-            verbose=verbose,
         )
         logger.info(f"Generated {len(questions.questions)} questions for node {id}")
         chosen_question: NodeQuestion | None = None
@@ -1071,7 +1079,7 @@ class GPTree:
             logger.info(f"Answering question (Node {id}): {node_question.value}")
 
             if node_question.question_type == "INFERENCE":
-                await self._answer_question(node_question, sample_indices, verbose)
+                await self._answer_question(node_question, sample_indices)
                 groups = X.groupby(node_question.df_column).indices  # type: ignore
                 df_split_indices = [
                     np.array(groups.get(val, []), dtype=np.intp)
@@ -1124,7 +1132,7 @@ class GPTree:
             self._nodes[id] = node
 
             self._frontier = [t for t in self._frontier if t.node_id != id]
-            self._save()
+            self.save()
             yield node
             return
 
@@ -1174,7 +1182,7 @@ class GPTree:
                         sample_indices=indices,
                     )
                 )
-        self._save()
+        self.save()
 
         for choice, indices in choice_indices_list:
             if self._stop_training:
@@ -1187,7 +1195,6 @@ class GPTree:
                 depth=depth + 1,
                 label=choice,
                 sample_indices=indices,
-                verbose=verbose,
             ):
                 node.children = node.children or []
                 node.children.append(child_node)
@@ -1217,10 +1224,10 @@ class GPTree:
             raise DataError("y and X must have the same number of rows")
 
         if copy_data:
-            self._X = deepcopy(X)  # type: ignore
+            self._X = deepcopy(X).reset_index(drop=True)  # type: ignore
             self._y = deepcopy(y)
         else:
-            self._X = X  # type: ignore
+            self._X = X.reset_index(drop=True)  # type: ignore
             self._y = y
 
         self._nodes = {}
@@ -1235,7 +1242,6 @@ class GPTree:
         *,
         copy_data: bool = True,
         reset: bool = False,
-        verbose: bool = True,
     ) -> AsyncGenerator[Node, None]:
         """Train or resume tree construction as an async generator.
 
@@ -1244,7 +1250,6 @@ class GPTree:
             y: Training labels. Required on first run or with reset=True.
             copy_data: Whether to copy input data.
             reset: Clear existing state and restart from root.
-            verbose: Enable progress logging.
 
         Yields:
             Node: Updated nodes during tree construction.
@@ -1282,7 +1287,6 @@ class GPTree:
                 depth=0,
                 label="root",
                 sample_indices=indices,
-                verbose=verbose,
             ):
                 if self._stop_training:
                     break
@@ -1297,7 +1301,6 @@ class GPTree:
                 depth=task.depth,
                 label=task.label,
                 sample_indices=task.sample_indices,
-                verbose=verbose,
             ):
                 if self._stop_training:
                     return
@@ -1308,7 +1311,6 @@ class GPTree:
         self,
         sample_index: Any,
         sample: pd.Series,
-        verbose: bool = False,
     ) -> AsyncGenerator[Tuple[Any, str, str, int], None]:
         """Predict a single sample data point."""
         node_id = self.get_root_id()
@@ -1324,7 +1326,6 @@ class GPTree:
                 idx=0,
                 row=sample,
                 question=question,
-                verbose=verbose,
             )
             if idx_answer is None:
                 raise LLMError(f"Failed to answer question: {question.value}!")
@@ -1345,13 +1346,11 @@ class GPTree:
     async def predict(
         self,
         samples: pd.DataFrame,
-        verbose: bool = False,
     ) -> AsyncGenerator[Tuple[int, str, str, int], None]:
         """Predict labels for samples with concurrent processing.
 
         Args:
             samples: DataFrame with single column matching training data format.
-            verbose: Enable detailed logging during prediction.
 
         Yields:
             Tuple of (sample_index, question, answer, node_id) for each decision step.
@@ -1369,7 +1368,7 @@ class GPTree:
 
         async def worker(sample_index: Any, row: pd.Series) -> None:
             try:
-                async for record in self._predict(sample_index, row, verbose):
+                async for record in self._predict(sample_index, row):
                     await queue.put(record)
             finally:
                 await queue.put("DONE")
@@ -1434,7 +1433,7 @@ class GPTree:
         node.questions = []
         node.split_ratios = None
 
-        self._save()
+        self.save()
 
     def reset_node_ids(self, *, strict: bool = True) -> Dict[int, int]:
         """Reset node IDs to sequential BFS order starting from root as 0.
@@ -1526,6 +1525,6 @@ class GPTree:
                 )
             )
         self._frontier = remapped_frontier
-        self._save()
+        self.save()
 
         return old_to_new

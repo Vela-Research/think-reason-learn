@@ -280,10 +280,13 @@
 answers, enabling adaptive tree construction for classification tasks.</p>
 <dl class="py class">
 <dt class="sig sig-object py" id="think_reason_learn.gptree.GPTree">
-<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">GPTree</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">qgen_llmc</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">critic_llmc</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">qgen_instr_llmc</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">qanswer_llmc</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">qgen_temperature</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">critic_temperature</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">qgen_instr_gen_temperature</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">criterion</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'gini'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_depth</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_node_width</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">3</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">min_samples_leaf</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_clusters</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">llm_semaphore_limit</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">3</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">min_question_candidates</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">3</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_question_candidates</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">expert_advice</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context_samples_n</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">30</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">class_ratio</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'balanced'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_critic</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">save_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">save_training_data</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#think_reason_learn.gptree.GPTree" title="Link to this definition">¶</a></dt>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">GPTree</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">qgen_llmc</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">critic_llmc</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">qgen_instr_llmc</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">qanswer_llmc</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">qgen_temperature</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">critic_temperature</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">qgen_instr_gen_temperature</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">qanswer_temperature</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">criterion</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'gini'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_depth</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_node_width</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">3</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">min_samples_leaf</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_clusters</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">llm_semaphore_limit</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">5</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">min_question_candidates</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">3</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_question_candidates</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">expert_advice</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_samples_as_context</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">30</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">class_ratio</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'balanced'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_critic</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">save_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#think_reason_learn.gptree.GPTree" title="Link to this definition">¶</a></dt>
 <dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
 <p>LLM based decision tree classifier.</p>
 <p>Decision tree guided by LLMs.</p>
+<p>Note that GPTree auto saves the tree after each node is built.
+When you call <cite>.save()</cite> manually, it will save the tree with only
+production level data.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
@@ -296,6 +299,7 @@ If None, use qgen_llmc.</p></li>
 <li><p><strong>critic_temperature</strong> (<em>float</em>) – Sampling temperature for critique.</p></li>
 <li><p><strong>qgen_instr_gen_temperature</strong> (<em>float</em>) – Sampling temperature for generating
 instructions.</p></li>
+<li><p><strong>qanswer_temperature</strong> (<em>float</em>) – Sampling temperature for answering questions.</p></li>
 <li><p><strong>criterion</strong> (<em>Criterion</em>) – Splitting criterion. Currently only “gini”.</p></li>
 <li><p><strong>max_depth</strong> (<em>int</em><em> | </em><em>None</em>) – Maximum tree depth. If None, grow until pure/min samples.</p></li>
 <li><p><strong>max_node_width</strong> (<em>int</em>) – Maximum children per node.</p></li>
@@ -303,13 +307,12 @@ instructions.</p></li>
 <li><p><strong>max_clusters</strong> (<em>int</em><em> | </em><em>None</em>) – Max out-degree for clustering nodes.</p></li>
 <li><p><strong>llm_semaphore_limit</strong> (<em>int</em>) – Max concurrent LLM calls.</p></li>
 <li><p><strong>min_question_candidates</strong> (<em>int</em>) – Min number of questions per node.</p></li>
-<li><p><strong>max_question_candidates</strong> (<em>int</em>) – Max number of questions per node.</p></li>
+<li><p><strong>max_question_candidates</strong> (<em>int</em>) – Max number of questions per node. Max 15</p></li>
 <li><p><strong>expert_advice</strong> (<em>str</em><em> | </em><em>None</em>) – Human-provided hints for generation.</p></li>
-<li><p><strong>context_samples_n</strong> (<em>int</em>) – Number of samples used as context in generation.</p></li>
+<li><p><strong>n_samples_as_context</strong> (<em>int</em>) – Number of samples used as context in generation.</p></li>
 <li><p><strong>class_ratio</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>int</em><em>] </em><em>| </em><em>Literal</em><em>[</em><em>'balanced'</em><em>]</em>) – Strategy for class sampling (“balanced” or dict of ratios).</p></li>
 <li><p><strong>use_critic</strong> (<em>bool</em>) – Whether to critique generated questions.</p></li>
 <li><p><strong>save_path</strong> (<em>str</em><em> | </em><em>Path</em><em> | </em><em>None</em>) – Directory to save checkpoints/models.</p></li>
-<li><p><strong>save_training_data</strong> (<em>bool</em>) – Whether to save training data.</p></li>
 <li><p><strong>name</strong> (<em>str</em><em> | </em><em>None</em>) – Name of the tree instance.</p></li>
 </ul>
 </dd>
@@ -351,7 +354,7 @@ instructions.</p></li>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="think_reason_learn.gptree.GPTree.fit">
-<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">fit</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">copy_data</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reset</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#think_reason_learn.gptree.GPTree.fit" title="Link to this definition">¶</a></dt>
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">fit</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">copy_data</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reset</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#think_reason_learn.gptree.GPTree.fit" title="Link to this definition">¶</a></dt>
 <dd><p>Train or resume tree construction as an async generator.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
@@ -360,7 +363,6 @@ instructions.</p></li>
 <li><p><strong>y</strong> (<em>ndarray</em><em>[</em><em>tuple</em><em>[</em><em>Any</em><em>, </em><em>...</em><em>]</em><em>, </em><em>dtype</em><em>[</em><em>str_</em><em>]</em><em>] </em><em>| </em><em>None</em>) – Training labels. Required on first run or with reset=True.</p></li>
 <li><p><strong>copy_data</strong> (<em>bool</em>) – Whether to copy input data.</p></li>
 <li><p><strong>reset</strong> (<em>bool</em>) – Clear existing state and restart from root.</p></li>
-<li><p><strong>verbose</strong> (<em>bool</em>) – Enable progress logging.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Yields<span class="colon">:</span></dt>
@@ -441,14 +443,11 @@ instructions.</p></li>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="think_reason_learn.gptree.GPTree.predict">
-<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">predict</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">samples</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#think_reason_learn.gptree.GPTree.predict" title="Link to this definition">¶</a></dt>
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">predict</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">samples</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#think_reason_learn.gptree.GPTree.predict" title="Link to this definition">¶</a></dt>
 <dd><p>Predict labels for samples with concurrent processing.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>samples</strong> (<em>DataFrame</em>) – DataFrame with single column matching training data format.</p></li>
-<li><p><strong>verbose</strong> (<em>bool</em>) – Enable detailed logging during prediction.</p></li>
-</ul>
+<dd class="field-odd"><p><strong>samples</strong> (<em>DataFrame</em>) – DataFrame with single column matching training data format.</p>
 </dd>
 <dt class="field-even">Yields<span class="colon">:</span></dt>
 <dd class="field-even"><p>Tuple of (sample_index, question, answer, node_id) for each decision step.</p>
@@ -511,11 +510,31 @@ in the tree that can be resumed.</p>
 </dd></dl>
 
 <dl class="py method">
+<dt class="sig sig-object py" id="think_reason_learn.gptree.GPTree.save">
+<span class="sig-name descname"><span class="pre">save</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">dir_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">for_production</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#think_reason_learn.gptree.GPTree.save" title="Link to this definition">¶</a></dt>
+<dd><p>Save model config to JSON and dataframes to parquet in a directory.</p>
+<p>If dir_path is None, uses <cite>&lt;self.save_path&gt;/&lt;self.name&gt;</cite>.
+If for_production is True, does not save the training dataframe.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>dir_path</strong> (<em>str</em><em> | </em><em>Path</em><em> | </em><em>None</em>) – The directory to save the tree to.</p></li>
+<li><p><strong>for_production</strong> (<em>bool</em>) – Whether to save the tree for production.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
 <dt class="sig sig-object py" id="think_reason_learn.gptree.GPTree.set_tasks">
-<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">set_tasks</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">instructions_template</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">task_description</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#think_reason_learn.gptree.GPTree.set_tasks" title="Link to this definition">¶</a></dt>
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">set_tasks</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">instructions_template</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">task_description</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#think_reason_learn.gptree.GPTree.set_tasks" title="Link to this definition">¶</a></dt>
 <dd><p>Initialize question generation instructions template.</p>
 <p>This sets the task description for the tree.
-Either sets a custom template or generates one from task description using LLM.</p>
+Either sets a custom template or generates one from task description using LLM.
+For most users, LLM generation is recommended over custom templates.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
@@ -524,7 +543,6 @@ Either sets a custom template or generates one from task description using LLM.<
 from task_description using LLM.</p></li>
 <li><p><strong>task_description</strong> (<em>str</em><em> | </em><em>None</em>) – Description of classification task to help LLM generate
 the template.</p></li>
-<li><p><strong>verbose</strong> (<em>bool</em>) – Enable detailed logging output.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
@@ -562,7 +580,7 @@ the template.</p></li>
 <dl class="py property">
 <dt class="sig sig-object py" id="think_reason_learn.gptree.GPTree.token_usage">
 <em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">token_usage</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">List</span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="think_reason_learn.core.llms.html#think_reason_learn.core.llms.TokenCount" title="think_reason_learn.core.llms._schemas.TokenCount"><span class="pre">TokenCount</span></a><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#think_reason_learn.gptree.GPTree.token_usage" title="Link to this definition">¶</a></dt>
-<dd><p>Accumulates per-call token usage across provider/model pairs.</p>
+<dd><p>Accumulated per-call token usage across provider/model pairs.</p>
 </dd></dl>
 
 <dl class="py method">
@@ -796,6 +814,7 @@ None disables truncation.</p></li>
 <li><a class="reference internal" href="#think_reason_learn.gptree.GPTree.prune_tree"><code class="docutils literal notranslate"><span class="pre">GPTree.prune_tree()</span></code></a></li>
 <li><a class="reference internal" href="#think_reason_learn.gptree.GPTree.question_gen_instructions_template"><code class="docutils literal notranslate"><span class="pre">GPTree.question_gen_instructions_template</span></code></a></li>
 <li><a class="reference internal" href="#think_reason_learn.gptree.GPTree.reset_node_ids"><code class="docutils literal notranslate"><span class="pre">GPTree.reset_node_ids()</span></code></a></li>
+<li><a class="reference internal" href="#think_reason_learn.gptree.GPTree.save"><code class="docutils literal notranslate"><span class="pre">GPTree.save()</span></code></a></li>
 <li><a class="reference internal" href="#think_reason_learn.gptree.GPTree.set_tasks"><code class="docutils literal notranslate"><span class="pre">GPTree.set_tasks()</span></code></a></li>
 <li><a class="reference internal" href="#think_reason_learn.gptree.GPTree.stop"><code class="docutils literal notranslate"><span class="pre">GPTree.stop()</span></code></a></li>
 <li><a class="reference internal" href="#think_reason_learn.gptree.GPTree.task_description"><code class="docutils literal notranslate"><span class="pre">GPTree.task_description</span></code></a></li>

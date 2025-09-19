@@ -179,6 +179,10 @@ class GPTree:
     ):
         """Decision tree guided by LLMs.
 
+        Note that GPTree auto saves the tree after each node is built.
+        When you call `.save()` manually, it will save the tree with only
+        production level data.
+
         Args:
             qgen_llmc: LLMs to use for question generation, in priority order.
             critic_llmc: LLMs to use for question critique, in priority order.
@@ -453,9 +457,12 @@ class GPTree:
 
     def _set_save_path(self, save_path: str | Path | None) -> Path:
         if save_path is None:
-            return (Path(os.getcwd()) / "gptrees").resolve()
+            return (Path(os.getcwd()) / "gptrees" / self.name).resolve()
         else:
-            return Path(save_path).resolve()
+            save_path = Path(save_path).resolve()
+            if save_path.is_file():
+                raise ValueError("Please provide a directory, not a file.")
+            return save_path
 
     @classmethod
     def load(cls, path: str | Path) -> "GPTree":
@@ -467,19 +474,13 @@ class GPTree:
         Returns:
             Reconstructed GPTree instance.
         """
-        path = Path(path).resolve()
-
-        if path.is_dir():
-            candidates = sorted(path.glob("*_gptree.json"))
-            if not candidates:
-                raise FileNotFoundError(
-                    f"No '*_gptree.json' found in directory: {path}"
-                )
-            tree_json_path = candidates[0]
-            save_dir = path
+        base = Path(path)
+        if base.is_dir():
+            tree_json_path = base / "gptree.json"
+            if not tree_json_path.exists():
+                raise FileNotFoundError(f"'gptree.json' not found in directory: {base}")
         else:
-            tree_json_path = path
-            save_dir = path.parent
+            raise ValueError("Please provide a directory, not a file.")
 
         payload = orjson.loads(tree_json_path.read_bytes())
 
@@ -507,7 +508,7 @@ class GPTree:
             n_samples_as_context=params.get("n_samples_as_context", 30),
             class_ratio=params.get("class_ratio", "balanced"),
             use_critic=params.get("use_critic", False),
-            save_path=save_dir,
+            save_path=base,
             name=name,
         )
 
@@ -610,11 +611,9 @@ class GPTree:
             instance._token_usage.append(token_count)
 
         # load training data if present
-        data_csv_default = save_dir / f"{name}_data.csv"
-        fallback_csv = save_dir / "data.csv"
-        data_csv_path = data_csv_default if data_csv_default.exists() else fallback_csv
-        if data_csv_path.exists():
-            df = pd.read_csv(data_csv_path)  # type: ignore
+        data_parquet_path = base / "data.parquet"
+        if data_parquet_path.exists():
+            df = pd.read_parquet(data_parquet_path)  # type: ignore
             if "y" in df.columns:
                 instance._y = df["y"].to_numpy(dtype=np.str_)  # type: ignore
                 instance._X = df.drop(columns=["y"])  # type: ignore
@@ -623,35 +622,45 @@ class GPTree:
                 instance._y = None
 
         # Ensure save_path and name align with loaded data
-        instance.save_path = save_dir
+        instance.save_path = base
         instance.name = name
 
         return instance
 
-    def _save(self):
-        self.save_path.mkdir(parents=True, exist_ok=True)
+    def save(
+        self,
+        dir_path: str | Path | None = None,
+        for_production: bool = False,
+    ) -> None:
+        """Save model config to JSON and dataframes to parquet in a directory.
 
-        tree_json_path = self.save_path / f"{self.name}_gptree.json"
+        If dir_path is None, uses `<self.save_path>/<self.name>`.
+        If for_production is True, does not save the training dataframe.
+
+        Args:
+            dir_path: The directory to save the tree to.
+            for_production: Whether to save the tree for production.
+        """
+        base = Path(dir_path) if dir_path is not None else (self.save_path / self.name)
+        if not base.is_dir():
+            raise ValueError("Please provide a directory.")
+        base.mkdir(parents=True, exist_ok=True)
 
         nodes_serialized = [asdict(node) for node in self._nodes.values()]
         frontier_serialized = [asdict(t) for t in self._frontier]
         token_usage_serialized = [asdict(tc) for tc in self.token_usage]
 
         def _serialize_llm_priorities(prios: List[LLMChoice]) -> List[Dict[str, str]]:
-            out: List[Dict[str, str]] = []
-            for p in prios:
-                if isinstance(p, BaseModel):
-                    out.append(p.model_dump())
-                else:
-                    out.append(p)  # type: ignore
-            return out
+            return [  # type: ignore
+                llmc if isinstance(llmc, dict) else llmc.model_dump() for llmc in prios
+            ]
 
         payload: Dict[str, object] = {
             "tree_name": self.name,
             "created_at": datetime.datetime.now().isoformat(),
             "classes": list(self._classes) if self._classes is not None else None,
             "x_column": self._X_column,
-            "save_path": str(self.save_path),
+            "save_path": str(self.save_path) if not for_production else None,
             "params": {
                 "criterion": self.criterion,
                 "max_depth": self.max_depth,
@@ -686,14 +695,14 @@ class GPTree:
         }
         payload_json = orjson.dumps(payload, option=orjson.OPT_SERIALIZE_NUMPY)
 
-        with tree_json_path.open("w", encoding="utf-8") as f:
+        with (base / "gptree.json").open("w", encoding="utf-8") as f:
             f.write(payload_json.decode("utf-8"))
 
-        if self._X is not None and self._y is not None:
+        if not for_production and self._X is not None and self._y is not None:
             df_to_save: pd.DataFrame = self._X.copy()
             df_to_save["y"] = self._y
-            data_csv_path = self.save_path / f"{self.name}_data.csv"
-            df_to_save.to_csv(str(data_csv_path), index=True)  # type: ignore
+            data_parquet_path = base / "data.parquet"
+            df_to_save.to_parquet(str(data_parquet_path), index=True)  # type: ignore
 
     @property
     def classes(self) -> List[str] | None:
@@ -1004,7 +1013,7 @@ class GPTree:
                     sample_indices=sample_indices,
                 )
             )
-            self._save()
+            self.save()
 
         if self._stop_training:
             return
@@ -1048,7 +1057,7 @@ class GPTree:
             )
             self._nodes[id] = node
             self._frontier = [t for t in self._frontier if t.node_id != id]
-            self._save()
+            self.save()
             yield node
             return
 
@@ -1123,7 +1132,7 @@ class GPTree:
             self._nodes[id] = node
 
             self._frontier = [t for t in self._frontier if t.node_id != id]
-            self._save()
+            self.save()
             yield node
             return
 
@@ -1173,7 +1182,7 @@ class GPTree:
                         sample_indices=indices,
                     )
                 )
-        self._save()
+        self.save()
 
         for choice, indices in choice_indices_list:
             if self._stop_training:
@@ -1424,7 +1433,7 @@ class GPTree:
         node.questions = []
         node.split_ratios = None
 
-        self._save()
+        self.save()
 
     def reset_node_ids(self, *, strict: bool = True) -> Dict[int, int]:
         """Reset node IDs to sequential BFS order starting from root as 0.
@@ -1516,6 +1525,6 @@ class GPTree:
                 )
             )
         self._frontier = remapped_frontier
-        self._save()
+        self.save()
 
         return old_to_new

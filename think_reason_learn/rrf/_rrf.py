@@ -115,9 +115,9 @@ class RRF:
         self.class_ratio = class_ratio
         self.semantic_threshold = semantic_threshold
         self.seed = seed
+        self.name: str = self._get_name(name)
         self.save_path: Path = self._set_save_path(save_path)
         self.q_answer_update_interval = q_answer_update_interval
-        self.name: str = self._get_name(name)
 
         self._token_usage: List[TokenCount] = []
 
@@ -402,6 +402,7 @@ class RRF:
                 )
             all_questions.extend(questions.questions)
             cumulative_memory = questions.cumulative_memory
+            logger.info(f"Cumulative memory: {cumulative_memory}")
 
         qlen = len(all_questions)
         max_questions_id_len = 3  # 3 digits for 999 max questions
@@ -564,6 +565,13 @@ class RRF:
                 )
             if response.response is None:
                 raise LLMError("No response from LLM")
+            self.token_usage.append(
+                TokenCount(
+                    provider=response.provider_model.provider,
+                    model=response.provider_model.model,
+                    value=response.total_tokens,
+                )
+            )
             if response.average_confidence is not None:
                 logger.debug(
                     f"Confidence: {response.average_confidence} "

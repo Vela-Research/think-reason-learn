@@ -10,12 +10,16 @@ keywords = ["decision-trees", "explainable-ai", "llm", "machine-learning", "rese
 classifiers = [
     "Development Status :: 3 - Alpha",
     "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
+include = ["think_reason_learn/py.typed"]
 
 [tool.poetry.dependencies]
-python = ">=3.13,<4.0.0"
+python = ">=3.10,<4.0.0"
 pydantic = "^2.11.7"
 pydantic-settings = "^2.10.1"
 google-genai = "^1.33.0"
@@ -25,7 +29,6 @@ xai-sdk = "^1.1.0"
 pandas = "^2.3.2"
 orjson = "^3.11.3"
 graphviz = "^0.21"
-autodoc-pydantic = "^2.2.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.4.2"

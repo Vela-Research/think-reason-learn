@@ -1,0 +1,425 @@
+{
+    "tree_name": "ef2d861d_1309_4881_b5b8_f86a06ee88f1",
+    "created_at": "2025-09-23T11:13:00.191647",
+    "classes": [
+        "failed",
+        "successful"
+    ],
+    "save_path": null,
+    "params": {
+        "criterion": "gini",
+        "max_depth": null,
+        "max_node_width": 3,
+        "min_samples_leaf": 1,
+        "llm_semaphore_limit": 5,
+        "min_question_candidates": 3,
+        "max_question_candidates": 10,
+        "n_samples_as_context": 30,
+        "class_ratio": "balanced",
+        "use_critic": false,
+        "qgen_temperature": 0.0,
+        "critic_temperature": 0.0,
+        "qgen_instr_gen_temperature": 0.0,
+        "qanswer_temperature": 0.0,
+        "random_state": null
+    },
+    "llm_choices": {
+        "qgen_llmc": [
+            {
+                "provider": "google",
+                "model": "gemini-2.0-flash-lite"
+            },
+            {
+                "provider": "openai",
+                "model": "gpt-4o-mini"
+            },
+            {
+                "provider": "xai",
+                "model": "grok-3-mini"
+            }
+        ],
+        "critic_llmc": [
+            {
+                "provider": "openai",
+                "model": "gpt-4o-mini"
+            },
+            {
+                "provider": "anthropic",
+                "model": "claude-3-5-haiku-latest"
+            },
+            {
+                "provider": "xai",
+                "model": "grok-3-mini"
+            }
+        ],
+        "qanswer_llmc": [
+            {
+                "provider": "google",
+                "model": "gemini-2.0-flash-lite"
+            },
+            {
+                "provider": "openai",
+                "model": "gpt-4o-mini"
+            },
+            {
+                "provider": "xai",
+                "model": "grok-3-mini"
+            }
+        ],
+        "qgen_instr_llmc": [
+            {
+                "provider": "google",
+                "model": "gemini-2.0-flash-lite"
+            },
+            {
+                "provider": "xai",
+                "model": "grok-3-mini"
+            }
+        ]
+    },
+    "templates": {
+        "qgen_instr_template": "Generate <number_of_questions> questions to distinguish between successful and failed startup founders. Each question should be clear, brief, and domain-appropriate, with explicit answer choices that are mutually exclusive and collectively cover likely outcomes. Avoid redundant or trivially correlated questions; promote diverse angles that meaningfully split the data. Consider the following cumulative memory when generating questions: [cumulative memory]. Do not leak labels or training answers; do not fabricate data or assumptions.\n",
+        "critic_instructions_template": null
+    },
+    "expert_advice": "Please shift your focus to the location of the founders.",
+    "task_description": "Classify startup founders into successful and failed.",
+    "node_counter": 9,
+    "nodes": [
+        {
+            "id": 0,
+            "label": "root",
+            "question": {
+                "value": "Customer understanding?",
+                "choices": [
+                    "Deep understanding of the target customer's needs and pain points",
+                    "Some understanding, but based on assumptions",
+                    "Limited understanding of the target customer"
+                ],
+                "question_type": "INFERENCE",
+                "df_column": "b046074a-db4f-4ea8-a2ed-070e3dd72ac6",
+                "score": 0.425
+            },
+            "questions": [
+                {
+                    "value": "Prior startup experience?",
+                    "choices": [
+                        "Extensive experience as a founder or early employee at successful startups",
+                        "Some experience at a startup, but not as a founder",
+                        "No prior startup experience"
+                    ],
+                    "question_type": "INFERENCE",
+                    "df_column": "dcf35421-a364-4550-998a-8cfa6fbc8a7f",
+                    "score": null
+                },
+                {
+                    "value": "Primary motivation for starting a company?",
+                    "choices": [
+                        "Solving a specific problem they personally experienced or deeply understand",
+                        "Pursuing an opportunity in a high-growth market",
+                        "Financial gain"
+                    ],
+                    "question_type": "INFERENCE",
+                    "df_column": "b354795c-8ecd-4915-8b2d-11d618c9b4d6",
+                    "score": null
+                },
+                {
+                    "value": "Technical expertise?",
+                    "choices": [
+                        "Deep technical expertise relevant to the product",
+                        "Some technical knowledge, relying on external help",
+                        "No technical expertise"
+                    ],
+                    "question_type": "INFERENCE",
+                    "df_column": "fdbd25c0-5dfb-4bbd-ab9b-10af8ada69c0",
+                    "score": 0.5
+                },
+                {
+                    "value": "How quickly did they raise seed funding?",
+                    "choices": [
+                        "Raised a significant seed round quickly from known investors",
+                        "Still bootstrapping or seeking seed funding",
+                        "Failed to raise seed funding"
+                    ],
+                    "question_type": "INFERENCE",
+                    "df_column": "0122b76c-9a39-4735-9f4d-ca888718943b",
+                    "score": null
+                },
+                {
+                    "value": "Network within the target industry?",
+                    "choices": [
+                        "Established network with potential customers, investors and partners",
+                        "Limited network; relying heavily on cold outreach",
+                        "Building a network but not yet strong"
+                    ],
+                    "question_type": "INFERENCE",
+                    "df_column": "4c520c18-e627-4e89-8ce7-0417d56663a5",
+                    "score": 0.3333333333333333
+                },
+                {
+                    "value": "Experience with scaling?",
+                    "choices": [
+                        "Experience with scaling a product or service",
+                        "Experience with product development but not scaling",
+                        "No experience with scaling"
+                    ],
+                    "question_type": "INFERENCE",
+                    "df_column": "e563bb61-f8ee-4974-814b-2c61ad507af2",
+                    "score": null
+                },
+                {
+                    "value": "Stage of the company?",
+                    "choices": [
+                        "Actively has paying customers and a scalable business model",
+                        "Early pilot customers with some traction",
+                        "Still ideating or has a prototype with limited testing"
+                    ],
+                    "question_type": "INFERENCE",
+                    "df_column": "4d8c33e2-7a99-4630-b43b-14f56a31fc41",
+                    "score": null
+                },
+                {
+                    "value": "Team composition?",
+                    "choices": [
+                        "Founding team with complementary skills and relevant experience",
+                        "Solo founder without a strong support network",
+                        "Founding team with unclear roles or mismatched experience"
+                    ],
+                    "question_type": "INFERENCE",
+                    "df_column": "a254d130-24bc-4994-91d5-267258cdf412",
+                    "score": null
+                },
+                {
+                    "value": "Customer understanding?",
+                    "choices": [
+                        "Deep understanding of the target customer's needs and pain points",
+                        "Some understanding, but based on assumptions",
+                        "Limited understanding of the target customer"
+                    ],
+                    "question_type": "INFERENCE",
+                    "df_column": "b046074a-db4f-4ea8-a2ed-070e3dd72ac6",
+                    "score": 0.425
+                },
+                {
+                    "value": "Adaptability and market awareness?",
+                    "choices": [
+                        "Demonstrates ability to pivot based on market feedback",
+                        "Reluctant to change initial product vision",
+                        "Not actively monitoring market trends"
+                    ],
+                    "question_type": "INFERENCE",
+                    "df_column": "b35f7cf5-39e1-4109-bb8b-062574d9c1df",
+                    "score": null
+                }
+            ],
+            "cumulative_memory": "The questions aim to extract differentiators related to experience, motivation, technical skills, funding, network, scaling experience, product stage, team composition, customer understanding, and market adaptability. The next step would be to test these questions against a more extensive dataset of founder profiles to identify the best predictors of success. Also, we should evaluate the choice options and refine the language to be more precise and eliminate ambiguity.",
+            "split_ratios": [
+                2,
+                1,
+                5
+            ],
+            "gini": 0.5,
+            "class_distribution": {
+                "failed": 4,
+                "successful": 4
+            },
+            "parent_id": null
+        },
+        {
+            "id": 1,
+            "label": "Deep understanding of the target customer's needs and pain points",
+            "question": null,
+            "questions": [
+                {
+                    "value": "What is the primary source of the founder's initial funding?",
+                    "choices": [
+                        "Bootstrapped with personal savings or revenue",
+                        "Friends and family",
+                        "Angel investors or venture capital"
+                    ],
+                    "question_type": "INFERENCE",
+                    "df_column": "6135b256-392d-4eac-a067-5914df3865ac",
+                    "score": null
+                },
+                {
+                    "value": "How would you characterize the founder's technical expertise?",
+                    "choices": [
+                        "Deep technical expertise relevant to the product",
+                        "Some technical knowledge, relying on external help",
+                        "Limited to no technical expertise; outsourced or co-founder dependent"
+                    ],
+                    "question_type": "INFERENCE",
+                    "df_column": "92fce9bf-c1c2-48c4-aff5-d3829b40db69",
+                    "score": null
+                },
+                {
+                    "value": "What is the current status of their product/service?",
+                    "choices": [
+                        "Early pilot customers with some traction",
+                        "Still ideating or has a prototype with limited testing",
+                        "Public launch with initial user base"
+                    ],
+                    "question_type": "INFERENCE",
+                    "df_column": "7825f1bc-0a5b-46d4-918f-24f8b058d0ef",
+                    "score": null
+                }
+            ],
+            "cumulative_memory": "Generated questions focused on funding sources, technical expertise, and product stage to distinguish between successful and failed founders. The next step is to test these questions on a larger dataset to assess their predictive power, and to refine the questions and answer choices based on the results. Further investigation into team dynamics and understanding of the target market could also provide valuable insights.",
+            "split_ratios": null,
+            "gini": 0.5,
+            "class_distribution": {
+                "failed": 1,
+                "successful": 1
+            },
+            "parent_id": 0
+        },
+        {
+            "id": 2,
+            "label": "Some understanding, but based on assumptions",
+            "question": null,
+            "questions": [],
+            "cumulative_memory": null,
+            "split_ratios": null,
+            "gini": 0.0,
+            "class_distribution": {
+                "successful": 1
+            },
+            "parent_id": 0
+        },
+        {
+            "id": 3,
+            "label": "Limited understanding of the target customer",
+            "question": {
+                "value": "How strong is the founder's network?",
+                "choices": [
+                    "Strong network of advisors, mentors, and potential investors",
+                    "Building a network but not yet strong",
+                    "Limited network; relying heavily on cold outreach"
+                ],
+                "question_type": "INFERENCE",
+                "df_column": "c32fa9c2-8afc-4a86-b096-7d276e46e4cc",
+                "score": 0.0
+            },
+            "questions": [
+                {
+                    "value": "Where is the founder primarily based?",
+                    "choices": [
+                        "Silicon Valley/Bay Area",
+                        "New York City",
+                        "Other region (US or international)"
+                    ],
+                    "question_type": "INFERENCE",
+                    "df_column": "3211a87a-08d2-4688-84e9-e6cd8c0a91de",
+                    "score": 0.26666666666666666
+                },
+                {
+                    "value": "What is the founder's primary technical expertise?",
+                    "choices": [
+                        "Deep technical expertise relevant to the product",
+                        "Some technical knowledge, relying on external help",
+                        "No technical expertise"
+                    ],
+                    "question_type": "INFERENCE",
+                    "df_column": "398f66c3-1673-44a3-9566-1cf8c65ba8fd",
+                    "score": 0.26666666666666666
+                },
+                {
+                    "value": "What is the current stage of product development?",
+                    "choices": [
+                        "Early pilot customers with some traction",
+                        "Still ideating or has a prototype with limited testing",
+                        "Launched and gaining traction"
+                    ],
+                    "question_type": "INFERENCE",
+                    "df_column": "d9ab2f81-17f7-476f-ba59-6158fe0863fd",
+                    "score": null
+                },
+                {
+                    "value": "How strong is the founder's network?",
+                    "choices": [
+                        "Strong network of advisors, mentors, and potential investors",
+                        "Building a network but not yet strong",
+                        "Limited network; relying heavily on cold outreach"
+                    ],
+                    "question_type": "INFERENCE",
+                    "df_column": "c32fa9c2-8afc-4a86-b096-7d276e46e4cc",
+                    "score": 0.0
+                },
+                {
+                    "value": "What is the primary source of funding?",
+                    "choices": [
+                        "Raised a significant seed round quickly from known investors",
+                        "Still bootstrapping or seeking seed funding",
+                        "Actively pursuing Series A funding"
+                    ],
+                    "question_type": "INFERENCE",
+                    "df_column": "7a87bd0e-77a4-4a18-8685-83809f57cd07",
+                    "score": null
+                },
+                {
+                    "value": "How does the founder demonstrate an understanding of the target customer?",
+                    "choices": [
+                        "Solving a specific problem they personally experienced or deeply understand",
+                        "Limited understanding of the target customer",
+                        "Actively seeking customer feedback and iterating on the product"
+                    ],
+                    "question_type": "INFERENCE",
+                    "df_column": "bac45072-2b51-4834-bc1a-5d73c7f8e84c",
+                    "score": null
+                }
+            ],
+            "cumulative_memory": "The generated questions now focus on location, technical expertise, product stage, network strength, funding source, and customer understanding. These questions cover key aspects of the startup founder profile, with specific emphasis on the founder's technical abilities, product progress, and the status of their fundraising. The next step is to refine these questions by focusing on a more nuanced way to measure founders' abilities to monitor market trends and the ability to pivot based on market feedback.",
+            "split_ratios": [
+                1,
+                3,
+                1
+            ],
+            "gini": 0.48,
+            "class_distribution": {
+                "failed": 3,
+                "successful": 2
+            },
+            "parent_id": 0
+        },
+        {
+            "id": 7,
+            "label": "Strong network of advisors, mentors, and potential investors",
+            "question": null,
+            "questions": [],
+            "cumulative_memory": null,
+            "split_ratios": null,
+            "gini": 0.0,
+            "class_distribution": {
+                "successful": 1
+            },
+            "parent_id": 3
+        },
+        {
+            "id": 8,
+            "label": "Building a network but not yet strong",
+            "question": null,
+            "questions": [],
+            "cumulative_memory": null,
+            "split_ratios": null,
+            "gini": 0.0,
+            "class_distribution": {
+                "failed": 3
+            },
+            "parent_id": 3
+        },
+        {
+            "id": 9,
+            "label": "Limited network; relying heavily on cold outreach",
+            "question": null,
+            "questions": [],
+            "cumulative_memory": null,
+            "split_ratios": null,
+            "gini": 0.0,
+            "class_distribution": {
+                "successful": 1
+            },
+            "parent_id": 3
+        }
+    ],
+    "frontier": [],
+    "token_counter": null
+}

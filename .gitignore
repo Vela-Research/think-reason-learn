@@ -35,6 +35,7 @@ htmlcov/
 
 # Docs
 docs/build/
+docs/buildclear/
 
 # Misc
 *.swp
@@ -49,3 +50,4 @@ llm_context.md
 lab.ipynb
 .env
 gptrees
+examples/gptrees/

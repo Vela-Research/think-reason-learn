@@ -1,25 +1,26 @@
 repos:
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.12.12
+  - repo: https://github.com/charliermarsh/ruff-pre-commit
+    rev: v0.6.9
     hooks:
       - id: ruff
-        args: [--fix]
-
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.11.2
+        args: ["--fix"]
+      - id: ruff-format
+  - repo: https://github.com/pre-commit/mirrors-prettier
+    rev: v4.0.0-alpha.8
     hooks:
-      - id: mypy
-        name: pyright
-        entry: pyright
-        language: system
-        types: [python]
-        pass_filenames: false
-
+      - id: prettier
+        additional_dependencies: ["prettier@3.3.3"]
+        files: "\.(md|yml|yaml|json|toml)$"
+  - repo: https://github.com/kynan/nbstripout
+    rev: 0.7.1
+    hooks:
+      - id: nbstripout
+        files: "\.(ipynb)$"
   - repo: local
     hooks:
-      - id: pytest
-        name: pytest
-        entry: poetry run pytest
-        language: system
-        types: [python]
+      - id: pyright
+        name: pyright
+        entry: pyright
+        language: node
         pass_filenames: false
+        additional_dependencies: ["pyright@1.1.405"]

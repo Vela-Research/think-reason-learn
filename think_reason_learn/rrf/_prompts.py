@@ -14,11 +14,15 @@ Task:
   discriminative for the task.
 - Do not restrict the question-generator LLM's creativity. Let it decide what to ask
   based on the clear detailed task description you give in this prompt template.
+- Avoid prescriptive guidance about specific aspects to focus on. Let the generator 
+  determine what to ask based on your comprehensive task description provided.
 - Note: Questions are generated through multiple LLM calls. The template should 
   instruct generators to produce cumulative memory - a high-level summary of 
   insights from questions generated so far. This guides future generators on 
   promising directions without constraining creativity. Include instructions for 
   building upon previous cumulative memory rather than starting fresh each time.
+- The generator will receive explicit output format instructions separately, so focus
+  solely on task guidance in this template.
 
 Return:
 - Only the prompt/instructions template text that will be sent to the question

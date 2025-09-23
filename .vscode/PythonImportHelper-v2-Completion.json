@@ -65,6 +65,14 @@
         "documentation": {}
     },
     {
+        "label": "annotations",
+        "importPath": "__future__",
+        "description": "__future__",
+        "isExtraImport": true,
+        "detail": "__future__",
+        "documentation": {}
+    },
+    {
         "label": "os",
         "kind": 6,
         "isExtraImport": true,
@@ -460,6 +468,14 @@
         "documentation": {}
     },
     {
+        "label": "Dict",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
         "label": "override",
         "importPath": "typing",
         "description": "typing",
@@ -469,6 +485,14 @@
     },
     {
         "label": "Union",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Any",
         "importPath": "typing",
         "description": "typing",
         "isExtraImport": true,
@@ -556,6 +580,14 @@
         "documentation": {}
     },
     {
+        "label": "Sequence",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
         "label": "cast",
         "importPath": "typing",
         "description": "typing",
@@ -580,7 +612,7 @@
         "documentation": {}
     },
     {
-        "label": "AsyncGenerator",
+        "label": "Set",
         "importPath": "typing",
         "description": "typing",
         "isExtraImport": true,
@@ -596,7 +628,7 @@
         "documentation": {}
     },
     {
-        "label": "Set",
+        "label": "AsyncGenerator",
         "importPath": "typing",
         "description": "typing",
         "isExtraImport": true,
@@ -669,6 +701,14 @@
     },
     {
         "label": "Literal",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Sequence",
         "importPath": "typing",
         "description": "typing",
         "isExtraImport": true,
@@ -1128,6 +1168,14 @@
         "documentation": {}
     },
     {
+        "label": "asdict",
+        "importPath": "dataclasses",
+        "description": "dataclasses",
+        "isExtraImport": true,
+        "detail": "dataclasses",
+        "documentation": {}
+    },
+    {
         "label": "dataclass",
         "importPath": "dataclasses",
         "description": "dataclasses",
@@ -1152,6 +1200,15 @@
         "documentation": {}
     },
     {
+        "label": "asyncio",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "asyncio",
+        "description": "asyncio",
+        "detail": "asyncio",
+        "documentation": {}
+    },
+    {
         "label": "BaseSettings",
         "importPath": "pydantic_settings",
         "description": "pydantic_settings",
@@ -1173,23 +1230,6 @@
         "description": "pydantic_settings",
         "isExtraImport": true,
         "detail": "pydantic_settings",
-        "documentation": {}
-    },
-    {
-        "label": "asyncio",
-        "kind": 6,
-        "isExtraImport": true,
-        "importPath": "asyncio",
-        "description": "asyncio",
-        "detail": "asyncio",
-        "documentation": {}
-    },
-    {
-        "label": "deque",
-        "importPath": "collections",
-        "description": "collections",
-        "isExtraImport": true,
-        "detail": "collections",
         "documentation": {}
     },
     {
@@ -1287,7 +1327,7 @@
         "documentation": {}
     },
     {
-        "label": "TokenCount",
+        "label": "TokenCounter",
         "importPath": "think_reason_learn.core.llms",
         "description": "think_reason_learn.core.llms",
         "isExtraImport": true,
@@ -1319,7 +1359,7 @@
         "documentation": {}
     },
     {
-        "label": "TokenCount",
+        "label": "TokenCounter",
         "importPath": "think_reason_learn.core.llms",
         "description": "think_reason_learn.core.llms",
         "isExtraImport": true,
@@ -1380,6 +1420,14 @@
         "description": "think_reason_learn.core._types",
         "isExtraImport": true,
         "detail": "think_reason_learn.core._types",
+        "documentation": {}
+    },
+    {
+        "label": "StrEnum",
+        "importPath": "enum",
+        "description": "enum",
+        "isExtraImport": true,
+        "detail": "enum",
         "documentation": {}
     },
     {
@@ -1683,7 +1731,7 @@
         "kind": 5,
         "importPath": "docs.source.conf",
         "description": "docs.source.conf",
-        "peekOfCode": "source_suffix = {\n    \".rst\": \"restructuredtext\",\n    \".md\": \"markdown\",\n}\n# -- Options for HTML output -------------------------------------------------\n# https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output\n# Furo theme options (optional cosmetics)\nhtml_theme = \"furo\"  # Modern, responsive theme (pip install furo)\nhtml_static_path = [\"_static\"]\nhtml_title = \"Think Reason Learn\"",
+        "peekOfCode": "source_suffix = {\n    \".rst\": \"restructuredtext\",\n    \".md\": \"markdown\",\n}\n# -- Options for HTML output -------------------------------------------------\n# https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output\n# Furo theme options (optional cosmetics)\nhtml_theme = \"furo\"  # Modern, responsive theme (pip install furo)\nhtml_static_path = [\"_static\"]\n# Custom JavaScript to make external links open in new tabs",
         "detail": "docs.source.conf",
         "documentation": {}
     },
@@ -1692,7 +1740,7 @@
         "kind": 5,
         "importPath": "docs.source.conf",
         "description": "docs.source.conf",
-        "peekOfCode": "html_theme = \"furo\"  # Modern, responsive theme (pip install furo)\nhtml_static_path = [\"_static\"]\nhtml_title = \"Think Reason Learn\"\nhtml_short_title = \"TRL\"\nhtml_theme_options = {\n    \"light_css_variables\": {\n        \"color-brand-primary\": \"#2e7d32\",\n        \"color-brand-content\": \"#1b5e20\",\n    },\n    \"footer_icons\": [",
+        "peekOfCode": "html_theme = \"furo\"  # Modern, responsive theme (pip install furo)\nhtml_static_path = [\"_static\"]\n# Custom JavaScript to make external links open in new tabs\nhtml_js_files = [\n    'external_links.js',\n]\nhtml_title = \"Think Reason Learn\"\nhtml_short_title = \"TRL\"\nhtml_theme_options = {\n    \"light_css_variables\": {",
         "detail": "docs.source.conf",
         "documentation": {}
     },
@@ -1701,7 +1749,16 @@
         "kind": 5,
         "importPath": "docs.source.conf",
         "description": "docs.source.conf",
-        "peekOfCode": "html_static_path = [\"_static\"]\nhtml_title = \"Think Reason Learn\"\nhtml_short_title = \"TRL\"\nhtml_theme_options = {\n    \"light_css_variables\": {\n        \"color-brand-primary\": \"#2e7d32\",\n        \"color-brand-content\": \"#1b5e20\",\n    },\n    \"footer_icons\": [\n        {",
+        "peekOfCode": "html_static_path = [\"_static\"]\n# Custom JavaScript to make external links open in new tabs\nhtml_js_files = [\n    'external_links.js',\n]\nhtml_title = \"Think Reason Learn\"\nhtml_short_title = \"TRL\"\nhtml_theme_options = {\n    \"light_css_variables\": {\n        \"color-brand-primary\": \"#2e7d32\",",
+        "detail": "docs.source.conf",
+        "documentation": {}
+    },
+    {
+        "label": "html_js_files",
+        "kind": 5,
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "html_js_files = [\n    'external_links.js',\n]\nhtml_title = \"Think Reason Learn\"\nhtml_short_title = \"TRL\"\nhtml_theme_options = {\n    \"light_css_variables\": {\n        \"color-brand-primary\": \"#2e7d32\",\n        \"color-brand-content\": \"#1b5e20\",\n    },",
         "detail": "docs.source.conf",
         "documentation": {}
     },
@@ -1989,7 +2046,16 @@
         "kind": 6,
         "importPath": "think_reason_learn.core.llms._schemas",
         "description": "think_reason_learn.core.llms._schemas",
-        "peekOfCode": "class TokenCount:\n    \"\"\"A token count from an LLM.\"\"\"\n    provider: LLMProvider = field(metadata={\"description\": \"The provider of the LLM.\"})\n    model: LLMChatModel = field(metadata={\"description\": \"The LLM model used.\"})\n    value: int | None = field(\n        default=None, metadata={\"description\": \"The token count.\"}\n    )",
+        "peekOfCode": "class TokenCount:\n    \"\"\"A token count from an LLM.\"\"\"\n    provider: LLMProvider = field(metadata={\"description\": \"The provider of the LLM.\"})\n    model: LLMChatModel = field(metadata={\"description\": \"The LLM model used.\"})\n    number_of_calls: int = field(\n        default=0, metadata={\"description\": \"The number of calls to the LLM.\"}\n    )\n    value: int = field(default=0, metadata={\"description\": \"The token count.\"})\n    is_min_estimate: bool = field(\n        default=False,",
+        "detail": "think_reason_learn.core.llms._schemas",
+        "documentation": {}
+    },
+    {
+        "label": "TokenCounter",
+        "kind": 6,
+        "importPath": "think_reason_learn.core.llms._schemas",
+        "description": "think_reason_learn.core.llms._schemas",
+        "peekOfCode": "class TokenCounter:\n    \"\"\"Compactly represents token usage across multiple calls to LLMs.\"\"\"\n    token_counts: Dict[str, TokenCount] = field(\n        default_factory=dict,\n        metadata={\"description\": \"The token counts for each provider/model pair.\"},\n    )\n    _lock: asyncio.Lock = field(default_factory=asyncio.Lock)\n    async def append(\n        self,\n        model: LLMChatModel,",
         "detail": "think_reason_learn.core.llms._schemas",
         "documentation": {}
     },
@@ -2007,7 +2073,7 @@
         "kind": 5,
         "importPath": "think_reason_learn.core.llms._schemas",
         "description": "think_reason_learn.core.llms._schemas",
-        "peekOfCode": "NOT_GIVEN = NotGiven()\n@dataclass(slots=True)\nclass TokenCount:\n    \"\"\"A token count from an LLM.\"\"\"\n    provider: LLMProvider = field(metadata={\"description\": \"The provider of the LLM.\"})\n    model: LLMChatModel = field(metadata={\"description\": \"The LLM model used.\"})\n    value: int | None = field(\n        default=None, metadata={\"description\": \"The token count.\"}\n    )",
+        "peekOfCode": "NOT_GIVEN = NotGiven()\n@dataclass(slots=True)\nclass TokenCount:\n    \"\"\"A token count from an LLM.\"\"\"\n    provider: LLMProvider = field(metadata={\"description\": \"The provider of the LLM.\"})\n    model: LLMChatModel = field(metadata={\"description\": \"The LLM model used.\"})\n    number_of_calls: int = field(\n        default=0, metadata={\"description\": \"The number of calls to the LLM.\"}\n    )\n    value: int = field(default=0, metadata={\"description\": \"The token count.\"})",
         "detail": "think_reason_learn.core.llms._schemas",
         "documentation": {}
     },
@@ -2151,7 +2217,7 @@
         "kind": 6,
         "importPath": "think_reason_learn.gptree._gptree",
         "description": "think_reason_learn.gptree._gptree",
-        "peekOfCode": "class BuildTask:\n    node_id: int\n    parent_id: int | None\n    depth: int\n    label: str\n    sample_indices: IndexArray\nclass GPTree:\n    \"\"\"LLM based decision tree classifier.\"\"\"\n    def __init__(\n        self,",
+        "peekOfCode": "class BuildTask:\n    node_id: int\n    parent_id: int | None\n    depth: int\n    label: str\n    sample_indices: IndexArray\n    def to_dict(self) -> Dict[str, Any]:\n        \"\"\"Convert the build task to a dictionary.\"\"\"\n        return asdict(self)\n    @classmethod",
         "detail": "think_reason_learn.gptree._gptree",
         "documentation": {}
     },
@@ -2286,7 +2352,7 @@
         "kind": 6,
         "importPath": "think_reason_learn.rrf._rrf",
         "description": "think_reason_learn.rrf._rrf",
-        "peekOfCode": "class Questions(BaseModel):\n    questions: List[str] = Field(..., description=\"The list of generated questions.\")\n    cumulative_memory: str = Field(..., description=CUMULATIVE_MEMORY_INSTRUCTIONS)\nclass Answer(BaseModel):\n    answer: Literal[\"YES\", \"NO\"]\nclass RRF:\n    \"\"\"Random Rule Forest.\"\"\"\n    def __init__(\n        self,\n        qgen_llmc: List[LLMChoice],",
+        "peekOfCode": "class Questions(BaseModel):\n    questions: List[str] = Field(..., description=\"The list of generated questions.\")\n    cumulative_memory: str = Field(..., description=CUMULATIVE_MEMORY_INSTRUCTIONS)\nclass Answer(BaseModel):\n    answer: Literal[\"YES\", \"NO\"]\nclass QuestionExclusion(StrEnum):\n    SEMANTICS = (\n        \"semantics\",\n        \"Excluded because of semantic overlap with other questions\",\n    )",
         "detail": "think_reason_learn.rrf._rrf",
         "documentation": {}
     },
@@ -2295,7 +2361,16 @@
         "kind": 6,
         "importPath": "think_reason_learn.rrf._rrf",
         "description": "think_reason_learn.rrf._rrf",
-        "peekOfCode": "class Answer(BaseModel):\n    answer: Literal[\"YES\", \"NO\"]\nclass RRF:\n    \"\"\"Random Rule Forest.\"\"\"\n    def __init__(\n        self,\n        qgen_llmc: List[LLMChoice],\n        qanswer_llmc: List[LLMChoice] | None = None,\n        qgen_temperature: float = 0.0,\n        qanswer_temperature: float = 0.0,",
+        "peekOfCode": "class Answer(BaseModel):\n    answer: Literal[\"YES\", \"NO\"]\nclass QuestionExclusion(StrEnum):\n    SEMANTICS = (\n        \"semantics\",\n        \"Excluded because of semantic overlap with other questions\",\n    )\n    PREDICTION_SIMILARITY = (\n        \"prediction_similarity\",\n        \"Excluded due to high prediction similarity with other questions\",",
+        "detail": "think_reason_learn.rrf._rrf",
+        "documentation": {}
+    },
+    {
+        "label": "QuestionExclusion",
+        "kind": 6,
+        "importPath": "think_reason_learn.rrf._rrf",
+        "description": "think_reason_learn.rrf._rrf",
+        "peekOfCode": "class QuestionExclusion(StrEnum):\n    SEMANTICS = (\n        \"semantics\",\n        \"Excluded because of semantic overlap with other questions\",\n    )\n    PREDICTION_SIMILARITY = (\n        \"prediction_similarity\",\n        \"Excluded due to high prediction similarity with other questions\",\n    )\n    EXPERT = (\"expert\", \"Excluded manually by expert\")",
         "detail": "think_reason_learn.rrf._rrf",
         "documentation": {}
     },
@@ -2304,7 +2379,7 @@
         "kind": 6,
         "importPath": "think_reason_learn.rrf._rrf",
         "description": "think_reason_learn.rrf._rrf",
-        "peekOfCode": "class RRF:\n    \"\"\"Random Rule Forest.\"\"\"\n    def __init__(\n        self,\n        qgen_llmc: List[LLMChoice],\n        qanswer_llmc: List[LLMChoice] | None = None,\n        qgen_temperature: float = 0.0,\n        qanswer_temperature: float = 0.0,\n        llm_semaphore_limit: int = 3,\n        embedding_model: EmbeddingModel = \"hashed_bag_of_words\",",
+        "peekOfCode": "class RRF:\n    \"\"\"Random Rule Forest.\"\"\"\n    def __init__(\n        self,\n        qgen_llmc: List[LLMChoice],\n        qanswer_llmc: List[LLMChoice] | None = None,\n        qgen_temperature: float = 0.0,\n        qanswer_temperature: float = 0.0,\n        llm_semaphore_limit: int = 3,\n        answer_similarity_func: AnsSimilarityFunc = \"hamming\",",
         "detail": "think_reason_learn.rrf._rrf",
         "documentation": {}
     },
@@ -2313,7 +2388,7 @@
         "kind": 5,
         "importPath": "think_reason_learn.rrf._rrf",
         "description": "think_reason_learn.rrf._rrf",
-        "peekOfCode": "logger = logging.getLogger(__name__)\nclass Questions(BaseModel):\n    questions: List[str] = Field(..., description=\"The list of generated questions.\")\n    cumulative_memory: str = Field(..., description=CUMULATIVE_MEMORY_INSTRUCTIONS)\nclass Answer(BaseModel):\n    answer: Literal[\"YES\", \"NO\"]\nclass RRF:\n    \"\"\"Random Rule Forest.\"\"\"\n    def __init__(\n        self,",
+        "peekOfCode": "logger = logging.getLogger(__name__)\nclass Questions(BaseModel):\n    questions: List[str] = Field(..., description=\"The list of generated questions.\")\n    cumulative_memory: str = Field(..., description=CUMULATIVE_MEMORY_INSTRUCTIONS)\nclass Answer(BaseModel):\n    answer: Literal[\"YES\", \"NO\"]\nclass QuestionExclusion(StrEnum):\n    SEMANTICS = (\n        \"semantics\",\n        \"Excluded because of semantic overlap with other questions\",",
         "detail": "think_reason_learn.rrf._rrf",
         "documentation": {}
     }

@@ -50,4 +50,5 @@ llm_context.md
 lab.ipynb
 .env
 gptrees
-examples/gptrees/
+examples/*
+!examples/**/*.ipynb

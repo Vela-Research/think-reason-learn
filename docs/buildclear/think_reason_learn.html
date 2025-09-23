@@ -214,7 +214,6 @@
 <li class="toctree-l4"><a class="reference internal" href="think_reason_learn.core.llms.html">Core LLM Interface</a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="think_reason_learn.gpthtree.html">GPT-HTree</a></li>
 <li class="toctree-l3"><a class="reference internal" href="think_reason_learn.gptree.html">GPTree</a></li>
 <li class="toctree-l3"><a class="reference internal" href="think_reason_learn.rrf.html">Random Rule Forest (RRF)</a></li>
 </ul>
@@ -290,10 +289,6 @@
 <li class="toctree-l2"><a class="reference internal" href="think_reason_learn.core.html#module-think_reason_learn.core">Module contents</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="think_reason_learn.gpthtree.html">GPT-HTree</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="think_reason_learn.gpthtree.html#module-think_reason_learn.gpthtree">Module contents</a></li>
-</ul>
-</li>
 <li class="toctree-l1"><a class="reference internal" href="think_reason_learn.gptree.html">GPTree</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="think_reason_learn.gptree.html#module-think_reason_learn.gptree">Module contents</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="think_reason_learn.gptree.html#think_reason_learn.gptree.GPTree"><code class="docutils literal notranslate"><span class="pre">GPTree</span></code></a><ul>
@@ -310,7 +305,7 @@
 <li class="toctree-l4"><a class="reference internal" href="think_reason_learn.gptree.html#think_reason_learn.gptree.GPTree.predict"><code class="docutils literal notranslate"><span class="pre">GPTree.predict()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="think_reason_learn.gptree.html#think_reason_learn.gptree.GPTree.prune_tree"><code class="docutils literal notranslate"><span class="pre">GPTree.prune_tree()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="think_reason_learn.gptree.html#think_reason_learn.gptree.GPTree.question_gen_instructions_template"><code class="docutils literal notranslate"><span class="pre">GPTree.question_gen_instructions_template</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.gptree.html#think_reason_learn.gptree.GPTree.reset_node_ids"><code class="docutils literal notranslate"><span class="pre">GPTree.reset_node_ids()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.gptree.html#think_reason_learn.gptree.GPTree.resume_fit"><code class="docutils literal notranslate"><span class="pre">GPTree.resume_fit()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="think_reason_learn.gptree.html#think_reason_learn.gptree.GPTree.save"><code class="docutils literal notranslate"><span class="pre">GPTree.save()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="think_reason_learn.gptree.html#think_reason_learn.gptree.GPTree.set_tasks"><code class="docutils literal notranslate"><span class="pre">GPTree.set_tasks()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="think_reason_learn.gptree.html#think_reason_learn.gptree.GPTree.stop"><code class="docutils literal notranslate"><span class="pre">GPTree.stop()</span></code></a></li>
@@ -330,6 +325,7 @@
 <li class="toctree-l4"><a class="reference internal" href="think_reason_learn.gptree.html#think_reason_learn.gptree.Node.class_distribution"><code class="docutils literal notranslate"><span class="pre">Node.class_distribution</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="think_reason_learn.gptree.html#think_reason_learn.gptree.Node.children"><code class="docutils literal notranslate"><span class="pre">Node.children</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="think_reason_learn.gptree.html#think_reason_learn.gptree.Node.parent_id"><code class="docutils literal notranslate"><span class="pre">Node.parent_id</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.gptree.html#think_reason_learn.gptree.Node.from_dict"><code class="docutils literal notranslate"><span class="pre">Node.from_dict()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="think_reason_learn.gptree.html#think_reason_learn.gptree.Node.is_leaf"><code class="docutils literal notranslate"><span class="pre">Node.is_leaf</span></code></a></li>
 </ul>
 </li>
@@ -339,6 +335,8 @@
 <li class="toctree-l4"><a class="reference internal" href="think_reason_learn.gptree.html#think_reason_learn.gptree.NodeQuestion.question_type"><code class="docutils literal notranslate"><span class="pre">NodeQuestion.question_type</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="think_reason_learn.gptree.html#think_reason_learn.gptree.NodeQuestion.df_column"><code class="docutils literal notranslate"><span class="pre">NodeQuestion.df_column</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="think_reason_learn.gptree.html#think_reason_learn.gptree.NodeQuestion.score"><code class="docutils literal notranslate"><span class="pre">NodeQuestion.score</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.gptree.html#think_reason_learn.gptree.NodeQuestion.from_dict"><code class="docutils literal notranslate"><span class="pre">NodeQuestion.from_dict()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.gptree.html#think_reason_learn.gptree.NodeQuestion.to_dict"><code class="docutils literal notranslate"><span class="pre">NodeQuestion.to_dict()</span></code></a></li>
 </ul>
 </li>
 </ul>
@@ -348,11 +346,13 @@
 <li class="toctree-l1"><a class="reference internal" href="think_reason_learn.rrf.html">Random Rule Forest (RRF)</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="think_reason_learn.rrf.html#module-think_reason_learn.rrf">Module contents</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.RRF"><code class="docutils literal notranslate"><span class="pre">RRF</span></code></a><ul>
-<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.RRF.exclude_question"><code class="docutils literal notranslate"><span class="pre">RRF.exclude_question()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.RRF.add_question"><code class="docutils literal notranslate"><span class="pre">RRF.add_question()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.RRF.filter_questions_on_pred_similarity"><code class="docutils literal notranslate"><span class="pre">RRF.filter_questions_on_pred_similarity()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.RRF.filter_questions_on_semantics"><code class="docutils literal notranslate"><span class="pre">RRF.filter_questions_on_semantics()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.RRF.fit"><code class="docutils literal notranslate"><span class="pre">RRF.fit()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.RRF.get_answers"><code class="docutils literal notranslate"><span class="pre">RRF.get_answers()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.RRF.get_questions"><code class="docutils literal notranslate"><span class="pre">RRF.get_questions()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.RRF.include_question"><code class="docutils literal notranslate"><span class="pre">RRF.include_question()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.RRF.llm_semaphore_limit"><code class="docutils literal notranslate"><span class="pre">RRF.llm_semaphore_limit</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.RRF.load"><code class="docutils literal notranslate"><span class="pre">RRF.load()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.RRF.predict"><code class="docutils literal notranslate"><span class="pre">RRF.predict()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.RRF.question_gen_instructions_template"><code class="docutils literal notranslate"><span class="pre">RRF.question_gen_instructions_template</span></code></a></li>
@@ -360,6 +360,60 @@
 <li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.RRF.set_tasks"><code class="docutils literal notranslate"><span class="pre">RRF.set_tasks()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.RRF.task_description"><code class="docutils literal notranslate"><span class="pre">RRF.task_description</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.RRF.token_usage"><code class="docutils literal notranslate"><span class="pre">RRF.token_usage</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.RRF.update_question_exclusion"><code class="docutils literal notranslate"><span class="pre">RRF.update_question_exclusion()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.encode"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.encode()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.replace"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.replace()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.split"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.split()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.rsplit"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.rsplit()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.join"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.join()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.capitalize"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.capitalize()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.casefold"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.casefold()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.title"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.title()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.center"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.center()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.count"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.count()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.expandtabs"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.expandtabs()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.find"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.find()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.partition"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.partition()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.index"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.index()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.ljust"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.ljust()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.lower"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.lower()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.lstrip"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.lstrip()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.rfind"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.rfind()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.rindex"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.rindex()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.rjust"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.rjust()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.rstrip"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.rstrip()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.rpartition"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.rpartition()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.splitlines"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.splitlines()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.strip"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.strip()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.swapcase"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.swapcase()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.translate"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.translate()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.upper"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.upper()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.startswith"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.startswith()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.endswith"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.endswith()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.removeprefix"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.removeprefix()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.removesuffix"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.removesuffix()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.isascii"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.isascii()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.islower"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.islower()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.isupper"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.isupper()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.istitle"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.istitle()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.isspace"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.isspace()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.isdecimal"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.isdecimal()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.isdigit"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.isdigit()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.isnumeric"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.isnumeric()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.isalpha"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.isalpha()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.isalnum"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.isalnum()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.isidentifier"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.isidentifier()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.isprintable"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.isprintable()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.zfill"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.zfill()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.format"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.format()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.format_map"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.format_map()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.maketrans"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.maketrans()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.SEMANTICS"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.SEMANTICS</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.PREDICTION_SIMILARITY"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.PREDICTION_SIMILARITY</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="think_reason_learn.rrf.html#think_reason_learn.rrf.QuestionExclusion.EXPERT"><code class="docutils literal notranslate"><span class="pre">QuestionExclusion.EXPERT</span></code></a></li>
 </ul>
 </li>
 </ul>
@@ -453,5 +507,6 @@ decision-making systems powered by large language models (LLMs).</p>
     <script src="_static/doctools.js?v=9bcbadda"></script>
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="_static/scripts/furo.js?v=46bd48cc"></script>
+    <script src="_static/external_links.js?v=2ac72171"></script>
     </body>
 </html>

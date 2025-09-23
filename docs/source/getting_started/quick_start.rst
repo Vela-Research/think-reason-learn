@@ -79,12 +79,4 @@ GPTree
    for pred in predictions:
        print(pred)
 
-RRF
-~~~
-
-TODO: Add RRF quick start example.
-
-GPT-HTree
-~~~~~~~~~
-
-TODO: Add GPT-HTree quick start example.
+For more examples and comprehensive use cases, visit the `examples directory <https://github.com/vela-research/think-reason-learn/tree/main/examples>`_ on our GitHub repository.

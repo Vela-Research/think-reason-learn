@@ -8,7 +8,6 @@ Subpackages
    :maxdepth: 4
 
    think_reason_learn.core
-   think_reason_learn.gpthtree
    think_reason_learn.gptree
    think_reason_learn.rrf
 

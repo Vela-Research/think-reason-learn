@@ -1731,7 +1731,7 @@
         "kind": 5,
         "importPath": "docs.source.conf",
         "description": "docs.source.conf",
-        "peekOfCode": "source_suffix = {\n    \".rst\": \"restructuredtext\",\n    \".md\": \"markdown\",\n}\n# -- Options for HTML output -------------------------------------------------\n# https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output\n# Furo theme options (optional cosmetics)\nhtml_theme = \"furo\"  # Modern, responsive theme (pip install furo)\nhtml_static_path = [\"_static\"]\nhtml_title = \"Think Reason Learn\"",
+        "peekOfCode": "source_suffix = {\n    \".rst\": \"restructuredtext\",\n    \".md\": \"markdown\",\n}\n# -- Options for HTML output -------------------------------------------------\n# https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output\n# Furo theme options (optional cosmetics)\nhtml_theme = \"furo\"  # Modern, responsive theme (pip install furo)\nhtml_static_path = [\"_static\"]\n# Custom JavaScript to make external links open in new tabs",
         "detail": "docs.source.conf",
         "documentation": {}
     },
@@ -1740,7 +1740,7 @@
         "kind": 5,
         "importPath": "docs.source.conf",
         "description": "docs.source.conf",
-        "peekOfCode": "html_theme = \"furo\"  # Modern, responsive theme (pip install furo)\nhtml_static_path = [\"_static\"]\nhtml_title = \"Think Reason Learn\"\nhtml_short_title = \"TRL\"\nhtml_theme_options = {\n    \"light_css_variables\": {\n        \"color-brand-primary\": \"#2e7d32\",\n        \"color-brand-content\": \"#1b5e20\",\n    },\n    \"footer_icons\": [",
+        "peekOfCode": "html_theme = \"furo\"  # Modern, responsive theme (pip install furo)\nhtml_static_path = [\"_static\"]\n# Custom JavaScript to make external links open in new tabs\nhtml_js_files = [\n    'external_links.js',\n]\nhtml_title = \"Think Reason Learn\"\nhtml_short_title = \"TRL\"\nhtml_theme_options = {\n    \"light_css_variables\": {",
         "detail": "docs.source.conf",
         "documentation": {}
     },
@@ -1749,7 +1749,16 @@
         "kind": 5,
         "importPath": "docs.source.conf",
         "description": "docs.source.conf",
-        "peekOfCode": "html_static_path = [\"_static\"]\nhtml_title = \"Think Reason Learn\"\nhtml_short_title = \"TRL\"\nhtml_theme_options = {\n    \"light_css_variables\": {\n        \"color-brand-primary\": \"#2e7d32\",\n        \"color-brand-content\": \"#1b5e20\",\n    },\n    \"footer_icons\": [\n        {",
+        "peekOfCode": "html_static_path = [\"_static\"]\n# Custom JavaScript to make external links open in new tabs\nhtml_js_files = [\n    'external_links.js',\n]\nhtml_title = \"Think Reason Learn\"\nhtml_short_title = \"TRL\"\nhtml_theme_options = {\n    \"light_css_variables\": {\n        \"color-brand-primary\": \"#2e7d32\",",
+        "detail": "docs.source.conf",
+        "documentation": {}
+    },
+    {
+        "label": "html_js_files",
+        "kind": 5,
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "html_js_files = [\n    'external_links.js',\n]\nhtml_title = \"Think Reason Learn\"\nhtml_short_title = \"TRL\"\nhtml_theme_options = {\n    \"light_css_variables\": {\n        \"color-brand-primary\": \"#2e7d32\",\n        \"color-brand-content\": \"#1b5e20\",\n    },",
         "detail": "docs.source.conf",
         "documentation": {}
     },
@@ -2370,7 +2379,7 @@
         "kind": 6,
         "importPath": "think_reason_learn.rrf._rrf",
         "description": "think_reason_learn.rrf._rrf",
-        "peekOfCode": "class RRF:\n    \"\"\"Random Rule Forest.\"\"\"\n    def __init__(\n        self,\n        qgen_llmc: List[LLMChoice],\n        qanswer_llmc: List[LLMChoice] | None = None,\n        qgen_temperature: float = 0.0,\n        qanswer_temperature: float = 0.0,\n        llm_semaphore_limit: int = 3,\n        embedding_model: EmbeddingModel = \"hashed_bag_of_words\",",
+        "peekOfCode": "class RRF:\n    \"\"\"Random Rule Forest.\"\"\"\n    def __init__(\n        self,\n        qgen_llmc: List[LLMChoice],\n        qanswer_llmc: List[LLMChoice] | None = None,\n        qgen_temperature: float = 0.0,\n        qanswer_temperature: float = 0.0,\n        llm_semaphore_limit: int = 3,\n        answer_similarity_func: AnsSimilarityFunc = \"hamming\",",
         "detail": "think_reason_learn.rrf._rrf",
         "documentation": {}
     },

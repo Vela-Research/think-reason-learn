@@ -17,7 +17,6 @@ Core Algorithms
 ~~~~~~~~~~~~~~~
 
 - **GPTree**: LLM-guided decision trees for dynamic feature generation.
-- **GPT-HTree**: Hierarchical clustering + localized trees with human-readable personas.
 - **RRF (Random Rule Forest)**: Transparent ensembles of LLM-generated YES/NO rules.
 
 For in-depth papers and methodology, see our :doc:`/research` section.

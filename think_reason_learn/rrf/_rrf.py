@@ -72,13 +72,10 @@ class RRF:
         qgen_temperature: float = 0.0,
         qanswer_temperature: float = 0.0,
         llm_semaphore_limit: int = 3,
-        embedding_model: EmbeddingModel = "hashed_bag_of_words",
         answer_similarity_func: AnsSimilarityFunc = "hamming",
-        answer_similarity_threshold: float = 0.2,
         max_generated_questions: int = 100,
         max_samples_as_context: int = 30,
         class_ratio: Tuple[float, float] = (1.0, 1.0),
-        semantic_threshold: float = 0.8,
         q_answer_update_interval: int = 10,
         save_path: str | Path | None = None,
         name: str | None = None,
@@ -93,15 +90,12 @@ class RRF:
             qgen_temperature: Sampling temperature for question generation.
             qanswer_temperature: Sampling temperature for answering questions.
             llm_semaphore_limit: Max concurrent LLM calls.
-            embedding_model: Embedding model to use for question generation.
             answer_similarity_func: Function to use for answer similarity.
-            answer_similarity_threshold: Threshold for answer similarity.
             max_generated_questions: Maximum number of questions to generate. Max 1000
             max_samples_as_context: Number of samples used as context in a round
                 of question generation. max 100 Max 100
             class_ratio: Ratio of YES to NO samples to use as context in a round
                 of question generation.
-            semantic_threshold: Threshold for semantic filtering.
             q_answer_update_interval: Logging interval of question answering.
             save_path: Directory to save checkpoints/models.
             name: Name of the forest instance.
@@ -116,13 +110,10 @@ class RRF:
         self.qgen_temperature = qgen_temperature
         self.qanswer_temperature = qanswer_temperature
         self._llm_semaphore_limit = llm_semaphore_limit
-        self.embedding_model = embedding_model
         self.answer_similarity_func = answer_similarity_func
-        self.answer_similarity_threshold = answer_similarity_threshold
         self.max_generated_questions = max_generated_questions
         self.max_samples_as_context = max_samples_as_context
         self.class_ratio = class_ratio
-        self.semantic_threshold = semantic_threshold
         self.name: str = self._get_name(name)
         self.save_path: Path = self._set_save_path(save_path)
         self.q_answer_update_interval = q_answer_update_interval
@@ -135,10 +126,10 @@ class RRF:
         self._classes: List[str] | None = None
         self._X: pd.DataFrame | None = None
         self._y: npt.NDArray[np.str_] | None = None
-        self._X_column = "data"
         self._task_description: str | None = None
         self._questions: pd.DataFrame = self._get_initial_questions_df()
         self._answers: pd.DataFrame = self._create_answers_df(index=None)
+        self._last_emb_model: EmbeddingModel | None = None
 
     @property
     def llm_semaphore_limit(self) -> int:
@@ -150,14 +141,6 @@ class RRF:
         self._llm_semaphore = asyncio.Semaphore(value)
 
     def _verify_input_data(self, **kwargs: Any) -> None:
-        val = kwargs["embedding_model"]
-        if val != "hashed_bag_of_words":
-            if not find_spec("sentence_transformers"):
-                raise ImportError(
-                    f"Embedding model '{val}' requires sentence_transformers. "
-                    "Install with `pip install sentence-transformers`."
-                )
-
         val = kwargs["max_generated_questions"]
         if not (0 < val < 1000):
             raise ValueError("max_generated_questions must be > 0 and < 1000")
@@ -167,9 +150,6 @@ class RRF:
         val = kwargs["class_ratio"]
         if not (len(val) == 2 and all(cr > 0 for cr in val)):
             raise ValueError("class_ratio must be a tuple of two elements each > 0")
-        val = kwargs["semantic_threshold"]
-        if not (0 < val <= 1):
-            raise ValueError("semantic_threshold must be > 0 and <= 1")
         val = kwargs["q_answer_update_interval"]
         if not (val > 0):
             raise ValueError("q_answer_update_interval must be > 0")
@@ -188,9 +168,6 @@ class RRF:
         val = kwargs["qanswer_temperature"]
         if not (0 <= val <= 2):
             raise ValueError("qanswer_temperature must be >= 0 and <= 2")
-        val = kwargs["answer_similarity_threshold"]
-        if not (0 < val <= 1):
-            raise ValueError("answer_similarity_threshold must be > 0 and <= 1")
         val = kwargs["answer_similarity_func"]
         if val not in ["hamming", "jaccard"]:
             raise ValueError("answer_similarity_func must be 'hamming' or 'jaccard'")
@@ -501,21 +478,34 @@ class RRF:
     def _hash_bag_of_words_emb(self, text: List[str]) -> np.ndarray:
         return np.vstack([self._hash_bag_of_words_emb_single(q) for q in text])
 
-    async def _sentence_transformer_emb(self, text: List[str]) -> np.ndarray:
+    async def _sentence_transformer_emb(
+        self, text: List[str], emb_model: EmbeddingModel
+    ) -> np.ndarray:
         """Embed text using the sentence transformer."""
+        if find_spec("sentence_transformers") is None:
+            raise ImportError(
+                f"Unknown embedding model: {emb_model} "
+                "If a sentence transformer model, install sentence_transformers "
+                "with `pip install sentence-transformers`."
+            )
+
         from sentence_transformers import SentenceTransformer  # type: ignore
 
-        encode_fn = cast(Any, SentenceTransformer(self.embedding_model).encode_async)
+        encode_fn = cast(Any, SentenceTransformer(emb_model).encode_async)
         embeddings_np = await encode_fn(
             text, convert_to_numpy=True, normalize_embeddings=True
         )
         embeddings_np = cast(np.ndarray, embeddings_np)
         return embeddings_np.astype(np.float32, copy=False)
 
-    async def _set_questions_semantics(self) -> None:
+    async def _set_questions_semantics(self, emb_model: EmbeddingModel) -> None:
         """Embed questions using the embedding model."""
         if self._questions.empty:
             return
+
+        if self._last_emb_model != emb_model:
+            self._last_emb_model = emb_model
+            self._questions["embedding"] = None
 
         qdf = self._questions
         to_embed_positions: List[int] = []
@@ -537,37 +527,52 @@ class RRF:
             return
 
         embeddings: np.ndarray
-        if self.embedding_model == "hashed_bag_of_words":
+        if emb_model == "hashed_bag_of_words":
             embeddings = self._hash_bag_of_words_emb(texts_to_embed)
         else:
-            try:
-                embeddings = await self._sentence_transformer_emb(texts_to_embed)
-            except Exception as e:
-                raise ValueError(
-                    f"Error embedding questions with {self.embedding_model} model. "
-                    "Please check if the model is installed and try again.\n\n"
-                    f"Error: {e}"
-                )
+            embeddings = await self._sentence_transformer_emb(texts_to_embed, emb_model)
 
         for i, pos in enumerate(to_embed_positions):
             row_label = cast(str, qdf.index[pos])
             self._questions.at[row_label, "embedding"] = embeddings[i]
 
-    async def _filter_questions_on_semantics(
+    async def filter_questions_on_semantics(
         self,
-        semantic_threshold: float | None,
+        threshold: float | None,
+        emb_model: EmbeddingModel,
     ) -> None:
-        """Filter questions on semantics."""
+        """Filter questions on semantics.
+
+        If two questions have a semantic similarity greater than or
+        equal to the threshold, the question with the lower f1 score is excluded.
+
+        Args:
+            threshold: Threshold for semantic filtering. If None, no filtering is
+            done based on semantic similarity.
+            emb_model: Embedding model to use for semantic filtering.
+
+        Raises:
+            AssertionError: If threshold is not between > 0 and <= 1.
+        """
+        if threshold is not None:
+            assert 0 < threshold <= 1, "Threshold must be between > 0 and <= 1"
+
         if self._questions.empty:
             return
 
-        semantic_threshold = (
-            self.semantic_threshold
-            if semantic_threshold is None
-            else semantic_threshold
-        )
-        if semantic_threshold <= 0.0:
+        if threshold is None:
+            # Do not clear if semantics aren't set yet except threshold is None
+            self._questions.loc[
+                self._questions["exclusion"] == QuestionExclusion.SEMANTICS.value,
+                "exclusion",
+            ] = None
             return
+
+        await self._set_questions_semantics(emb_model)
+        self._questions.loc[
+            self._questions["exclusion"] == QuestionExclusion.SEMANTICS.value,
+            "exclusion",
+        ] = None
 
         qdf = self._questions
         embeddings_list: List[npt.NDArray[np.float32]] = []
@@ -588,16 +593,44 @@ class RRF:
         norms[norms == 0] = 1.0
         emb_matrix = emb_matrix / norms
 
-        # Greedy deduplication: keep first, exclude later items with high cosine sim
-        keep_flags = np.ones(emb_matrix.shape[0], dtype=bool)
-        for i in range(emb_matrix.shape[0]):
+        # F1-aware deduplication: within each similar group, keep highest-F1
+        def _safe_f1(qid: str) -> float:
+            if "f1_score" not in self._questions.columns:
+                return 0.0
+            val = cast(Any, self._questions.at[qid, "f1_score"])  # type: ignore
+            if isinstance(val, (int, float)):
+                return float(val)
+            if isinstance(val, np.generic):
+                try:
+                    return float(val.item())  # type: ignore[no-any-return]
+                except Exception:
+                    return 0.0
+            return 0.0
+
+        nrows = emb_matrix.shape[0]
+        keep_flags = np.ones(nrows, dtype=bool)
+        for i in range(nrows):
             if not keep_flags[i]:
                 continue
-            # Compare only with later vectors
-            if i + 1 < emb_matrix.shape[0]:
+            group: List[int] = [i]
+            if i + 1 < nrows:
                 sims = emb_matrix[i + 1 :] @ emb_matrix[i]
-                dup_mask = sims >= semantic_threshold
-                keep_flags[i + 1 :][dup_mask] = False
+                for off, is_dup in enumerate(sims >= threshold):
+                    k = i + 1 + off
+                    if bool(is_dup) and keep_flags[k]:
+                        group.append(k)
+
+            if len(group) > 1:
+                # Pick best by F1 score
+                def f1_for_row(r: int) -> float:
+                    pos = indices[r]
+                    qid = cast(str, self._questions.index[pos])
+                    return _safe_f1(qid)
+
+                best = max(group, key=f1_for_row)
+                for r in group:
+                    keep_flags[r] = False
+                keep_flags[best] = True
 
         # Map back to original dataframe indices
         excluded_indices = [indices[i] for i, keep in enumerate(keep_flags) if not keep]
@@ -615,9 +648,6 @@ class RRF:
         token_counter: TokenCounter,
     ) -> Tuple[Any, str, Answer] | None:
         """Returns sample_index, question_id, answer."""
-        if self._X is None:
-            raise ValueError("X must be set")
-
         try:
             async with self._llm_semaphore:
                 response = await llm.respond(
@@ -823,8 +853,44 @@ class RRF:
             else self._hamming_similarity(col1, col2)
         )
 
-    def _filter_questions_on_pred_similarity(self) -> None:
+    def filter_questions_on_pred_similarity(self, threshold: float | None) -> None:
+        """Filter questions on prediction similarity.
+
+        If two questions have a prediction similarity greater than or
+        equal to the threshold, the question with the lower f1 score is excluded.
+
+        Args:
+            threshold: Threshold for prediction similarity. If None, no filtering is
+            done based on prediction similarity.
+
+        Raises:
+            AssertionError: If threshold is not between > 0 and <= 1.
+        """
+        if threshold is not None:
+            assert 0 < threshold <= 1, "Threshold must be between > 0 and <= 1"
+
         self._update_answers_df_columns()
+        self._questions.loc[
+            self._questions["exclusion"]
+            == QuestionExclusion.PREDICTION_SIMILARITY.value,
+            "exclusion",
+        ] = None
+        if threshold is None:
+            return
+
+        def _safe_f1(qid: str) -> float:
+            if "f1_score" not in self._questions.columns:
+                return 0.0
+            val = cast(Any, self._questions.at[qid, "f1_score"])
+            if isinstance(val, (int, float)):
+                return float(val)
+            if isinstance(val, np.generic):
+                try:
+                    return float(val.item())  # type: ignore[no-any-return]
+                except Exception:
+                    return 0.0
+            return 0.0
+
         qids = cast(List[str], self._answers.columns.tolist())
         num_questions = len(qids)
         keep: List[bool] = [True] * num_questions
@@ -838,8 +904,14 @@ class RRF:
                     continue
                 col_j = cast(pd.Series, self._answers[qids[j]])
                 sim = self._similarity(col_i, col_j)
-                if sim >= self.answer_similarity_threshold:
-                    keep[j] = False
+                if sim >= threshold:
+                    f1_i = _safe_f1(qids[i])
+                    f1_j = _safe_f1(qids[j])
+                    if f1_i < f1_j:
+                        keep[i] = False
+                        break
+                    else:
+                        keep[j] = False
 
         to_remove = [qids[k] for k in range(num_questions) if not keep[k]]
         if to_remove:
@@ -858,17 +930,8 @@ class RRF:
         await self._generate_questions()
         logger.info(f"Generated {self._questions.shape[0]} questions")
 
-        logger.info("Checking questions semantics")
-        await self._set_questions_semantics()
-
-        logger.info("Filtering questions on semantics")
-        await self._filter_questions_on_semantics(None)
-
         logger.info("Answering questions")
         await self._answer_questions()
-
-        logger.info("Filtering questions on prediction similarity")
-        self._filter_questions_on_pred_similarity()
 
         logger.info("Setting questions metrics")
         self._set_questions_metrics()
@@ -880,7 +943,12 @@ class RRF:
         if len(y) != X.shape[0]:
             raise DataError("y and X must have the same number of rows")
 
-        y_array = np.array(y, dtype=np.str_)
+        if set(np.unique(y)) != {"YES", "NO"}:
+            raise DataError(
+                "y must be a sequence of only 'YES' or 'NO' values (case insensitive)"
+            )
+
+        y_array = np.array([yi.upper() for yi in y], dtype=np.str_)
 
         if copy_data:
             self._X = deepcopy(X).reset_index(drop=True)  # type: ignore
@@ -996,8 +1064,8 @@ class RRF:
         tasks: List[asyncio.Task[None]] = []
         try:
             for sample_index, row in samples.iterrows():
-                sample = cast(str, row[self._X_column])
-                tasks.append(asyncio.create_task(worker(sample_index, sample)))
+                sample_str = "\n".join([f"{col}: {val}" for col, val in row.items()])
+                tasks.append(asyncio.create_task(worker(sample_index, sample_str)))
 
             remaining = len(tasks)
             while remaining > 0:
@@ -1127,19 +1195,18 @@ class RRF:
             "qgen_temperature": self.qgen_temperature,
             "qanswer_temperature": self.qanswer_temperature,
             "llm_semaphore_limit": self.llm_semaphore_limit,
-            "embedding_model": self.embedding_model,
             "answer_similarity_func": self.answer_similarity_func,
-            "answer_similarity_threshold": self.answer_similarity_threshold,
             "max_generated_questions": self.max_generated_questions,
             "max_samples_as_context": self.max_samples_as_context,
             "class_ratio": list(self.class_ratio),
-            "semantic_threshold": self.semantic_threshold,
             "q_answer_update_interval": self.q_answer_update_interval,
             "token_counter": None if for_production else self._token_counter.to_dict(),
-            "X_column": self._X_column,
             "save_path": str(self.save_path) if not for_production else None,
             "task_description": self._task_description,
-            "qgen_instructions_template": self._qgen_instructions_template,
+            "last_emb_model": self._last_emb_model,
+            "qgen_instructions_template": self._qgen_instructions_template
+            if not for_production
+            else None,
             "random_state": self.random_state,
         }
         with (base / "rrf.json").open("w", encoding="utf-8") as f:
@@ -1171,22 +1238,19 @@ class RRF:
             qgen_temperature=manifest["qgen_temperature"],
             qanswer_temperature=manifest["qanswer_temperature"],
             llm_semaphore_limit=manifest["llm_semaphore_limit"],
-            embedding_model=manifest["embedding_model"],
             answer_similarity_func=manifest["answer_similarity_func"],
-            answer_similarity_threshold=manifest["answer_similarity_threshold"],
             max_generated_questions=manifest["max_generated_questions"],
             max_samples_as_context=manifest["max_samples_as_context"],
             class_ratio=tuple(manifest["class_ratio"]),
-            semantic_threshold=manifest["semantic_threshold"],
             q_answer_update_interval=manifest["q_answer_update_interval"],
             random_state=manifest["random_state"],
             save_path=str(base.parent),
             name=manifest["name"],
         )
 
-        inst._X_column = manifest["X_column"]
         inst._task_description = manifest["task_description"]
         inst._qgen_instructions_template = manifest["qgen_instructions_template"]
+        inst._last_emb_model = manifest["last_emb_model"]
         if tk_dict := manifest["token_counter"]:
             inst._token_counter = TokenCounter.from_dict(tk_dict)
 
@@ -1221,3 +1285,21 @@ class RRF:
                 inst._X = training_data.drop(columns=["y"])  # type: ignore
 
         return inst
+
+    @classmethod
+    def load(cls, dir_path: str | Path) -> "RRF":
+        """Load an RRF saved by `save`."""
+        try:
+            return cls._load(dir_path)
+        except KeyError as e:
+            raise CorruptionError(
+                f"Failed to load RRF. RRF json is probably corrupted: {e}"
+            )
+        except Exception as e:
+            raise e
+
+    def __repr__(self) -> str:
+        return f"RRF(name={self.name})"
+
+    def __str__(self) -> str:
+        return f"RRF(name={self.name})"

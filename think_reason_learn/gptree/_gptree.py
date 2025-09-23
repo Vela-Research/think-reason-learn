@@ -656,7 +656,7 @@ class GPTree:
             raise CorruptionError(
                 f"Failed to load GPTree. Tree json is probably corrupted: {e}"
             )
-        except (FileNotFoundError, ValueError) as e:
+        except Exception as e:
             raise e
 
     def save(
@@ -1704,3 +1704,9 @@ class GPTree:
         logger.info("Re-fitting tree...")
         async for updated_node in self.fit():
             yield updated_node
+
+    def __repr__(self) -> str:
+        return f"GPTree(name={self.name})"
+
+    def __str__(self) -> str:
+        return f"GPTree(name={self.name})"

@@ -73,6 +73,11 @@ source_suffix = {
 # Furo theme options (optional cosmetics)
 html_theme = "furo"  # Modern, responsive theme (pip install furo)
 html_static_path = ["_static"]
+
+# Custom JavaScript to make external links open in new tabs
+html_js_files = [
+    'external_links.js',
+]
 html_title = "Think Reason Learn"
 html_short_title = "TRL"
 html_theme_options = {

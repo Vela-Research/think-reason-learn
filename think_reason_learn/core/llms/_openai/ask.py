@@ -42,8 +42,8 @@ class OpenAILLM(metaclass=SingletonMeta):
                 response = self.client.responses.parse(
                     model=model,
                     input=kwargs.get("input", query),
-                    instructions=instructions,
-                    temperature=temperature,
+                    instructions=instructions or None,
+                    temperature=temperature or None,
                     text_format=response_format,
                     **kwargs,
                 )
@@ -59,8 +59,8 @@ class OpenAILLM(metaclass=SingletonMeta):
             response = self.client.responses.create(  # type: ignore
                 model=model,
                 input=kwargs.get("input", query),
-                instructions=instructions,
-                temperature=temperature,
+                instructions=instructions or None,
+                temperature=temperature or None,
                 **kwargs,
             )
             response = cast(Response, response)
@@ -94,8 +94,8 @@ class OpenAILLM(metaclass=SingletonMeta):
                 response = await self.aclient.responses.parse(
                     model=model,
                     input=kwargs.get("input", query),
-                    instructions=instructions,
-                    temperature=temperature,
+                    instructions=instructions or None,
+                    temperature=temperature or None,
                     text_format=response_format,
                     **kwargs,
                 )
@@ -111,8 +111,8 @@ class OpenAILLM(metaclass=SingletonMeta):
             response = await self.aclient.responses.create(  # type: ignore
                 model=model,
                 input=kwargs.get("input", query),
-                instructions=instructions,
-                temperature=temperature,
+                instructions=instructions or None,
+                temperature=temperature or None,
                 **kwargs,
             )
             response = cast(Response, response)

@@ -76,7 +76,7 @@ html_static_path = ["_static"]
 
 # Custom JavaScript to make external links open in new tabs
 html_js_files = [
-    'external_links.js',
+    "external_links.js",
 ]
 html_title = "Think Reason Learn"
 html_short_title = "TRL"

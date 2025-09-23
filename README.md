@@ -22,6 +22,7 @@ For in-depth papers and methodology, see our [Research section](docs/source/rese
 
 - Python 3.13 or higher
 - pip (latest version recommended)
+- Graphviz system package installed (e.g., `brew install graphviz`, `apt-get install graphviz`)
 
 ### Standard Installation
 
@@ -57,88 +58,62 @@ poetry run pre-commit install  # Optional: code quality hooks
 ### GPTree
 
 ```python
-# Setup imports
-
+import asyncio
 from IPython.display import Image
 import pandas as pd
 import numpy as np
 from think_reason_learn.gptree import GPTree
-from think_reason_learn.core.llms import GoogleChoice, OpenAIChoice
-from think_reason_learn.core.llms import XAIChoice, AnthropicChoice
+from think_reason_learn.core.llms import GoogleChoice, OpenAIChoice, XAIChoice, AnthropicChoice
 
-import asyncio
+X = pd.DataFrame({
+    "founder_info": [
+        "Alex is a serial entrepreneur with two successful exits, strong network in Silicon Valley, and expertise in AI.",
+        "Jordan graduated top of class from MIT but has no prior business experience and limited funding.",
+        "Taylor has 10 years in finance, secured seed funding quickly, and built a talented team.",
+        "Casey started a company right out of high school, faced multiple failures, but persists with innovative ideas.",
+        "Morgan is a former Google engineer with patents in machine learning and venture capital backing.",
+    ]
+})
 
-# Sample data: Predict startup founder success
-
-X = pd.DataFrame(
-    {
-        "founder_info": [
-            "Alex is a serial entrepreneur with two successful exits, strong network in Silicon Valley, and expertise in AI.",
-            "Jordan graduated top of class from MIT but has no prior business experience and limited funding.",
-            "Taylor has 10 years in finance, secured seed funding quickly, and built a talented team.",
-            "Casey started a company right out of high school, faced multiple failures, but persists with innovative ideas.",
-            "Morgan is a former Google engineer with patents in machine learning and venture capital backing."
-        ]
-    }
-)
 y = np.array(["successful", "failed", "successful", "failed", "successful"])
 
-# Initialize GPTree with LLM choices
-tree = GPTree(
-    qgen_llmc=[
-        GoogleChoice(model="gemini-1.5-flash-latest"),
-        OpenAIChoice(model="gpt-4o-mini"),
-        XAIChoice(model="grok-beta"),
-    ],
-    critic_llmc=[
-        OpenAIChoice(model="gpt-4o-mini"),
-        AnthropicChoice(model="claude-3-5-sonnet-20240620"),
-        XAIChoice(model="grok-beta"),
-    ],
-    qgen_instr_llmc=[
-        GoogleChoice(model="gemini-1.5-flash-latest"),
-        XAIChoice(model="grok-beta"),
-    ],
-)
+async def main():
+    tree = GPTree(
+        qgen_llmc=[
+            GoogleChoice(model="gemini-1.5-flash-latest"),
+            OpenAIChoice(model="gpt-4o-mini"),
+            XAIChoice(model="grok-beta"),
+        ],
+        critic_llmc=[
+            OpenAIChoice(model="gpt-4o-mini"),
+            AnthropicChoice(model="claude-3-5-sonnet-20240620"),
+            XAIChoice(model="grok-beta"),
+        ],
+        qgen_instr_llmc=[
+            GoogleChoice(model="gemini-1.5-flash-latest"),
+            XAIChoice(model="grok-beta"),
+        ],
+    )
 
-# Set the tasks at hand
-qgit = await tree.set_task(
-    task_description="Predict if a startup founder will be successful or fail based on their background.",
-)
+    qgit = await tree.set_task(
+        task_description="Predict if a startup founder will be successful or fail based on their background.",
+    )
+    print(qgit)
 
-# Print the generated instructions template
-print(qgit)
+    fitter = tree.fit(X, y, reset=True)
+    root = await anext(fitter)
 
-# Fit the tree
-fitter = tree.fit(X, y, reset=True)
+    # Visualize (requires Graphviz system package installed)
+    display(Image(tree.view_tree()))
 
-# Build the root node
-root = await anext(fitter)
+    predictions = await tree.predict(X)
+    for pred in predictions:
+        print(pred)
 
-# Visualize the tree
-display(Image(tree.view_tree()))
-
-# Get training data with generated features
-tree.get_training_data()
-
-# Get all generated questions
-tree.get_questions()
-
-# Predict on the training data
-predictions = await tree.predict(X)
-for pred in predictions:
-    print(pred)
+asyncio.run(main())
 ```
 
-### RRF
-
-TODO: Add RRF quick start example.
-
-### GPT-HTree
-
-TODO: Add GPT-HTree quick start example.
-
-For more examples and detailed usage, see the [full documentation](docs/buildclear/index.html).
+For more examples and detailed usage, see the [examples notebooks](examples/).
 
 ## Contributing
 

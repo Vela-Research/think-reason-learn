@@ -13,6 +13,7 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
+include = ["think_reason_learn/py.typed"]
 
 [tool.poetry.dependencies]
 python = ">=3.13,<4.0.0"
@@ -25,8 +26,6 @@ xai-sdk = "^1.1.0"
 pandas = "^2.3.2"
 orjson = "^3.11.3"
 graphviz = "^0.21"
-autodoc-pydantic = "^2.2.0"
-fastparquet = "^2024.11.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.4.2"

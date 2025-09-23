@@ -5,7 +5,7 @@ Think Reason Learn is an innovative, open-source Python library that fuses the p
 ## Key Features
 
 - **Explainable AI**: Every prediction comes with traceable reasoning paths, rules, or cluster descriptions.
-- **Async-First Design**: Scalable LLM interactions with synchronous wrappers for flexibility.
+- **Fully Async Design**: Scalable LLM interactions built for concurrent processing.
 - **Modular Algorithms**: Easily extend with new models under a unified interface.
 
 ## Core Algorithms

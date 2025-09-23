@@ -19,7 +19,7 @@ classifiers = [
 include = ["think_reason_learn/py.typed"]
 
 [tool.poetry.dependencies]
-python = ">=3.10,<4.0.0"
+python = ">=3.13,<4.0.0"
 pydantic = "^2.11.7"
 pydantic-settings = "^2.10.1"
 google-genai = "^1.33.0"

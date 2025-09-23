@@ -10,12 +10,12 @@ repos:
     hooks:
       - id: prettier
         additional_dependencies: ["prettier@3.3.3"]
-        files: "\.(md|yml|yaml|json|toml)$"
+        files: '\\.(md|yml|yaml|json|toml)$'
   - repo: https://github.com/kynan/nbstripout
     rev: 0.7.1
     hooks:
       - id: nbstripout
-        files: "\.(ipynb)$"
+        files: '\\.(ipynb)$'
   - repo: local
     hooks:
       - id: pyright

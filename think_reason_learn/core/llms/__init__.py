@@ -17,7 +17,7 @@ from ._schemas import (
     GoogleChatModel,
     AnthropicChatModel,
     xAIChatModel,
-    TokenCount,
+    TokenCounter,
 )
 from ._ask import LLM
 
@@ -43,6 +43,6 @@ __all__ = [
     "GoogleChatModel",
     "AnthropicChatModel",
     "xAIChatModel",
-    "TokenCount",
+    "TokenCounter",
     "llm",
 ]

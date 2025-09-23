@@ -10,6 +10,7 @@ Goal:
   template content.
 - Allow the generator to decide what to ask based on the task description and
   the rolling cumulative memory, without over-constraining its creativity.
+- Instruct the generator to consider the cumulative memory when generating questions.
 
 Requirements the template should convey to the generator:
 - Each question must be clear, brief, and domain-appropriate useful for the

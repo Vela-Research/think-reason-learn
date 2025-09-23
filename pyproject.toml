@@ -26,6 +26,7 @@ pandas = "^2.3.2"
 orjson = "^3.11.3"
 graphviz = "^0.21"
 autodoc-pydantic = "^2.2.0"
+fastparquet = "^2024.11.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.4.2"

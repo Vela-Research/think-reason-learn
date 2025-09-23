@@ -804,9 +804,9 @@ class GPTree:
             ValueError: If template missing required tag or generation fails.
             AssertionError: If both parameters are None.
         """
-        assert instructions_template is not None or task_description is not None, (
-            "Either instructions_template or task_description must be provided"
-        )
+        assert (
+            instructions_template is not None or task_description is not None
+        ), "Either instructions_template or task_description must be provided"
 
         if instructions_template:
             if num_questions_tag not in instructions_template:

@@ -1740,7 +1740,7 @@
         "kind": 5,
         "importPath": "docs.source.conf",
         "description": "docs.source.conf",
-        "peekOfCode": "html_theme = \"furo\"  # Modern, responsive theme (pip install furo)\nhtml_static_path = [\"_static\"]\n# Custom JavaScript to make external links open in new tabs\nhtml_js_files = [\n    'external_links.js',\n]\nhtml_title = \"Think Reason Learn\"\nhtml_short_title = \"TRL\"\nhtml_theme_options = {\n    \"light_css_variables\": {",
+        "peekOfCode": "html_theme = \"furo\"  # Modern, responsive theme (pip install furo)\nhtml_static_path = [\"_static\"]\n# Custom JavaScript to make external links open in new tabs\nhtml_js_files = [\n    \"external_links.js\",\n]\nhtml_title = \"Think Reason Learn\"\nhtml_short_title = \"TRL\"\nhtml_theme_options = {\n    \"light_css_variables\": {",
         "detail": "docs.source.conf",
         "documentation": {}
     },
@@ -1749,7 +1749,7 @@
         "kind": 5,
         "importPath": "docs.source.conf",
         "description": "docs.source.conf",
-        "peekOfCode": "html_static_path = [\"_static\"]\n# Custom JavaScript to make external links open in new tabs\nhtml_js_files = [\n    'external_links.js',\n]\nhtml_title = \"Think Reason Learn\"\nhtml_short_title = \"TRL\"\nhtml_theme_options = {\n    \"light_css_variables\": {\n        \"color-brand-primary\": \"#2e7d32\",",
+        "peekOfCode": "html_static_path = [\"_static\"]\n# Custom JavaScript to make external links open in new tabs\nhtml_js_files = [\n    \"external_links.js\",\n]\nhtml_title = \"Think Reason Learn\"\nhtml_short_title = \"TRL\"\nhtml_theme_options = {\n    \"light_css_variables\": {\n        \"color-brand-primary\": \"#2e7d32\",",
         "detail": "docs.source.conf",
         "documentation": {}
     },
@@ -1758,7 +1758,7 @@
         "kind": 5,
         "importPath": "docs.source.conf",
         "description": "docs.source.conf",
-        "peekOfCode": "html_js_files = [\n    'external_links.js',\n]\nhtml_title = \"Think Reason Learn\"\nhtml_short_title = \"TRL\"\nhtml_theme_options = {\n    \"light_css_variables\": {\n        \"color-brand-primary\": \"#2e7d32\",\n        \"color-brand-content\": \"#1b5e20\",\n    },",
+        "peekOfCode": "html_js_files = [\n    \"external_links.js\",\n]\nhtml_title = \"Think Reason Learn\"\nhtml_short_title = \"TRL\"\nhtml_theme_options = {\n    \"light_css_variables\": {\n        \"color-brand-primary\": \"#2e7d32\",\n        \"color-brand-content\": \"#1b5e20\",\n    },",
         "detail": "docs.source.conf",
         "documentation": {}
     },

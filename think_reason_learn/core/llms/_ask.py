@@ -65,7 +65,7 @@ class LLM(metaclass=SingletonMeta):
             if getattr(self, f"{llmp.provider}_llm") is None:
                 raise ValueError(
                     f"Can't use {llmp.model}. {llmp.provider.upper()}_API_KEY not set! "
-                    "Please set it in the environment variables."
+                    "Explicitly set it in your environment."
                 )
             priority_models.append(llmp)
         return priority_models

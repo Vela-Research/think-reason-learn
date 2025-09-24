@@ -1,11 +1,10 @@
-[tool.poetry]
+[project]
 name = "think-reason-learn"
 version = "0.1.0"
 description = "Interpretable tree/forest-style decision-making systems powered by LLMs"
-authors = ["Vela Research <researcher@vela.partners>"]
-license = "MIT"
 readme = "README.md"
-packages = [{ include = "think_reason_learn" }]
+license = { text = "MIT" }
+authors = [{ name = "Vela Research", email = "research@vela.partners" }]
 keywords = ["decision-trees", "explainable-ai", "llm", "machine-learning", "research"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -13,25 +12,33 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
+requires-python = ">=3.13,<4.0.0"
+dependencies = [
+    "pydantic>=2.11.7,<3",
+    "pydantic-settings>=2.10.1,<3",
+    "google-genai>=1.33.0,<2",
+    "openai>=1.106.1,<2",
+    "anthropic>=0.67.0,<0.68",
+    "xai-sdk>=1.1.0,<2",
+    "pandas>=2.3.2,<3",
+    "orjson>=3.11.3,<4",
+    "graphviz>=0.21,<0.22",
+]
+
+[project.urls]
+Homepage = "https://thinkreasonlearn.com/"
+Documentation = "https://thinkreasonlearn.com/modules.html"
+
+[tool.poetry]
+packages = [{ include = "think_reason_learn" }]
 include = ["think_reason_learn/py.typed"]
 
-[tool.poetry.dependencies]
-python = ">=3.13,<4.0.0"
-pydantic = "^2.11.7"
-pydantic-settings = "^2.10.1"
-google-genai = "^1.33.0"
-openai = "^1.106.1"
-anthropic = "^0.67.0"
-xai-sdk = "^1.1.0"
-pandas = "^2.3.2"
-orjson = "^3.11.3"
-graphviz = "^0.21"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.4.2"
 pytest-asyncio = "^1.1.0"
 ruff = "^0.12.12"
-pyright = "^1.1.405"
+pyright = { version = "^1.1.405", extras = ["nodejs"] }
 sphinx = "^8.2.3"
 pre-commit = "^4.3.0"
 ipykernel = "^6.30.1"

@@ -1,4 +1,5 @@
-# Think Reason Learn 🌲
+# Think Reason Learn 🌲  
+[Website](https://thinkreasonlearn.com/) · [Docs](https://thinkreasonlearn.com/modules.html)  
 
 Think Reason Learn is an innovative, open-source Python library that fuses the power of large language models (LLMs) with interpretable machine learning. Developed at Vela Research in collaboration with Oxford University, it provides production-grade tools for building transparent decision-making systems—perfect for high-stakes domains like venture capital, healthcare, and law.
 
@@ -11,10 +12,9 @@ Think Reason Learn is an innovative, open-source Python library that fuses the p
 ## Core Algorithms
 
 - **GPTree**: LLM-guided decision trees for dynamic feature generation.
-- **GPT-HTree**: Hierarchical clustering + localized trees with human-readable personas.
 - **RRF (Random Rule Forest)**: Transparent ensembles of LLM-generated YES/NO rules.
 
-For in-depth papers and methodology, see our [Research section](docs/source/research/index.rst).
+For in-depth papers and methodology, see our [Research section](https://thinkreasonlearn.com/research.html).
 
 ## Installation
 
@@ -51,7 +51,7 @@ poetry run pre-commit install  # Optional: code quality hooks
 
 - If you encounter dependency issues, ensure your Python version matches.
 - For LLM integrations, set API keys as environment variables (e.g., OPENAI_API_KEY).
-- See [Contributing](CONTRIBUTING.md) for more dev tips.
+- See [Contributing](https://github.com/Vela-Research/think-reason-learn/blob/main/CONTRIBUTING.md) for more dev tips.
 
 ## Quick Start
 
@@ -101,7 +101,8 @@ async def main():
     print(qgit)
 
     fitter = tree.fit(X, y, reset=True)
-    root = await anext(fitter)
+    async for node in fitter:
+        root = node
 
     # Visualize (requires Graphviz system package installed)
     display(Image(tree.view_tree()))
@@ -113,12 +114,12 @@ async def main():
 asyncio.run(main())
 ```
 
-For more examples and detailed usage, see the [examples notebooks](examples/).
+For more examples and detailed usage, see the [examples notebooks](https://github.com/Vela-Research/think-reason-learn/tree/main/examples).
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+See [CONTRIBUTING.md](https://github.com/Vela-Research/think-reason-learn/blob/main/CONTRIBUTING.md) for guidelines.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](https://github.com/Vela-Research/think-reason-learn/blob/main/LICENSE) file for details.

@@ -5,6 +5,7 @@ Think Reason Learn is the culmination of cutting-edge research spearheaded by
 Vela Research in close collaboration with Oxford University. This project 
 integrates advanced AI techniques with interpretable machine learning to 
 create transparent, high-performance models for complex classification tasks.
+For inquiries or collaboration opportunities, contact us at research@vela.partners.
 
 Papers
 ------

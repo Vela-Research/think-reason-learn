@@ -7,7 +7,7 @@ on:
     branches: [ main ]
 
 jobs:
-  build-test:
+  build-test:  # Lint, typecheck, test, and build docs
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -21,12 +21,22 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Cache Poetry dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pypoetry
+          key: ${{ runner.os }}-poetry-${{ hashFiles('**/poetry.lock') }}
+          restore-keys: ${{ runner.os }}-poetry-
+
       - name: Install Poetry 2.x via pipx
         run: |
           pipx install poetry==2.0.1
           poetry --version
           poetry config virtualenvs.create true
           poetry config virtualenvs.in-project true
+
+      - name: Remove existing venv (if any)
+        run: rm -rf .venv || true
 
       - name: Select Python for Poetry (3.13)
         run: |
@@ -36,6 +46,8 @@ jobs:
       - name: Install dependencies
         run: |
           poetry install --with dev,docs
+          poetry env info
+          poetry run python -c "import sys; print(sys.version)"
 
       - name: Lint (ruff)
         run: |
@@ -54,24 +66,40 @@ jobs:
         run: |
           poetry run sphinx-build -b html docs/source docs/_build
 
-  pre-commit:
+  pre-commit:  # Run pre-commit hooks on all files
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+
+      - name: Cache Poetry dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pypoetry
+          key: ${{ runner.os }}-poetry-${{ hashFiles('**/poetry.lock') }}
+          restore-keys: ${{ runner.os }}-poetry-
+
       - name: Install Poetry 2.x via pipx
         run: |
           pipx install poetry==2.0.1
           poetry --version
           poetry config virtualenvs.create true
           poetry config virtualenvs.in-project true
+
+      - name: Remove existing venv (if any)
+        run: rm -rf .venv || true
+
       - name: Select Python for Poetry (3.13)
         run: |
           echo "Python executable: $(python -c 'import sys; print(sys.executable)')"
           poetry env use $(python -c 'import sys; print(sys.executable)')
+
       - name: Install dependencies
-        run: poetry install --with dev
+        run: |
+          poetry install --with dev
+          poetry env info
+          poetry run python -c "import sys; print(sys.version)"
       - name: Run pre-commit on all files
         run: poetry run pre-commit run --all-files --show-diff-on-failure

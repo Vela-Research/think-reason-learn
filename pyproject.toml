@@ -30,21 +30,15 @@ Homepage = "https://thinkreasonlearn.com/"
 Documentation = "https://thinkreasonlearn.com/modules.html"
 
 [tool.poetry]
-name = "think-reason-learn"
-version = "0.1.0"
-description = "Interpretable tree/forest-style decision-making systems powered by LLMs"
-authors = ["Vela Research <research@vela.partners>"]
-python = ">=3.13,<4.0.0"
 packages = [{ include = "think_reason_learn" }]
 include = ["think_reason_learn/py.typed"]
 
- 
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.4.2"
 pytest-asyncio = "^1.1.0"
 ruff = "^0.12.12"
-pyright = "^1.1.405"
+pyright = { version = "^1.1.405", extras = ["nodejs"] }
 sphinx = "^8.2.3"
 pre-commit = "^4.3.0"
 ipykernel = "^6.30.1"

@@ -551,200 +551,6 @@ class GPTree:
                 raise ValueError("Please provide a directory, not a file.")
             return save_path
 
-    @classmethod
-    def _load(cls, path: str | Path) -> GPTree:
-        base = Path(path)
-        if base.is_dir():
-            tree_json_path = base / "gptree.json"
-            if not tree_json_path.exists():
-                raise FileNotFoundError(f"'gptree.json' not found in directory: {base}")
-        else:
-            raise ValueError("Please provide a directory, not a file.")
-
-        manifest = orjson.loads(tree_json_path.read_bytes())
-
-        name: str = manifest["tree_name"]
-        params = manifest["params"]
-        llm_choices = manifest["llm_choices"]
-        templates = manifest["templates"]
-
-        inst = cls(
-            qgen_llmc=llm_choices["qgen_llmc"],
-            critic_llmc=llm_choices["critic_llmc"],
-            qgen_instr_llmc=llm_choices["qgen_instr_llmc"],
-            qanswer_llmc=llm_choices["qanswer_llmc"],
-            qgen_temperature=params["qgen_temperature"],
-            critic_temperature=params["critic_temperature"],
-            qgen_instr_gen_temperature=params["qgen_instr_gen_temperature"],
-            qanswer_temperature=params["qanswer_temperature"],
-            criterion=params["criterion"],
-            max_depth=params["max_depth"],
-            max_node_width=params["max_node_width"],
-            min_samples_leaf=params["min_samples_leaf"],
-            llm_semaphore_limit=params["llm_semaphore_limit"],
-            min_question_candidates=params["min_question_candidates"],
-            max_question_candidates=params["max_question_candidates"],
-            expert_advice=manifest["expert_advice"],
-            n_samples_as_context=params["n_samples_as_context"],
-            class_ratio=params["class_ratio"],
-            use_critic=params["use_critic"],
-            save_path=base,
-            name=name,
-            random_state=params["random_state"],
-        )
-
-        inst._classes = manifest["classes"]
-        inst._task_description = manifest["task_description"]
-        inst._qgen_instructions_template = templates["qgen_instr_template"]
-        inst._critic_instructions_template = templates["critic_instructions_template"]
-
-        inst._llm_semaphore = asyncio.Semaphore(inst.llm_semaphore_limit)
-
-        inst._node_counter = int(manifest["node_counter"])
-
-        id_to_node: Dict[int, Node] = {}
-        for nd in manifest["nodes"]:
-            id_to_node[nd["id"]] = Node.from_dict(nd)
-
-        # Link children by parent_id
-        for node in id_to_node.values():
-            if node.parent_id is not None:
-                id_to_node[node.parent_id].children.append(node)
-
-        inst._nodes = id_to_node
-
-        # frontier
-        inst._frontier = [
-            BuildTask.from_dict(
-                {
-                    **ft,
-                    "sample_indices": np.array(ft["sample_indices"], dtype=np.intp),
-                }
-            )
-            for ft in manifest["frontier"]
-        ]
-
-        # token usage
-        if tk_dict := manifest.get("token_counter"):
-            inst._token_counter = TokenCounter.from_dict(tk_dict)
-
-        # load training data if present
-        data_parquet_path = base / "data.parquet"
-        if data_parquet_path.exists():
-            df = pd.read_parquet(data_parquet_path)  # type: ignore
-            inst._y = df["y"].to_numpy(dtype=np.str_)  # type: ignore
-            inst._X = df.drop(columns=["y"])  # type: ignore
-
-        # Ensure save_path aligns with loaded data
-        inst.save_path = base
-
-        return inst
-
-    @classmethod
-    def load(cls, path: str | Path) -> GPTree:
-        """Load a GPTree from saved state.
-
-        Args:
-            path: Directory containing "gptree.json" or the JSON file directly.
-
-        Returns:
-            Reconstructed GPTree instance.
-        """
-        try:
-            return cls._load(path)
-        except KeyError as e:
-            raise CorruptionError(
-                f"Failed to load GPTree. Tree json is probably corrupted: {e}"
-            )
-        except Exception as e:
-            raise e
-
-    def save(
-        self,
-        dir_path: str | Path | None = None,
-        for_production: bool = False,
-    ) -> None:
-        """Save model config to JSON and dataframes to parquet in a directory.
-
-        If dir_path is None, uses `<self.save_path>/<self.name>`.
-        If for_production is True, does not save the training dataframe.
-
-        Args:
-            dir_path: The directory to save the tree to.
-            for_production: Whether to save the tree for production.
-        """
-        base = Path(dir_path) if dir_path is not None else (self.save_path / self.name)
-        if base.is_file():
-            raise ValueError("Please provide a directory, not a file.")
-        base.mkdir(parents=True, exist_ok=True)
-
-        def _serialize_node(node: Node) -> Dict[str, Any]:
-            dict_ = asdict(node)
-            dict_.pop("children")
-            return dict_
-
-        payload: Dict[str, object] = {
-            "tree_name": self.name,
-            "created_at": datetime.datetime.now().isoformat(),
-            "classes": list(self._classes) if self._classes is not None else None,
-            "save_path": str(self.save_path) if not for_production else None,
-            "params": {
-                "criterion": self.criterion,
-                "max_depth": self.max_depth,
-                "max_node_width": self.max_node_width,
-                "min_samples_leaf": self.min_samples_leaf,
-                "llm_semaphore_limit": self.llm_semaphore_limit,
-                "min_question_candidates": self.min_question_candidates,
-                "max_question_candidates": self.max_question_candidates,
-                "n_samples_as_context": self.n_samples_as_context,
-                "class_ratio": self.class_ratio,
-                "use_critic": self.use_critic,
-                "qgen_temperature": self.qgen_temperature,
-                "critic_temperature": self.critic_temperature,
-                "qgen_instr_gen_temperature": self.qgen_instr_gen_temperature,
-                "qanswer_temperature": self.qanswer_temperature,
-                "random_state": self.random_state,
-            },
-            "llm_choices": {
-                "qgen_llmc": [
-                    llmc if isinstance(llmc, dict) else llmc.model_dump()
-                    for llmc in self.qgen_llmc
-                ],
-                "critic_llmc": [
-                    llmc if isinstance(llmc, dict) else llmc.model_dump()
-                    for llmc in self.critic_llmc
-                ],
-                "qanswer_llmc": [
-                    llmc if isinstance(llmc, dict) else llmc.model_dump()
-                    for llmc in self.qanswer_llmc
-                ],
-                "qgen_instr_llmc": [
-                    llmc if isinstance(llmc, dict) else llmc.model_dump()
-                    for llmc in self.qgen_instr_llmc
-                ],
-            },
-            "templates": {
-                "qgen_instr_template": self._qgen_instructions_template,
-                "critic_instructions_template": self._critic_instructions_template,
-            },
-            "expert_advice": self._expert_advice,
-            "task_description": self._task_description,
-            "node_counter": self._node_counter,
-            "nodes": [_serialize_node(node) for node in self._nodes.values()],
-            "frontier": [task.to_dict() for task in self._frontier],
-            "token_counter": None if for_production else self._token_counter.to_dict(),
-        }
-        payload_json = orjson.dumps(payload, option=orjson.OPT_SERIALIZE_NUMPY)
-
-        with (base / "gptree.json").open("w", encoding="utf-8") as f:
-            f.write(payload_json.decode("utf-8"))
-
-        if not for_production and self._X is not None and self._y is not None:
-            df_to_save: pd.DataFrame = self._X.copy()
-            df_to_save["y"] = self._y
-            data_parquet_path = base / "data.parquet"
-            df_to_save.to_parquet(str(data_parquet_path), index=True)  # type: ignore
-
     @property
     def classes(self) -> List[str] | None:
         """Classes the tree is trying to classify."""
@@ -804,9 +610,9 @@ class GPTree:
             ValueError: If template missing required tag or generation fails.
             AssertionError: If both parameters are None.
         """
-        assert (
-            instructions_template is not None or task_description is not None
-        ), "Either instructions_template or task_description must be provided"
+        assert instructions_template is not None or task_description is not None, (
+            "Either instructions_template or task_description must be provided"
+        )
 
         if instructions_template:
             if num_questions_tag not in instructions_template:
@@ -1704,6 +1510,200 @@ class GPTree:
         logger.info("Re-fitting tree...")
         async for updated_node in self.fit():
             yield updated_node
+
+    @classmethod
+    def _load(cls, path: str | Path) -> GPTree:
+        base = Path(path)
+        if base.is_dir():
+            tree_json_path = base / "gptree.json"
+            if not tree_json_path.exists():
+                raise FileNotFoundError(f"'gptree.json' not found in directory: {base}")
+        else:
+            raise ValueError("Please provide a directory, not a file.")
+
+        manifest = orjson.loads(tree_json_path.read_bytes())
+
+        name: str = manifest["tree_name"]
+        params = manifest["params"]
+        llm_choices = manifest["llm_choices"]
+        templates = manifest["templates"]
+
+        inst = cls(
+            qgen_llmc=llm_choices["qgen_llmc"],
+            critic_llmc=llm_choices["critic_llmc"],
+            qgen_instr_llmc=llm_choices["qgen_instr_llmc"],
+            qanswer_llmc=llm_choices["qanswer_llmc"],
+            qgen_temperature=params["qgen_temperature"],
+            critic_temperature=params["critic_temperature"],
+            qgen_instr_gen_temperature=params["qgen_instr_gen_temperature"],
+            qanswer_temperature=params["qanswer_temperature"],
+            criterion=params["criterion"],
+            max_depth=params["max_depth"],
+            max_node_width=params["max_node_width"],
+            min_samples_leaf=params["min_samples_leaf"],
+            llm_semaphore_limit=params["llm_semaphore_limit"],
+            min_question_candidates=params["min_question_candidates"],
+            max_question_candidates=params["max_question_candidates"],
+            expert_advice=manifest["expert_advice"],
+            n_samples_as_context=params["n_samples_as_context"],
+            class_ratio=params["class_ratio"],
+            use_critic=params["use_critic"],
+            save_path=base,
+            name=name,
+            random_state=params["random_state"],
+        )
+
+        inst._classes = manifest["classes"]
+        inst._task_description = manifest["task_description"]
+        inst._qgen_instructions_template = templates["qgen_instr_template"]
+        inst._critic_instructions_template = templates["critic_instructions_template"]
+
+        inst._llm_semaphore = asyncio.Semaphore(inst.llm_semaphore_limit)
+
+        inst._node_counter = int(manifest["node_counter"])
+
+        id_to_node: Dict[int, Node] = {}
+        for nd in manifest["nodes"]:
+            id_to_node[nd["id"]] = Node.from_dict(nd)
+
+        # Link children by parent_id
+        for node in id_to_node.values():
+            if node.parent_id is not None:
+                id_to_node[node.parent_id].children.append(node)
+
+        inst._nodes = id_to_node
+
+        # frontier
+        inst._frontier = [
+            BuildTask.from_dict(
+                {
+                    **ft,
+                    "sample_indices": np.array(ft["sample_indices"], dtype=np.intp),
+                }
+            )
+            for ft in manifest["frontier"]
+        ]
+
+        # token usage
+        if tk_dict := manifest.get("token_counter"):
+            inst._token_counter = TokenCounter.from_dict(tk_dict)
+
+        # load training data if present
+        data_parquet_path = base / "data.parquet"
+        if data_parquet_path.exists():
+            df = pd.read_parquet(data_parquet_path)  # type: ignore
+            inst._y = df["y"].to_numpy(dtype=np.str_)  # type: ignore
+            inst._X = df.drop(columns=["y"])  # type: ignore
+
+        # Ensure save_path aligns with loaded data
+        inst.save_path = base
+
+        return inst
+
+    @classmethod
+    def load(cls, path: str | Path) -> GPTree:
+        """Load a GPTree from saved state.
+
+        Args:
+            path: Directory containing "gptree.json" or the JSON file directly.
+
+        Returns:
+            Reconstructed GPTree instance.
+        """
+        try:
+            return cls._load(path)
+        except KeyError as e:
+            raise CorruptionError(
+                f"Failed to load GPTree. Tree json is probably corrupted: {e}"
+            )
+        except Exception as e:
+            raise e
+
+    def save(
+        self,
+        dir_path: str | Path | None = None,
+        for_production: bool = False,
+    ) -> None:
+        """Save model config to JSON and dataframes to parquet in a directory.
+
+        If dir_path is None, uses `<self.save_path>/<self.name>`.
+        If for_production is True, does not save the training dataframe.
+
+        Args:
+            dir_path: The directory to save the tree to.
+            for_production: Whether to save the tree for production.
+        """
+        base = Path(dir_path) if dir_path is not None else (self.save_path / self.name)
+        if base.is_file():
+            raise ValueError("Please provide a directory, not a file.")
+        base.mkdir(parents=True, exist_ok=True)
+
+        def _serialize_node(node: Node) -> Dict[str, Any]:
+            dict_ = asdict(node)
+            dict_.pop("children")
+            return dict_
+
+        payload: Dict[str, object] = {
+            "tree_name": self.name,
+            "created_at": datetime.datetime.now().isoformat(),
+            "classes": list(self._classes) if self._classes is not None else None,
+            "save_path": str(self.save_path) if not for_production else None,
+            "params": {
+                "criterion": self.criterion,
+                "max_depth": self.max_depth,
+                "max_node_width": self.max_node_width,
+                "min_samples_leaf": self.min_samples_leaf,
+                "llm_semaphore_limit": self.llm_semaphore_limit,
+                "min_question_candidates": self.min_question_candidates,
+                "max_question_candidates": self.max_question_candidates,
+                "n_samples_as_context": self.n_samples_as_context,
+                "class_ratio": self.class_ratio,
+                "use_critic": self.use_critic,
+                "qgen_temperature": self.qgen_temperature,
+                "critic_temperature": self.critic_temperature,
+                "qgen_instr_gen_temperature": self.qgen_instr_gen_temperature,
+                "qanswer_temperature": self.qanswer_temperature,
+                "random_state": self.random_state,
+            },
+            "llm_choices": {
+                "qgen_llmc": [
+                    llmc if isinstance(llmc, dict) else llmc.model_dump()
+                    for llmc in self.qgen_llmc
+                ],
+                "critic_llmc": [
+                    llmc if isinstance(llmc, dict) else llmc.model_dump()
+                    for llmc in self.critic_llmc
+                ],
+                "qanswer_llmc": [
+                    llmc if isinstance(llmc, dict) else llmc.model_dump()
+                    for llmc in self.qanswer_llmc
+                ],
+                "qgen_instr_llmc": [
+                    llmc if isinstance(llmc, dict) else llmc.model_dump()
+                    for llmc in self.qgen_instr_llmc
+                ],
+            },
+            "templates": {
+                "qgen_instr_template": self._qgen_instructions_template,
+                "critic_instructions_template": self._critic_instructions_template,
+            },
+            "expert_advice": self._expert_advice,
+            "task_description": self._task_description,
+            "node_counter": self._node_counter,
+            "nodes": [_serialize_node(node) for node in self._nodes.values()],
+            "frontier": [task.to_dict() for task in self._frontier],
+            "token_counter": None if for_production else self._token_counter.to_dict(),
+        }
+        payload_json = orjson.dumps(payload, option=orjson.OPT_SERIALIZE_NUMPY)
+
+        with (base / "gptree.json").open("w", encoding="utf-8") as f:
+            f.write(payload_json.decode("utf-8"))
+
+        if not for_production and self._X is not None and self._y is not None:
+            df_to_save: pd.DataFrame = self._X.copy()
+            df_to_save["y"] = self._y
+            data_parquet_path = base / "data.parquet"
+            df_to_save.to_parquet(str(data_parquet_path), index=True)  # type: ignore
 
     def __repr__(self) -> str:
         return f"GPTree(name={self.name})"

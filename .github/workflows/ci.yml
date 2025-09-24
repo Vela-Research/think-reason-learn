@@ -30,11 +30,11 @@ jobs:
 
       - name: Install Poetry 2.x via pipx
         run: |
-          pipx install poetry==2.2.1
+          pipx install --python $(python -c 'import sys; print(sys.executable)') poetry==2.2.1
           poetry --version
           poetry config virtualenvs.create true
           poetry config virtualenvs.in-project true
-          poetry config virtualenvs.prefer-active-python true
+          poetry config virtualenvs.prefer-active-python true || true
 
       - name: Remove existing venv (if any)
         run: rm -rf .venv || true
@@ -88,11 +88,11 @@ jobs:
 
       - name: Install Poetry 2.x via pipx
         run: |
-          pipx install poetry==2.2.1
+          pipx install --python $(python -c 'import sys; print(sys.executable)') poetry==2.2.1
           poetry --version
           poetry config virtualenvs.create true
           poetry config virtualenvs.in-project true
-          poetry config virtualenvs.prefer-active-python true
+          poetry config virtualenvs.prefer-active-python true || true
 
       - name: Remove existing venv (if any)
         run: rm -rf .venv || true

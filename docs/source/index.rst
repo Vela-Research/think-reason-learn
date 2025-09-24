@@ -6,8 +6,11 @@
 Think Reason Learn
 ==================
 
-An innovative Python library that fuses large language models with interpretable machine learning,
-providing production-grade tools for building transparent, explainable AI systems.
+Think Reason Learn is an innovative, open-source Python library that fuses the power of
+large language models (LLMs) with interpretable machine learning. Developed at Vela
+Research in collaboration with Oxford University, it provides production-grade tools
+for building transparent decision-making systems—perfect for high-stakes domains like
+venture capital, healthcare, and law.
 
 .. toctree::
    :maxdepth: 2

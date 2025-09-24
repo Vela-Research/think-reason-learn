@@ -8,13 +8,13 @@ RUN apt-get update \
        graphviz \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Sphinx and theme/extensions used by the docs
+# Install Sphinx and theme/extensions used by the docs (pinned to project versions)
 RUN pip install --no-cache-dir \
-    sphinx \
-    furo \
-    myst-parser \
-    autodoc-pydantic \
-    sphinx-autodoc-typehints
+    sphinx==8.2.3 \
+    furo==2025.7.19 \
+    myst-parser==4.0.1 \
+    autodoc-pydantic==2.2.0 \
+    sphinx-autodoc-typehints==3.2.0
 
 # Copy the entire project so autodoc can import the package
 COPY . .

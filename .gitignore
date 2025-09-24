@@ -36,6 +36,7 @@ htmlcov/
 # Docs
 docs/build/
 docs/buildclear/
+docs/_build/
 
 # Misc
 *.swp

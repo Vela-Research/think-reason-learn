@@ -28,6 +28,9 @@ jobs:
           poetry config virtualenvs.create true
           poetry config virtualenvs.in-project true
 
+      - name: Select Python for Poetry (3.13)
+        run: poetry env use 3.13
+
       - name: Install dependencies
         run: |
           poetry install --with dev,docs
@@ -62,9 +65,9 @@ jobs:
           poetry --version
           poetry config virtualenvs.create true
           poetry config virtualenvs.in-project true
+      - name: Select Python for Poetry (3.13)
+        run: poetry env use 3.13
       - name: Install dependencies
         run: poetry install --with dev
-      - name: Install pre-commit
-        run: pip install pre-commit
       - name: Run pre-commit on all files
-        run: pre-commit run --all-files --show-diff-on-failure
+        run: poetry run pre-commit run --all-files --show-diff-on-failure

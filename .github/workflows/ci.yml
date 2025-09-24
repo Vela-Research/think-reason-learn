@@ -43,6 +43,9 @@ jobs:
           echo "Python executable: $(python -c 'import sys; print(sys.executable)')"
           poetry env use $(python -c 'import sys; print(sys.executable)')
 
+      - name: Fix lock file compatibility
+        run: poetry lock --no-update || poetry lock
+
       - name: Install dependencies
         run: |
           poetry env remove --all
@@ -96,6 +99,9 @@ jobs:
         run: |
           echo "Python executable: $(python -c 'import sys; print(sys.executable)')"
           poetry env use $(python -c 'import sys; print(sys.executable)')
+
+      - name: Fix lock file compatibility
+        run: poetry lock --no-update || poetry lock
 
       - name: Install dependencies
         run: |

@@ -28,9 +28,9 @@ jobs:
           key: ${{ runner.os }}-poetry-${{ hashFiles('**/poetry.lock') }}
           restore-keys: ${{ runner.os }}-poetry-
 
-      - name: Install Poetry 2.x via pipx
+      - name: Install Poetry
         run: |
-          pipx install poetry==2.0.1
+          pipx install poetry==1.8.3
           poetry --version
           poetry config virtualenvs.create true
           poetry config virtualenvs.in-project true
@@ -45,6 +45,7 @@ jobs:
 
       - name: Install dependencies
         run: |
+          poetry env remove --all
           poetry install --with dev,docs
           poetry env info
           poetry run python -c "import sys; print(sys.version)"
@@ -81,9 +82,9 @@ jobs:
           key: ${{ runner.os }}-poetry-${{ hashFiles('**/poetry.lock') }}
           restore-keys: ${{ runner.os }}-poetry-
 
-      - name: Install Poetry 2.x via pipx
+      - name: Install Poetry
         run: |
-          pipx install poetry==2.0.1
+          pipx install poetry==1.8.3
           poetry --version
           poetry config virtualenvs.create true
           poetry config virtualenvs.in-project true
@@ -98,6 +99,7 @@ jobs:
 
       - name: Install dependencies
         run: |
+          poetry env remove --all
           poetry install --with dev
           poetry env info
           poetry run python -c "import sys; print(sys.version)"

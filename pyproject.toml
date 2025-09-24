@@ -1,6 +1,6 @@
 [project]
 name = "think-reason-learn"
-version = "0.1.1"
+version = "0.1.0"
 description = "Interpretable tree/forest-style decision-making systems powered by LLMs"
 readme = "README.md"
 license = { text = "MIT" }

@@ -29,7 +29,9 @@ jobs:
           poetry config virtualenvs.in-project true
 
       - name: Select Python for Poetry (3.13)
-        run: poetry env use 3.13
+        run: |
+          echo "Python executable: $(python -c 'import sys; print(sys.executable)')"
+          poetry env use $(python -c 'import sys; print(sys.executable)')
 
       - name: Install dependencies
         run: |
@@ -66,7 +68,9 @@ jobs:
           poetry config virtualenvs.create true
           poetry config virtualenvs.in-project true
       - name: Select Python for Poetry (3.13)
-        run: poetry env use 3.13
+        run: |
+          echo "Python executable: $(python -c 'import sys; print(sys.executable)')"
+          poetry env use $(python -c 'import sys; print(sys.executable)')
       - name: Install dependencies
         run: poetry install --with dev
       - name: Run pre-commit on all files

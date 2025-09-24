@@ -34,6 +34,7 @@ name = "think-reason-learn"
 version = "0.1.0"
 description = "Interpretable tree/forest-style decision-making systems powered by LLMs"
 authors = ["Vela Research <research@vela.partners>"]
+python = ">=3.13,<4.0.0"
 packages = [{ include = "think_reason_learn" }]
 include = ["think_reason_learn/py.typed"]
 

@@ -12,30 +12,39 @@ Research in collaboration with Oxford University, it provides production-grade t
 for building transparent decision-making systems—perfect for high-stakes domains like
 venture capital, healthcare, and law.
 
+.. grid:: 1 2 2 2
+   :gutter: 3
+
+   .. grid-item-card:: Getting Started
+      # No :columns: — auto full on small, half on medium/large
+
+      - :doc:`About <getting_started/about>`
+      - :doc:`Installation Guide <getting_started/installation_guide>`
+      - :doc:`Quick Start <getting_started/quick_start>`
+
+   .. grid-item-card:: API Documentation
+
+      - :doc:`API Reference <modules>`
+
+   .. grid-item-card:: Research
+
+      - :doc:`Research <research>`
+
+   .. grid-item-card:: Development
+
+      - :doc:`Contributing <contributing>`
+      - :doc:`Changelog <changelog>`
+      - :doc:`License <license>`
+
 .. toctree::
    :maxdepth: 2
-   :caption: Getting Started
+   :hidden:
 
-   About <getting_started/about>
-   Installation Guide <getting_started/installation_guide>
-   Quick Start <getting_started/quick_start>
-
-.. toctree::
-   :maxdepth: 2
-   :caption: API Documentation
-
-   API Reference <modules>
-
-.. toctree::
-   :maxdepth: 1
-   :caption: Research
-
-   Research <research>
-
-.. toctree::
-   :maxdepth: 1
-   :caption: Development
-
-   Contributing <contributing>
-   Changelog <changelog>
-   License <license>
+   getting_started/about
+   getting_started/installation_guide
+   getting_started/quick_start
+   modules
+   research
+   contributing
+   changelog
+   license

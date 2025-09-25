@@ -82,6 +82,22 @@
         "documentation": {}
     },
     {
+        "label": "PathLike",
+        "importPath": "os",
+        "description": "os",
+        "isExtraImport": true,
+        "detail": "os",
+        "documentation": {}
+    },
+    {
+        "label": "PathLike",
+        "importPath": "os",
+        "description": "os",
+        "isExtraImport": true,
+        "detail": "os",
+        "documentation": {}
+    },
+    {
         "label": "site",
         "kind": 6,
         "isExtraImport": true,
@@ -97,6 +113,23 @@
         "importPath": "sys",
         "description": "sys",
         "detail": "sys",
+        "documentation": {}
+    },
+    {
+        "label": "datetime",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "datetime",
+        "description": "datetime",
+        "detail": "datetime",
+        "documentation": {}
+    },
+    {
+        "label": "date",
+        "importPath": "datetime",
+        "description": "datetime",
+        "isExtraImport": true,
+        "detail": "datetime",
         "documentation": {}
     },
     {
@@ -1265,15 +1298,6 @@
         "documentation": {}
     },
     {
-        "label": "datetime",
-        "kind": 6,
-        "isExtraImport": true,
-        "importPath": "datetime",
-        "description": "datetime",
-        "detail": "datetime",
-        "documentation": {}
-    },
-    {
         "label": "re",
         "kind": 6,
         "isExtraImport": true,
@@ -1524,7 +1548,7 @@
         "kind": 5,
         "importPath": "docs.source.conf",
         "description": "docs.source.conf",
-        "peekOfCode": "project = \"Think Reason Learn\"\ncopyright = \"2025, Vela Research\"\nauthor = \"Vela Research\"\nrelease = \"0.1.0\"\n# -- General configuration ---------------------------------------------------\n# https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration\nextensions = [\n    \"sphinx.ext.autodoc\",\n    \"sphinx.ext.napoleon\",  # Google/NumPy style docstrings\n    \"myst_parser\",  # Enable Markdown with MyST",
+        "peekOfCode": "project = \"Think Reason Learn\"\ncopyright = f\"{date.today().year}, Vela Research\"\nauthor = \"Vela Research\"\nrelease = \"0.1.0\"\n# -- General configuration ---------------------------------------------------\n# https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration\nextensions = [\n    \"sphinx.ext.autodoc\",\n    \"sphinx.ext.napoleon\",\n    \"sphinx.ext.intersphinx\",",
         "detail": "docs.source.conf",
         "documentation": {}
     },
@@ -1533,7 +1557,7 @@
         "kind": 5,
         "importPath": "docs.source.conf",
         "description": "docs.source.conf",
-        "peekOfCode": "copyright = \"2025, Vela Research\"\nauthor = \"Vela Research\"\nrelease = \"0.1.0\"\n# -- General configuration ---------------------------------------------------\n# https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration\nextensions = [\n    \"sphinx.ext.autodoc\",\n    \"sphinx.ext.napoleon\",  # Google/NumPy style docstrings\n    \"myst_parser\",  # Enable Markdown with MyST\n    \"sphinxcontrib.autodoc_pydantic\",  # Better Pydantic model rendering",
+        "peekOfCode": "copyright = f\"{date.today().year}, Vela Research\"\nauthor = \"Vela Research\"\nrelease = \"0.1.0\"\n# -- General configuration ---------------------------------------------------\n# https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration\nextensions = [\n    \"sphinx.ext.autodoc\",\n    \"sphinx.ext.napoleon\",\n    \"sphinx.ext.intersphinx\",\n    \"sphinx_design\",",
         "detail": "docs.source.conf",
         "documentation": {}
     },
@@ -1542,7 +1566,7 @@
         "kind": 5,
         "importPath": "docs.source.conf",
         "description": "docs.source.conf",
-        "peekOfCode": "author = \"Vela Research\"\nrelease = \"0.1.0\"\n# -- General configuration ---------------------------------------------------\n# https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration\nextensions = [\n    \"sphinx.ext.autodoc\",\n    \"sphinx.ext.napoleon\",  # Google/NumPy style docstrings\n    \"myst_parser\",  # Enable Markdown with MyST\n    \"sphinxcontrib.autodoc_pydantic\",  # Better Pydantic model rendering\n]",
+        "peekOfCode": "author = \"Vela Research\"\nrelease = \"0.1.0\"\n# -- General configuration ---------------------------------------------------\n# https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration\nextensions = [\n    \"sphinx.ext.autodoc\",\n    \"sphinx.ext.napoleon\",\n    \"sphinx.ext.intersphinx\",\n    \"sphinx_design\",\n    \"sphinx.ext.autosummary\",",
         "detail": "docs.source.conf",
         "documentation": {}
     },
@@ -1551,7 +1575,7 @@
         "kind": 5,
         "importPath": "docs.source.conf",
         "description": "docs.source.conf",
-        "peekOfCode": "release = \"0.1.0\"\n# -- General configuration ---------------------------------------------------\n# https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration\nextensions = [\n    \"sphinx.ext.autodoc\",\n    \"sphinx.ext.napoleon\",  # Google/NumPy style docstrings\n    \"myst_parser\",  # Enable Markdown with MyST\n    \"sphinxcontrib.autodoc_pydantic\",  # Better Pydantic model rendering\n]\n# Make Sphinx include type hints alongside docstring descriptions",
+        "peekOfCode": "release = \"0.1.0\"\n# -- General configuration ---------------------------------------------------\n# https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration\nextensions = [\n    \"sphinx.ext.autodoc\",\n    \"sphinx.ext.napoleon\",\n    \"sphinx.ext.intersphinx\",\n    \"sphinx_design\",\n    \"sphinx.ext.autosummary\",\n    \"sphinx_autodoc_typehints\",",
         "detail": "docs.source.conf",
         "documentation": {}
     },
@@ -1560,7 +1584,16 @@
         "kind": 5,
         "importPath": "docs.source.conf",
         "description": "docs.source.conf",
-        "peekOfCode": "extensions = [\n    \"sphinx.ext.autodoc\",\n    \"sphinx.ext.napoleon\",  # Google/NumPy style docstrings\n    \"myst_parser\",  # Enable Markdown with MyST\n    \"sphinxcontrib.autodoc_pydantic\",  # Better Pydantic model rendering\n]\n# Make Sphinx include type hints alongside docstring descriptions\nautodoc_typehints = \"description\"  # merge types into the description\nautoclass_content = \"both\"  # include class and __init__ docstrings\nautodoc_member_order = \"bysource\"",
+        "peekOfCode": "extensions = [\n    \"sphinx.ext.autodoc\",\n    \"sphinx.ext.napoleon\",\n    \"sphinx.ext.intersphinx\",\n    \"sphinx_design\",\n    \"sphinx.ext.autosummary\",\n    \"sphinx_autodoc_typehints\",\n    \"sphinxcontrib.autodoc_pydantic\",\n    \"myst_parser\",\n]",
+        "detail": "docs.source.conf",
+        "documentation": {}
+    },
+    {
+        "label": "intersphinx_mapping",
+        "kind": 5,
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "intersphinx_mapping = {\n    \"python\": (\"https://docs.python.org/3\", None),\n    \"pandas\": (\"https://pandas.pydata.org/pandas-docs/stable\", None),\n    \"numpy\": (\"https://numpy.org/doc/stable\", None),\n    \"pydantic\": (\"https://docs.pydantic.dev/latest\", None),\n}\n# Make Sphinx include type hints alongside docstring descriptions\nautodoc_typehints = \"description\"\nautosummary_generate = True\ntypehints_use_signature = False",
         "detail": "docs.source.conf",
         "documentation": {}
     },
@@ -1569,7 +1602,34 @@
         "kind": 5,
         "importPath": "docs.source.conf",
         "description": "docs.source.conf",
-        "peekOfCode": "autodoc_typehints = \"description\"  # merge types into the description\nautoclass_content = \"both\"  # include class and __init__ docstrings\nautodoc_member_order = \"bysource\"\nadd_module_names = False  # cleaner object names in docs\nautodoc_default_options = {\n    \"members\": True,\n    \"undoc-members\": False,\n    \"inherited-members\": True,\n    \"show-inheritance\": True,\n    # Do not include imported members to reduce duplicates across re-exports",
+        "peekOfCode": "autodoc_typehints = \"description\"\nautosummary_generate = True\ntypehints_use_signature = False\ntypehints_fully_qualified = False\nautoclass_content = \"class\"\nautodoc_member_order = \"groupwise\"\npython_use_unqualified_type_names = True\nadd_module_names = False\nautodoc_default_options = {\n    \"members\": True,",
+        "detail": "docs.source.conf",
+        "documentation": {}
+    },
+    {
+        "label": "autosummary_generate",
+        "kind": 5,
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "autosummary_generate = True\ntypehints_use_signature = False\ntypehints_fully_qualified = False\nautoclass_content = \"class\"\nautodoc_member_order = \"groupwise\"\npython_use_unqualified_type_names = True\nadd_module_names = False\nautodoc_default_options = {\n    \"members\": True,\n    \"undoc-members\": False,",
+        "detail": "docs.source.conf",
+        "documentation": {}
+    },
+    {
+        "label": "typehints_use_signature",
+        "kind": 5,
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "typehints_use_signature = False\ntypehints_fully_qualified = False\nautoclass_content = \"class\"\nautodoc_member_order = \"groupwise\"\npython_use_unqualified_type_names = True\nadd_module_names = False\nautodoc_default_options = {\n    \"members\": True,\n    \"undoc-members\": False,\n    \"inherited-members\": False,",
+        "detail": "docs.source.conf",
+        "documentation": {}
+    },
+    {
+        "label": "typehints_fully_qualified",
+        "kind": 5,
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "typehints_fully_qualified = False\nautoclass_content = \"class\"\nautodoc_member_order = \"groupwise\"\npython_use_unqualified_type_names = True\nadd_module_names = False\nautodoc_default_options = {\n    \"members\": True,\n    \"undoc-members\": False,\n    \"inherited-members\": False,\n    \"show-inheritance\": True,",
         "detail": "docs.source.conf",
         "documentation": {}
     },
@@ -1578,7 +1638,7 @@
         "kind": 5,
         "importPath": "docs.source.conf",
         "description": "docs.source.conf",
-        "peekOfCode": "autoclass_content = \"both\"  # include class and __init__ docstrings\nautodoc_member_order = \"bysource\"\nadd_module_names = False  # cleaner object names in docs\nautodoc_default_options = {\n    \"members\": True,\n    \"undoc-members\": False,\n    \"inherited-members\": True,\n    \"show-inheritance\": True,\n    # Do not include imported members to reduce duplicates across re-exports\n    \"imported-members\": False,",
+        "peekOfCode": "autoclass_content = \"class\"\nautodoc_member_order = \"groupwise\"\npython_use_unqualified_type_names = True\nadd_module_names = False\nautodoc_default_options = {\n    \"members\": True,\n    \"undoc-members\": False,\n    \"inherited-members\": False,\n    \"show-inheritance\": True,\n    \"imported-members\": False,",
         "detail": "docs.source.conf",
         "documentation": {}
     },
@@ -1587,7 +1647,16 @@
         "kind": 5,
         "importPath": "docs.source.conf",
         "description": "docs.source.conf",
-        "peekOfCode": "autodoc_member_order = \"bysource\"\nadd_module_names = False  # cleaner object names in docs\nautodoc_default_options = {\n    \"members\": True,\n    \"undoc-members\": False,\n    \"inherited-members\": True,\n    \"show-inheritance\": True,\n    # Do not include imported members to reduce duplicates across re-exports\n    \"imported-members\": False,\n}",
+        "peekOfCode": "autodoc_member_order = \"groupwise\"\npython_use_unqualified_type_names = True\nadd_module_names = False\nautodoc_default_options = {\n    \"members\": True,\n    \"undoc-members\": False,\n    \"inherited-members\": False,\n    \"show-inheritance\": True,\n    \"imported-members\": False,\n}",
+        "detail": "docs.source.conf",
+        "documentation": {}
+    },
+    {
+        "label": "python_use_unqualified_type_names",
+        "kind": 5,
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "python_use_unqualified_type_names = True\nadd_module_names = False\nautodoc_default_options = {\n    \"members\": True,\n    \"undoc-members\": False,\n    \"inherited-members\": False,\n    \"show-inheritance\": True,\n    \"imported-members\": False,\n}\n# Napoleon settings for Google-style docstrings",
         "detail": "docs.source.conf",
         "documentation": {}
     },
@@ -1596,7 +1665,7 @@
         "kind": 5,
         "importPath": "docs.source.conf",
         "description": "docs.source.conf",
-        "peekOfCode": "add_module_names = False  # cleaner object names in docs\nautodoc_default_options = {\n    \"members\": True,\n    \"undoc-members\": False,\n    \"inherited-members\": True,\n    \"show-inheritance\": True,\n    # Do not include imported members to reduce duplicates across re-exports\n    \"imported-members\": False,\n}\n# Napoleon settings for Google-style docstrings",
+        "peekOfCode": "add_module_names = False\nautodoc_default_options = {\n    \"members\": True,\n    \"undoc-members\": False,\n    \"inherited-members\": False,\n    \"show-inheritance\": True,\n    \"imported-members\": False,\n}\n# Napoleon settings for Google-style docstrings\nnapoleon_google_docstring = True",
         "detail": "docs.source.conf",
         "documentation": {}
     },
@@ -1605,7 +1674,7 @@
         "kind": 5,
         "importPath": "docs.source.conf",
         "description": "docs.source.conf",
-        "peekOfCode": "autodoc_default_options = {\n    \"members\": True,\n    \"undoc-members\": False,\n    \"inherited-members\": True,\n    \"show-inheritance\": True,\n    # Do not include imported members to reduce duplicates across re-exports\n    \"imported-members\": False,\n}\n# Napoleon settings for Google-style docstrings\nnapoleon_google_docstring = True",
+        "peekOfCode": "autodoc_default_options = {\n    \"members\": True,\n    \"undoc-members\": False,\n    \"inherited-members\": False,\n    \"show-inheritance\": True,\n    \"imported-members\": False,\n}\n# Napoleon settings for Google-style docstrings\nnapoleon_google_docstring = True\nnapoleon_attr_types = False",
         "detail": "docs.source.conf",
         "documentation": {}
     },
@@ -1614,7 +1683,7 @@
         "kind": 5,
         "importPath": "docs.source.conf",
         "description": "docs.source.conf",
-        "peekOfCode": "napoleon_google_docstring = True\nnapoleon_attr_types = True  # Include type info in attributes\nnapoleon_preprocess_types = True  # Preprocess types for better rendering\nnapoleon_use_param = True  # Use :param: for parameters\nnapoleon_use_rtype = True  # Use :rtype: for return types\n# autodoc_pydantic settings to avoid duplication and combine fields\nautodoc_pydantic_model_show_json = False  # Hide JSON model if not needed\nautodoc_pydantic_model_show_config_summary = False  # Hide config\nautodoc_pydantic_model_member_order = \"bysource\"  # Order by source code\nautodoc_pydantic_field_list_style = \"compact\"  # Compact field lists",
+        "peekOfCode": "napoleon_google_docstring = True\nnapoleon_attr_types = False\nnapoleon_preprocess_types = True\nnapoleon_use_param = True\nnapoleon_use_rtype = True\n# autodoc_pydantic settings to avoid duplication and combine fields\nautodoc_pydantic_model_member_order = \"groupwise\"\nautodoc_pydantic_model_show_field_summary = False\nautodoc_pydantic_field_list_style = \"compact\"\nautodoc_pydantic_field_doc_policy = \"description\"",
         "detail": "docs.source.conf",
         "documentation": {}
     },
@@ -1623,7 +1692,7 @@
         "kind": 5,
         "importPath": "docs.source.conf",
         "description": "docs.source.conf",
-        "peekOfCode": "napoleon_attr_types = True  # Include type info in attributes\nnapoleon_preprocess_types = True  # Preprocess types for better rendering\nnapoleon_use_param = True  # Use :param: for parameters\nnapoleon_use_rtype = True  # Use :rtype: for return types\n# autodoc_pydantic settings to avoid duplication and combine fields\nautodoc_pydantic_model_show_json = False  # Hide JSON model if not needed\nautodoc_pydantic_model_show_config_summary = False  # Hide config\nautodoc_pydantic_model_member_order = \"bysource\"  # Order by source code\nautodoc_pydantic_field_list_style = \"compact\"  # Compact field lists\nautodoc_pydantic_field_doc_policy = \"description\"",
+        "peekOfCode": "napoleon_attr_types = False\nnapoleon_preprocess_types = True\nnapoleon_use_param = True\nnapoleon_use_rtype = True\n# autodoc_pydantic settings to avoid duplication and combine fields\nautodoc_pydantic_model_member_order = \"groupwise\"\nautodoc_pydantic_model_show_field_summary = False\nautodoc_pydantic_field_list_style = \"compact\"\nautodoc_pydantic_field_doc_policy = \"description\"\nautodoc_pydantic_model_show_json = False",
         "detail": "docs.source.conf",
         "documentation": {}
     },
@@ -1632,7 +1701,7 @@
         "kind": 5,
         "importPath": "docs.source.conf",
         "description": "docs.source.conf",
-        "peekOfCode": "napoleon_preprocess_types = True  # Preprocess types for better rendering\nnapoleon_use_param = True  # Use :param: for parameters\nnapoleon_use_rtype = True  # Use :rtype: for return types\n# autodoc_pydantic settings to avoid duplication and combine fields\nautodoc_pydantic_model_show_json = False  # Hide JSON model if not needed\nautodoc_pydantic_model_show_config_summary = False  # Hide config\nautodoc_pydantic_model_member_order = \"bysource\"  # Order by source code\nautodoc_pydantic_field_list_style = \"compact\"  # Compact field lists\nautodoc_pydantic_field_doc_policy = \"description\"\nautodoc_pydantic_model_show_field_summary = False  # Avoid duplicate field entries",
+        "peekOfCode": "napoleon_preprocess_types = True\nnapoleon_use_param = True\nnapoleon_use_rtype = True\n# autodoc_pydantic settings to avoid duplication and combine fields\nautodoc_pydantic_model_member_order = \"groupwise\"\nautodoc_pydantic_model_show_field_summary = False\nautodoc_pydantic_field_list_style = \"compact\"\nautodoc_pydantic_field_doc_policy = \"description\"\nautodoc_pydantic_model_show_json = False\nautodoc_pydantic_model_show_config_summary = True",
         "detail": "docs.source.conf",
         "documentation": {}
     },
@@ -1641,7 +1710,7 @@
         "kind": 5,
         "importPath": "docs.source.conf",
         "description": "docs.source.conf",
-        "peekOfCode": "napoleon_use_param = True  # Use :param: for parameters\nnapoleon_use_rtype = True  # Use :rtype: for return types\n# autodoc_pydantic settings to avoid duplication and combine fields\nautodoc_pydantic_model_show_json = False  # Hide JSON model if not needed\nautodoc_pydantic_model_show_config_summary = False  # Hide config\nautodoc_pydantic_model_member_order = \"bysource\"  # Order by source code\nautodoc_pydantic_field_list_style = \"compact\"  # Compact field lists\nautodoc_pydantic_field_doc_policy = \"description\"\nautodoc_pydantic_model_show_field_summary = False  # Avoid duplicate field entries\ntemplates_path = [\"_templates\"]",
+        "peekOfCode": "napoleon_use_param = True\nnapoleon_use_rtype = True\n# autodoc_pydantic settings to avoid duplication and combine fields\nautodoc_pydantic_model_member_order = \"groupwise\"\nautodoc_pydantic_model_show_field_summary = False\nautodoc_pydantic_field_list_style = \"compact\"\nautodoc_pydantic_field_doc_policy = \"description\"\nautodoc_pydantic_model_show_json = False\nautodoc_pydantic_model_show_config_summary = True\n# autodoc_type_aliases = {",
         "detail": "docs.source.conf",
         "documentation": {}
     },
@@ -1650,25 +1719,7 @@
         "kind": 5,
         "importPath": "docs.source.conf",
         "description": "docs.source.conf",
-        "peekOfCode": "napoleon_use_rtype = True  # Use :rtype: for return types\n# autodoc_pydantic settings to avoid duplication and combine fields\nautodoc_pydantic_model_show_json = False  # Hide JSON model if not needed\nautodoc_pydantic_model_show_config_summary = False  # Hide config\nautodoc_pydantic_model_member_order = \"bysource\"  # Order by source code\nautodoc_pydantic_field_list_style = \"compact\"  # Compact field lists\nautodoc_pydantic_field_doc_policy = \"description\"\nautodoc_pydantic_model_show_field_summary = False  # Avoid duplicate field entries\ntemplates_path = [\"_templates\"]\nexclude_patterns = []",
-        "detail": "docs.source.conf",
-        "documentation": {}
-    },
-    {
-        "label": "autodoc_pydantic_model_show_json",
-        "kind": 5,
-        "importPath": "docs.source.conf",
-        "description": "docs.source.conf",
-        "peekOfCode": "autodoc_pydantic_model_show_json = False  # Hide JSON model if not needed\nautodoc_pydantic_model_show_config_summary = False  # Hide config\nautodoc_pydantic_model_member_order = \"bysource\"  # Order by source code\nautodoc_pydantic_field_list_style = \"compact\"  # Compact field lists\nautodoc_pydantic_field_doc_policy = \"description\"\nautodoc_pydantic_model_show_field_summary = False  # Avoid duplicate field entries\ntemplates_path = [\"_templates\"]\nexclude_patterns = []\n# Allow both .rst and .md files\nsource_suffix = {",
-        "detail": "docs.source.conf",
-        "documentation": {}
-    },
-    {
-        "label": "autodoc_pydantic_model_show_config_summary",
-        "kind": 5,
-        "importPath": "docs.source.conf",
-        "description": "docs.source.conf",
-        "peekOfCode": "autodoc_pydantic_model_show_config_summary = False  # Hide config\nautodoc_pydantic_model_member_order = \"bysource\"  # Order by source code\nautodoc_pydantic_field_list_style = \"compact\"  # Compact field lists\nautodoc_pydantic_field_doc_policy = \"description\"\nautodoc_pydantic_model_show_field_summary = False  # Avoid duplicate field entries\ntemplates_path = [\"_templates\"]\nexclude_patterns = []\n# Allow both .rst and .md files\nsource_suffix = {\n    \".rst\": \"restructuredtext\",",
+        "peekOfCode": "napoleon_use_rtype = True\n# autodoc_pydantic settings to avoid duplication and combine fields\nautodoc_pydantic_model_member_order = \"groupwise\"\nautodoc_pydantic_model_show_field_summary = False\nautodoc_pydantic_field_list_style = \"compact\"\nautodoc_pydantic_field_doc_policy = \"description\"\nautodoc_pydantic_model_show_json = False\nautodoc_pydantic_model_show_config_summary = True\n# autodoc_type_aliases = {\n#     \"LLMChoiceModel\": \"think_reason_learn.core.llms._schemas.LLMChoiceModel\",",
         "detail": "docs.source.conf",
         "documentation": {}
     },
@@ -1677,25 +1728,7 @@
         "kind": 5,
         "importPath": "docs.source.conf",
         "description": "docs.source.conf",
-        "peekOfCode": "autodoc_pydantic_model_member_order = \"bysource\"  # Order by source code\nautodoc_pydantic_field_list_style = \"compact\"  # Compact field lists\nautodoc_pydantic_field_doc_policy = \"description\"\nautodoc_pydantic_model_show_field_summary = False  # Avoid duplicate field entries\ntemplates_path = [\"_templates\"]\nexclude_patterns = []\n# Allow both .rst and .md files\nsource_suffix = {\n    \".rst\": \"restructuredtext\",\n    \".md\": \"markdown\",",
-        "detail": "docs.source.conf",
-        "documentation": {}
-    },
-    {
-        "label": "autodoc_pydantic_field_list_style",
-        "kind": 5,
-        "importPath": "docs.source.conf",
-        "description": "docs.source.conf",
-        "peekOfCode": "autodoc_pydantic_field_list_style = \"compact\"  # Compact field lists\nautodoc_pydantic_field_doc_policy = \"description\"\nautodoc_pydantic_model_show_field_summary = False  # Avoid duplicate field entries\ntemplates_path = [\"_templates\"]\nexclude_patterns = []\n# Allow both .rst and .md files\nsource_suffix = {\n    \".rst\": \"restructuredtext\",\n    \".md\": \"markdown\",\n}",
-        "detail": "docs.source.conf",
-        "documentation": {}
-    },
-    {
-        "label": "autodoc_pydantic_field_doc_policy",
-        "kind": 5,
-        "importPath": "docs.source.conf",
-        "description": "docs.source.conf",
-        "peekOfCode": "autodoc_pydantic_field_doc_policy = \"description\"\nautodoc_pydantic_model_show_field_summary = False  # Avoid duplicate field entries\ntemplates_path = [\"_templates\"]\nexclude_patterns = []\n# Allow both .rst and .md files\nsource_suffix = {\n    \".rst\": \"restructuredtext\",\n    \".md\": \"markdown\",\n}\n# -- Options for HTML output -------------------------------------------------",
+        "peekOfCode": "autodoc_pydantic_model_member_order = \"groupwise\"\nautodoc_pydantic_model_show_field_summary = False\nautodoc_pydantic_field_list_style = \"compact\"\nautodoc_pydantic_field_doc_policy = \"description\"\nautodoc_pydantic_model_show_json = False\nautodoc_pydantic_model_show_config_summary = True\n# autodoc_type_aliases = {\n#     \"LLMChoiceModel\": \"think_reason_learn.core.llms._schemas.LLMChoiceModel\",\n#     \"LLMChoiceDict\": \"think_reason_learn.core.llms._schemas.LLMChoiceDict\",\n#     \"LLMChoice\": \"think_reason_learn.core.llms._schemas.LLMChoice\",",
         "detail": "docs.source.conf",
         "documentation": {}
     },
@@ -1704,7 +1737,88 @@
         "kind": 5,
         "importPath": "docs.source.conf",
         "description": "docs.source.conf",
-        "peekOfCode": "autodoc_pydantic_model_show_field_summary = False  # Avoid duplicate field entries\ntemplates_path = [\"_templates\"]\nexclude_patterns = []\n# Allow both .rst and .md files\nsource_suffix = {\n    \".rst\": \"restructuredtext\",\n    \".md\": \"markdown\",\n}\n# -- Options for HTML output -------------------------------------------------\n# https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output",
+        "peekOfCode": "autodoc_pydantic_model_show_field_summary = False\nautodoc_pydantic_field_list_style = \"compact\"\nautodoc_pydantic_field_doc_policy = \"description\"\nautodoc_pydantic_model_show_json = False\nautodoc_pydantic_model_show_config_summary = True\n# autodoc_type_aliases = {\n#     \"LLMChoiceModel\": \"think_reason_learn.core.llms._schemas.LLMChoiceModel\",\n#     \"LLMChoiceDict\": \"think_reason_learn.core.llms._schemas.LLMChoiceDict\",\n#     \"LLMChoice\": \"think_reason_learn.core.llms._schemas.LLMChoice\",\n#     \"think_reason_learn.core.llms._schemas.LLMChoice\": \"LLMChoice\",",
+        "detail": "docs.source.conf",
+        "documentation": {}
+    },
+    {
+        "label": "autodoc_pydantic_field_list_style",
+        "kind": 5,
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "autodoc_pydantic_field_list_style = \"compact\"\nautodoc_pydantic_field_doc_policy = \"description\"\nautodoc_pydantic_model_show_json = False\nautodoc_pydantic_model_show_config_summary = True\n# autodoc_type_aliases = {\n#     \"LLMChoiceModel\": \"think_reason_learn.core.llms._schemas.LLMChoiceModel\",\n#     \"LLMChoiceDict\": \"think_reason_learn.core.llms._schemas.LLMChoiceDict\",\n#     \"LLMChoice\": \"think_reason_learn.core.llms._schemas.LLMChoice\",\n#     \"think_reason_learn.core.llms._schemas.LLMChoice\": \"LLMChoice\",\n#     \"think_reason_learn.core.llms._schemas.LLMChoiceModel\": \"LLMChoiceModel\",",
+        "detail": "docs.source.conf",
+        "documentation": {}
+    },
+    {
+        "label": "autodoc_pydantic_field_doc_policy",
+        "kind": 5,
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "autodoc_pydantic_field_doc_policy = \"description\"\nautodoc_pydantic_model_show_json = False\nautodoc_pydantic_model_show_config_summary = True\n# autodoc_type_aliases = {\n#     \"LLMChoiceModel\": \"think_reason_learn.core.llms._schemas.LLMChoiceModel\",\n#     \"LLMChoiceDict\": \"think_reason_learn.core.llms._schemas.LLMChoiceDict\",\n#     \"LLMChoice\": \"think_reason_learn.core.llms._schemas.LLMChoice\",\n#     \"think_reason_learn.core.llms._schemas.LLMChoice\": \"LLMChoice\",\n#     \"think_reason_learn.core.llms._schemas.LLMChoiceModel\": \"LLMChoiceModel\",\n#     \"think_reason_learn.core.llms._schemas.LLMChoiceDict\": \"LLMChoiceDict\",",
+        "detail": "docs.source.conf",
+        "documentation": {}
+    },
+    {
+        "label": "autodoc_pydantic_model_show_json",
+        "kind": 5,
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "autodoc_pydantic_model_show_json = False\nautodoc_pydantic_model_show_config_summary = True\n# autodoc_type_aliases = {\n#     \"LLMChoiceModel\": \"think_reason_learn.core.llms._schemas.LLMChoiceModel\",\n#     \"LLMChoiceDict\": \"think_reason_learn.core.llms._schemas.LLMChoiceDict\",\n#     \"LLMChoice\": \"think_reason_learn.core.llms._schemas.LLMChoice\",\n#     \"think_reason_learn.core.llms._schemas.LLMChoice\": \"LLMChoice\",\n#     \"think_reason_learn.core.llms._schemas.LLMChoiceModel\": \"LLMChoiceModel\",\n#     \"think_reason_learn.core.llms._schemas.LLMChoiceDict\": \"LLMChoiceDict\",\n# }",
+        "detail": "docs.source.conf",
+        "documentation": {}
+    },
+    {
+        "label": "autodoc_pydantic_model_show_config_summary",
+        "kind": 5,
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "autodoc_pydantic_model_show_config_summary = True\n# autodoc_type_aliases = {\n#     \"LLMChoiceModel\": \"think_reason_learn.core.llms._schemas.LLMChoiceModel\",\n#     \"LLMChoiceDict\": \"think_reason_learn.core.llms._schemas.LLMChoiceDict\",\n#     \"LLMChoice\": \"think_reason_learn.core.llms._schemas.LLMChoice\",\n#     \"think_reason_learn.core.llms._schemas.LLMChoice\": \"LLMChoice\",\n#     \"think_reason_learn.core.llms._schemas.LLMChoiceModel\": \"LLMChoiceModel\",\n#     \"think_reason_learn.core.llms._schemas.LLMChoiceDict\": \"LLMChoiceDict\",\n# }\n# MyST niceties",
+        "detail": "docs.source.conf",
+        "documentation": {}
+    },
+    {
+        "label": "myst_enable_extensions",
+        "kind": 5,
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "myst_enable_extensions = [\"colon_fence\", \"deflist\", \"linkify\"]\nmyst_url_schemes = (\"http\", \"https\", \"mailto\")\nnitpicky = True\nnitpick_ignore = [\n    (\"py:class\", \"anthropic.NotGiven\"),\n    (\"py:class\", \"openai.NotGiven\"),\n    (\"py:class\", \"T\"),\n    (\"py:obj\", \"think_reason_learn.core.llms._schemas.T\"),\n    (\"py:class\", \"think_reason_learn.core._singleton.T\"),\n    (\"py:class\", \"think_reason_learn.core.llms._schemas.T\"),",
+        "detail": "docs.source.conf",
+        "documentation": {}
+    },
+    {
+        "label": "myst_url_schemes",
+        "kind": 5,
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "myst_url_schemes = (\"http\", \"https\", \"mailto\")\nnitpicky = True\nnitpick_ignore = [\n    (\"py:class\", \"anthropic.NotGiven\"),\n    (\"py:class\", \"openai.NotGiven\"),\n    (\"py:class\", \"T\"),\n    (\"py:obj\", \"think_reason_learn.core.llms._schemas.T\"),\n    (\"py:class\", \"think_reason_learn.core._singleton.T\"),\n    (\"py:class\", \"think_reason_learn.core.llms._schemas.T\"),\n    (\"py:class\", \"TypeAliasForwardRef\"),",
+        "detail": "docs.source.conf",
+        "documentation": {}
+    },
+    {
+        "label": "nitpicky",
+        "kind": 5,
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "nitpicky = True\nnitpick_ignore = [\n    (\"py:class\", \"anthropic.NotGiven\"),\n    (\"py:class\", \"openai.NotGiven\"),\n    (\"py:class\", \"T\"),\n    (\"py:obj\", \"think_reason_learn.core.llms._schemas.T\"),\n    (\"py:class\", \"think_reason_learn.core._singleton.T\"),\n    (\"py:class\", \"think_reason_learn.core.llms._schemas.T\"),\n    (\"py:class\", \"TypeAliasForwardRef\"),\n    (\"py:class\", \"LLMChoiceModel\"),",
+        "detail": "docs.source.conf",
+        "documentation": {}
+    },
+    {
+        "label": "nitpick_ignore",
+        "kind": 5,
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "nitpick_ignore = [\n    (\"py:class\", \"anthropic.NotGiven\"),\n    (\"py:class\", \"openai.NotGiven\"),\n    (\"py:class\", \"T\"),\n    (\"py:obj\", \"think_reason_learn.core.llms._schemas.T\"),\n    (\"py:class\", \"think_reason_learn.core._singleton.T\"),\n    (\"py:class\", \"think_reason_learn.core.llms._schemas.T\"),\n    (\"py:class\", \"TypeAliasForwardRef\"),\n    (\"py:class\", \"LLMChoiceModel\"),\n    (\"py:class\", \"asyncio.locks.Lock\"),",
+        "detail": "docs.source.conf",
+        "documentation": {}
+    },
+    {
+        "label": "nitpick_ignore_regex",
+        "kind": 5,
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "nitpick_ignore_regex = [\n    (r\"py:class\", r\"DataFrame containing\"),\n    (r\"py:class\", r\"done based on (prediction|semantic)\"),\n]\ntemplates_path = [\"_templates\"]\nexclude_patterns = []\nsource_suffix = {\n    \".rst\": \"restructuredtext\",\n    \".md\": \"markdown\",\n}",
         "detail": "docs.source.conf",
         "documentation": {}
     },
@@ -1713,7 +1827,7 @@
         "kind": 5,
         "importPath": "docs.source.conf",
         "description": "docs.source.conf",
-        "peekOfCode": "templates_path = [\"_templates\"]\nexclude_patterns = []\n# Allow both .rst and .md files\nsource_suffix = {\n    \".rst\": \"restructuredtext\",\n    \".md\": \"markdown\",\n}\n# -- Options for HTML output -------------------------------------------------\n# https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output\n# Furo theme options (optional cosmetics)",
+        "peekOfCode": "templates_path = [\"_templates\"]\nexclude_patterns = []\nsource_suffix = {\n    \".rst\": \"restructuredtext\",\n    \".md\": \"markdown\",\n}\n# -- Options for HTML output ------------------------------------------------\n# https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output\nhtml_theme = \"pydata_sphinx_theme\"\nhtml_static_path = [\"_static\"]",
         "detail": "docs.source.conf",
         "documentation": {}
     },
@@ -1722,7 +1836,7 @@
         "kind": 5,
         "importPath": "docs.source.conf",
         "description": "docs.source.conf",
-        "peekOfCode": "exclude_patterns = []\n# Allow both .rst and .md files\nsource_suffix = {\n    \".rst\": \"restructuredtext\",\n    \".md\": \"markdown\",\n}\n# -- Options for HTML output -------------------------------------------------\n# https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output\n# Furo theme options (optional cosmetics)\nhtml_theme = \"furo\"  # Modern, responsive theme (pip install furo)",
+        "peekOfCode": "exclude_patterns = []\nsource_suffix = {\n    \".rst\": \"restructuredtext\",\n    \".md\": \"markdown\",\n}\n# -- Options for HTML output ------------------------------------------------\n# https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output\nhtml_theme = \"pydata_sphinx_theme\"\nhtml_static_path = [\"_static\"]\nhtml_css_files = [\"custom.css\"]",
         "detail": "docs.source.conf",
         "documentation": {}
     },
@@ -1731,7 +1845,7 @@
         "kind": 5,
         "importPath": "docs.source.conf",
         "description": "docs.source.conf",
-        "peekOfCode": "source_suffix = {\n    \".rst\": \"restructuredtext\",\n    \".md\": \"markdown\",\n}\n# -- Options for HTML output -------------------------------------------------\n# https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output\n# Furo theme options (optional cosmetics)\nhtml_theme = \"furo\"  # Modern, responsive theme (pip install furo)\nhtml_static_path = [\"_static\"]\n# Custom JavaScript to make external links open in new tabs",
+        "peekOfCode": "source_suffix = {\n    \".rst\": \"restructuredtext\",\n    \".md\": \"markdown\",\n}\n# -- Options for HTML output ------------------------------------------------\n# https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output\nhtml_theme = \"pydata_sphinx_theme\"\nhtml_static_path = [\"_static\"]\nhtml_css_files = [\"custom.css\"]\n# Custom JavaScript to make external links open in new tabs",
         "detail": "docs.source.conf",
         "documentation": {}
     },
@@ -1740,7 +1854,7 @@
         "kind": 5,
         "importPath": "docs.source.conf",
         "description": "docs.source.conf",
-        "peekOfCode": "html_theme = \"furo\"  # Modern, responsive theme (pip install furo)\nhtml_static_path = [\"_static\"]\n# Custom JavaScript to make external links open in new tabs\nhtml_js_files = [\n    \"external_links.js\",\n]\nhtml_title = \"Think Reason Learn\"\nhtml_short_title = \"TRL\"\nhtml_theme_options = {\n    \"light_css_variables\": {",
+        "peekOfCode": "html_theme = \"pydata_sphinx_theme\"\nhtml_static_path = [\"_static\"]\nhtml_css_files = [\"custom.css\"]\n# Custom JavaScript to make external links open in new tabs\nhtml_js_files = [\n    \"external_links.js\",\n]\nhtml_title = \"Think Reason Learn\"\nhtml_short_title = \"TRL\"\nhtml_theme_options = {",
         "detail": "docs.source.conf",
         "documentation": {}
     },
@@ -1749,7 +1863,16 @@
         "kind": 5,
         "importPath": "docs.source.conf",
         "description": "docs.source.conf",
-        "peekOfCode": "html_static_path = [\"_static\"]\n# Custom JavaScript to make external links open in new tabs\nhtml_js_files = [\n    \"external_links.js\",\n]\nhtml_title = \"Think Reason Learn\"\nhtml_short_title = \"TRL\"\nhtml_theme_options = {\n    \"light_css_variables\": {\n        \"color-brand-primary\": \"#2e7d32\",",
+        "peekOfCode": "html_static_path = [\"_static\"]\nhtml_css_files = [\"custom.css\"]\n# Custom JavaScript to make external links open in new tabs\nhtml_js_files = [\n    \"external_links.js\",\n]\nhtml_title = \"Think Reason Learn\"\nhtml_short_title = \"TRL\"\nhtml_theme_options = {\n    \"logo\": {",
+        "detail": "docs.source.conf",
+        "documentation": {}
+    },
+    {
+        "label": "html_css_files",
+        "kind": 5,
+        "importPath": "docs.source.conf",
+        "description": "docs.source.conf",
+        "peekOfCode": "html_css_files = [\"custom.css\"]\n# Custom JavaScript to make external links open in new tabs\nhtml_js_files = [\n    \"external_links.js\",\n]\nhtml_title = \"Think Reason Learn\"\nhtml_short_title = \"TRL\"\nhtml_theme_options = {\n    \"logo\": {\n        \"image_light\": \"_static/logo-light.png\",",
         "detail": "docs.source.conf",
         "documentation": {}
     },
@@ -1758,7 +1881,7 @@
         "kind": 5,
         "importPath": "docs.source.conf",
         "description": "docs.source.conf",
-        "peekOfCode": "html_js_files = [\n    \"external_links.js\",\n]\nhtml_title = \"Think Reason Learn\"\nhtml_short_title = \"TRL\"\nhtml_theme_options = {\n    \"light_css_variables\": {\n        \"color-brand-primary\": \"#2e7d32\",\n        \"color-brand-content\": \"#1b5e20\",\n    },",
+        "peekOfCode": "html_js_files = [\n    \"external_links.js\",\n]\nhtml_title = \"Think Reason Learn\"\nhtml_short_title = \"TRL\"\nhtml_theme_options = {\n    \"logo\": {\n        \"image_light\": \"_static/logo-light.png\",\n        \"image_dark\": \"_static/logo-dark.png\",\n        \"alt_text\": \"Think Reason Learn\",",
         "detail": "docs.source.conf",
         "documentation": {}
     },
@@ -1767,7 +1890,7 @@
         "kind": 5,
         "importPath": "docs.source.conf",
         "description": "docs.source.conf",
-        "peekOfCode": "html_title = \"Think Reason Learn\"\nhtml_short_title = \"TRL\"\nhtml_theme_options = {\n    \"light_css_variables\": {\n        \"color-brand-primary\": \"#2e7d32\",\n        \"color-brand-content\": \"#1b5e20\",\n    },\n    \"footer_icons\": [\n        {\n            \"name\": \"GitHub\",",
+        "peekOfCode": "html_title = \"Think Reason Learn\"\nhtml_short_title = \"TRL\"\nhtml_theme_options = {\n    \"logo\": {\n        \"image_light\": \"_static/logo-light.png\",\n        \"image_dark\": \"_static/logo-dark.png\",\n        \"alt_text\": \"Think Reason Learn\",\n    },\n    \"icon_links\": [\n        {",
         "detail": "docs.source.conf",
         "documentation": {}
     },
@@ -1776,7 +1899,7 @@
         "kind": 5,
         "importPath": "docs.source.conf",
         "description": "docs.source.conf",
-        "peekOfCode": "html_short_title = \"TRL\"\nhtml_theme_options = {\n    \"light_css_variables\": {\n        \"color-brand-primary\": \"#2e7d32\",\n        \"color-brand-content\": \"#1b5e20\",\n    },\n    \"footer_icons\": [\n        {\n            \"name\": \"GitHub\",\n            \"url\": \"https://github.com/vela-research/think-reason-learn\",",
+        "peekOfCode": "html_short_title = \"TRL\"\nhtml_theme_options = {\n    \"logo\": {\n        \"image_light\": \"_static/logo-light.png\",\n        \"image_dark\": \"_static/logo-dark.png\",\n        \"alt_text\": \"Think Reason Learn\",\n    },\n    \"icon_links\": [\n        {\n            \"name\": \"GitHub\",",
         "detail": "docs.source.conf",
         "documentation": {}
     },
@@ -1785,7 +1908,7 @@
         "kind": 5,
         "importPath": "docs.source.conf",
         "description": "docs.source.conf",
-        "peekOfCode": "html_theme_options = {\n    \"light_css_variables\": {\n        \"color-brand-primary\": \"#2e7d32\",\n        \"color-brand-content\": \"#1b5e20\",\n    },\n    \"footer_icons\": [\n        {\n            \"name\": \"GitHub\",\n            \"url\": \"https://github.com/vela-research/think-reason-learn\",\n            \"html\": (",
+        "peekOfCode": "html_theme_options = {\n    \"logo\": {\n        \"image_light\": \"_static/logo-light.png\",\n        \"image_dark\": \"_static/logo-dark.png\",\n        \"alt_text\": \"Think Reason Learn\",\n    },\n    \"icon_links\": [\n        {\n            \"name\": \"GitHub\",\n            \"url\": \"https://github.com/vela-research/think-reason-learn\",",
         "detail": "docs.source.conf",
         "documentation": {}
     },
@@ -2226,7 +2349,7 @@
         "kind": 6,
         "importPath": "think_reason_learn.gptree._gptree",
         "description": "think_reason_learn.gptree._gptree",
-        "peekOfCode": "class GPTree:\n    \"\"\"LLM based decision tree classifier.\"\"\"\n    def __init__(\n        self,\n        qgen_llmc: List[LLMChoice],\n        critic_llmc: List[LLMChoice],\n        qgen_instr_llmc: List[LLMChoice],\n        qanswer_llmc: List[LLMChoice] | None = None,\n        qgen_temperature: float = 0.0,\n        critic_temperature: float = 0.0,",
+        "peekOfCode": "class GPTree:\n    \"\"\"LLM based decision tree classifier.\n    Note that GPTree auto saves the tree after each node is built.\n    Args:\n        qgen_llmc: LLMs to use for question generation, in priority order.\n        critic_llmc: LLMs to use for question critique, in priority order.\n        qgen_instr_llmc: LLMs for generating instructions.\n        qanswer_llmc: LLMs to use for answering questions, in priority order.\n            If None, use qgen_llmc.\n        qgen_temperature: Sampling temperature for question generation.",
         "detail": "think_reason_learn.gptree._gptree",
         "documentation": {}
     },
@@ -2379,7 +2502,7 @@
         "kind": 6,
         "importPath": "think_reason_learn.rrf._rrf",
         "description": "think_reason_learn.rrf._rrf",
-        "peekOfCode": "class RRF:\n    \"\"\"Random Rule Forest.\"\"\"\n    def __init__(\n        self,\n        qgen_llmc: List[LLMChoice],\n        qanswer_llmc: List[LLMChoice] | None = None,\n        qgen_temperature: float = 0.0,\n        qanswer_temperature: float = 0.0,\n        llm_semaphore_limit: int = 3,\n        answer_similarity_func: AnsSimilarityFunc = \"hamming\",",
+        "peekOfCode": "class RRF:\n    \"\"\"Interpretable ensemble binary classifier.\n    Args:\n        qgen_llmc: LLMs to use for question generation, in priority order.\n        qanswer_llmc: LLMs to use for answering questions, in priority order.\n            If None, use qgen_llmc.\n        qgen_temperature: Sampling temperature for question generation.\n        qanswer_temperature: Sampling temperature for answering questions.\n        llm_semaphore_limit: Max concurrent LLM calls.\n        answer_similarity_func: Function to use for answer similarity.",
         "detail": "think_reason_learn.rrf._rrf",
         "documentation": {}
     },

@@ -20,7 +20,7 @@ RUN pip install --no-cache-dir \
 COPY . .
 
 # Install the package (build from pyproject via PEP 517)
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir -e .
 
 # Build docs (with -M so output goes to build/html)
 WORKDIR /app/docs

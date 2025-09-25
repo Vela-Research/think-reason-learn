@@ -23,6 +23,9 @@ dependencies = [
     "pandas>=2.3.2,<3",
     "orjson>=3.11.3,<4",
     "graphviz>=0.21,<0.22",
+    "furo (>=2025.7.19,<2026.0.0)",
+    "pydata-sphinx-theme (>=0.16.1,<0.17.0)",
+    "sphinx-design (>=0.6.1,<0.7.0)",
 ]
 
 [project.urls]

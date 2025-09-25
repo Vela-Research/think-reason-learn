@@ -75,6 +75,7 @@ GPTree
    tree.get_questions()
 
    # Predict on the training data
+   # NOTE: ensure the fitter is fully consumed
    predictions = await tree.predict(X)
    for pred in predictions:
        print(pred)

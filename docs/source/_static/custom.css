@@ -33,3 +33,29 @@ a.navbar-brand img {
     width: auto !important;
     margin: 0 auto;
 }
+
+.bd-sidebar-primary {
+    display: none !important;
+}
+
+body[data-api-page="true"] .bd-sidebar-primary {
+    display: block !important;
+}
+
+.bd-main .bd-content {
+    max-width: 100% !important;
+    margin-left: 0 !important;
+}
+
+body[data-api-page="true"] .bd-main .bd-content {
+    max-width: unset !important;
+    margin-left: unset !important;
+}
+
+.bd-container {
+    grid-template-columns: 0 1fr 0 !important;
+}
+
+body[data-api-page="true"] .bd-container {
+    grid-template-columns: var(--bd-sidebar-width) 1fr var(--bd-sidebar-width) !important;
+}

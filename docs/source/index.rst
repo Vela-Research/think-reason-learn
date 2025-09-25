@@ -16,7 +16,6 @@ venture capital, healthcare, and law.
    :gutter: 3
 
    .. grid-item-card:: Getting Started
-      # No :columns: — auto full on small, half on medium/large
 
       - :doc:`About <getting_started/about>`
       - :doc:`Installation Guide <getting_started/installation_guide>`

@@ -126,6 +126,7 @@ html_css_files = ["custom.css"]
 # Custom JavaScript to make external links open in new tabs
 html_js_files = [
     "external_links.js",
+    "api-detection.js",
 ]
 html_title = "Think Reason Learn"
 html_short_title = "TRL"

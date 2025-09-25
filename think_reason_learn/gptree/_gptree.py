@@ -6,6 +6,7 @@ LLM based decision tree classifier.
 from __future__ import annotations
 
 import os
+from os import PathLike
 import asyncio
 from typing import List, Dict, Literal, Sequence, cast, Type, Tuple
 from typing import Set, Any, AsyncGenerator
@@ -179,7 +180,36 @@ class BuildTask:
 
 
 class GPTree:
-    """LLM based decision tree classifier."""
+    """LLM based decision tree classifier.
+
+    Note that GPTree auto saves the tree after each node is built.
+
+    Args:
+        qgen_llmc: LLMs to use for question generation, in priority order.
+        critic_llmc: LLMs to use for question critique, in priority order.
+        qgen_instr_llmc: LLMs for generating instructions.
+        qanswer_llmc: LLMs to use for answering questions, in priority order.
+            If None, use qgen_llmc.
+        qgen_temperature: Sampling temperature for question generation.
+        critic_temperature: Sampling temperature for critique.
+        qgen_instr_gen_temperature: Sampling temperature for generating
+            instructions.
+        qanswer_temperature: Sampling temperature for answering questions.
+        criterion: Splitting criterion. Currently only "gini".
+        max_depth: Maximum tree depth. If None, grow until pure/min samples.
+        max_node_width: Maximum children per node.
+        min_samples_leaf: Minimum samples per leaf.
+        llm_semaphore_limit: Max concurrent LLM calls.
+        min_question_candidates: Min number of questions per node.
+        max_question_candidates: Max number of questions per node. Max 15
+        expert_advice: Human-provided hints for generation.
+        n_samples_as_context: Number of samples used as context in generation.
+        class_ratio: Strategy for class sampling ("balanced" or dict of ratios).
+        use_critic: Whether to critique generated questions.
+        save_path: Directory to save checkpoints/models.
+        name: Name of the tree instance.
+        random_state: Random seed.
+    """
 
     def __init__(
         self,
@@ -202,42 +232,10 @@ class GPTree:
         n_samples_as_context: int = 30,
         class_ratio: Dict[str, int] | Literal["balanced"] = "balanced",
         use_critic: bool = False,
-        save_path: str | Path | None = None,
+        save_path: str | PathLike[str] | None = None,
         name: str | None = None,
         random_state: int | None = None,
     ):
-        """Decision tree guided by LLMs.
-
-        Note that GPTree auto saves the tree after each node is built.
-        When you call `.save()` manually, it will save the tree with only
-        production level data.
-
-        Args:
-            qgen_llmc: LLMs to use for question generation, in priority order.
-            critic_llmc: LLMs to use for question critique, in priority order.
-            qgen_instr_llmc: LLMs for generating instructions.
-            qanswer_llmc: LLMs to use for answering questions, in priority order.
-                If None, use qgen_llmc.
-            qgen_temperature: Sampling temperature for question generation.
-            critic_temperature: Sampling temperature for critique.
-            qgen_instr_gen_temperature: Sampling temperature for generating
-                instructions.
-            qanswer_temperature: Sampling temperature for answering questions.
-            criterion: Splitting criterion. Currently only "gini".
-            max_depth: Maximum tree depth. If None, grow until pure/min samples.
-            max_node_width: Maximum children per node.
-            min_samples_leaf: Minimum samples per leaf.
-            llm_semaphore_limit: Max concurrent LLM calls.
-            min_question_candidates: Min number of questions per node.
-            max_question_candidates: Max number of questions per node. Max 15
-            expert_advice: Human-provided hints for generation.
-            n_samples_as_context: Number of samples used as context in generation.
-            class_ratio: Strategy for class sampling ("balanced" or dict of ratios).
-            use_critic: Whether to critique generated questions.
-            save_path: Directory to save checkpoints/models.
-            name: Name of the tree instance.
-            random_state: Random seed.
-        """
         locals_dict = deepcopy(locals())
         del locals_dict["self"]
         self._verify_input_data(**locals_dict)
@@ -542,7 +540,7 @@ class GPTree:
             raise ValueError("Name must be only alphanumeric and underscores")
         return name
 
-    def _set_save_path(self, save_path: str | Path | None) -> Path:
+    def _set_save_path(self, save_path: str | PathLike[str] | None) -> Path:
         if save_path is None:
             return (Path(os.getcwd()) / "gptrees" / self.name).resolve()
         else:
@@ -1512,7 +1510,7 @@ class GPTree:
             yield updated_node
 
     @classmethod
-    def _load(cls, path: str | Path) -> GPTree:
+    def _load(cls, path: str | PathLike[str]) -> GPTree:
         base = Path(path)
         if base.is_dir():
             tree_json_path = base / "gptree.json"
@@ -1601,7 +1599,7 @@ class GPTree:
         return inst
 
     @classmethod
-    def load(cls, path: str | Path) -> GPTree:
+    def load(cls, path: str | PathLike[str]) -> GPTree:
         """Load a GPTree from saved state.
 
         Args:
@@ -1621,7 +1619,7 @@ class GPTree:
 
     def save(
         self,
-        dir_path: str | Path | None = None,
+        dir_path: str | PathLike[str] | None = None,
         for_production: bool = False,
     ) -> None:
         """Save model config to JSON and dataframes to parquet in a directory.

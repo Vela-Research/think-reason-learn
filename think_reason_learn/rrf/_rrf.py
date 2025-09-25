@@ -13,9 +13,9 @@ import logging
 from copy import deepcopy
 from enum import StrEnum
 from importlib.util import find_spec
-
 from uuid import uuid4
 from pathlib import Path
+from os import PathLike
 import os
 
 import numpy as np
@@ -63,7 +63,26 @@ class QuestionExclusion(StrEnum):
 
 
 class RRF:
-    """Random Rule Forest."""
+    """Interpretable ensemble binary classifier.
+
+    Args:
+        qgen_llmc: LLMs to use for question generation, in priority order.
+        qanswer_llmc: LLMs to use for answering questions, in priority order.
+            If None, use qgen_llmc.
+        qgen_temperature: Sampling temperature for question generation.
+        qanswer_temperature: Sampling temperature for answering questions.
+        llm_semaphore_limit: Max concurrent LLM calls.
+        answer_similarity_func: Function to use for answer similarity.
+        max_generated_questions: Maximum number of questions to generate. Max 1000
+        max_samples_as_context: Number of samples used as context in a round
+            of question generation. max 100 Max 100
+        class_ratio: Ratio of YES to NO samples to use as context in a round
+            of question generation.
+        q_answer_update_interval: Logging interval of question answering.
+        save_path: Directory to save checkpoints/models.
+        name: Name of the forest instance.
+        random_state: Random seed.
+    """
 
     def __init__(
         self,
@@ -77,30 +96,10 @@ class RRF:
         max_samples_as_context: int = 30,
         class_ratio: Tuple[float, float] = (1.0, 1.0),
         q_answer_update_interval: int = 10,
-        save_path: str | Path | None = None,
+        save_path: str | PathLike[str] | None = None,
         name: str | None = None,
         random_state: int = 42,
     ):
-        """Interpretable ensemble binary classifier.
-
-        Args:
-            qgen_llmc: LLMs to use for question generation, in priority order.
-            qanswer_llmc: LLMs to use for answering questions, in priority order.
-                If None, use qgen_llmc.
-            qgen_temperature: Sampling temperature for question generation.
-            qanswer_temperature: Sampling temperature for answering questions.
-            llm_semaphore_limit: Max concurrent LLM calls.
-            answer_similarity_func: Function to use for answer similarity.
-            max_generated_questions: Maximum number of questions to generate. Max 1000
-            max_samples_as_context: Number of samples used as context in a round
-                of question generation. max 100 Max 100
-            class_ratio: Ratio of YES to NO samples to use as context in a round
-                of question generation.
-            q_answer_update_interval: Logging interval of question answering.
-            save_path: Directory to save checkpoints/models.
-            name: Name of the forest instance.
-            random_state: Random seed.
-        """
         locals_dict = deepcopy(locals())
         del locals_dict["self"]
         self._verify_input_data(**locals_dict)
@@ -181,7 +180,7 @@ class RRF:
             raise ValueError("Name must be only alphanumeric and underscores")
         return name
 
-    def _set_save_path(self, save_path: str | Path | None) -> Path:
+    def _set_save_path(self, save_path: str | PathLike[str] | None) -> Path:
         if save_path is None:
             return (Path(os.getcwd()) / "rrfs" / self.name).resolve()
         else:
@@ -1137,7 +1136,7 @@ class RRF:
 
     def save(
         self,
-        dir_path: str | Path | None = None,
+        dir_path: str | PathLike[str] | None = None,
         for_production: bool = False,
     ) -> None:
         """Save model config to JSON and dataframes to parquet in a directory.
@@ -1213,7 +1212,7 @@ class RRF:
             f.write(orjson.dumps(manifest).decode())
 
     @classmethod
-    def _load(cls, dir_path: str | Path) -> "RRF":
+    def _load(cls, dir_path: str | PathLike[str]) -> "RRF":
         """Load an RRF saved by `save`."""
         base = Path(dir_path)
         if base.is_dir():
@@ -1287,7 +1286,7 @@ class RRF:
         return inst
 
     @classmethod
-    def load(cls, dir_path: str | Path) -> "RRF":
+    def load(cls, dir_path: str | PathLike[str]) -> "RRF":
         """Load an RRF saved by `save`."""
         try:
             return cls._load(dir_path)

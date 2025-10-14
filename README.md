@@ -75,7 +75,7 @@ X = pd.DataFrame({
     ]
 })
 
-y = np.array(["successful", "failed", "successful", "failed", "successful"])
+y = ["successful", "failed", "successful", "failed", "successful"]
 
 async def main():
     tree = GPTree(

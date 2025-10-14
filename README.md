@@ -1,7 +1,13 @@
-# Think Reason Learn 🌲  
+# Think Reason Learn   
 [Website](https://thinkreasonlearn.com/) · [Docs](https://thinkreasonlearn.com/modules.html)  
 
-Think Reason Learn is an innovative, open-source Python library that fuses the power of large language models (LLMs) with interpretable machine learning. Developed at Vela Research in collaboration with Oxford University, it provides production-grade tools for building transparent decision-making systems—perfect for high-stakes domains like venture capital, healthcare, and law.
+TRL is an open-source Python library that extends traditional machine learning with language-based reasoning.
+It re-implements core algorithms such as decision trees and random forests so that each step of the model can call on an LLM as a reasoning function instead of a static heuristic.
+
+The goal is to keep the structure and interpretability of classical ML while giving models the context understanding and generalization of LLMs.
+You can think of it as scikit-learn with reasoning built in.
+
+TRL is developed by Vela Research in collaboration with the University of Oxford. Our first applications are in venture capital, where explainable, high-stakes predictions matter but the framework is domain-agnostic. It can be used for any decision-making system, including law, healthcare, finance, and customer support.
 
 ## Key Features
 

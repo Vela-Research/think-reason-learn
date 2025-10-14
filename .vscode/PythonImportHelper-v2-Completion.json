@@ -1854,7 +1854,7 @@
         "kind": 5,
         "importPath": "docs.source.conf",
         "description": "docs.source.conf",
-        "peekOfCode": "html_theme = \"pydata_sphinx_theme\"\nhtml_static_path = [\"_static\"]\nhtml_css_files = [\"custom.css\"]\n# Custom JavaScript to make external links open in new tabs\nhtml_js_files = [\n    \"external_links.js\",\n]\nhtml_title = \"Think Reason Learn\"\nhtml_short_title = \"TRL\"\nhtml_theme_options = {",
+        "peekOfCode": "html_theme = \"pydata_sphinx_theme\"\nhtml_static_path = [\"_static\"]\nhtml_css_files = [\"custom.css\"]\n# Custom JavaScript to make external links open in new tabs\nhtml_js_files = [\n    \"external_links.js\",\n    \"api-detection.js\",\n]\nhtml_title = \"Think Reason Learn\"\nhtml_short_title = \"TRL\"",
         "detail": "docs.source.conf",
         "documentation": {}
     },
@@ -1863,7 +1863,7 @@
         "kind": 5,
         "importPath": "docs.source.conf",
         "description": "docs.source.conf",
-        "peekOfCode": "html_static_path = [\"_static\"]\nhtml_css_files = [\"custom.css\"]\n# Custom JavaScript to make external links open in new tabs\nhtml_js_files = [\n    \"external_links.js\",\n]\nhtml_title = \"Think Reason Learn\"\nhtml_short_title = \"TRL\"\nhtml_theme_options = {\n    \"logo\": {",
+        "peekOfCode": "html_static_path = [\"_static\"]\nhtml_css_files = [\"custom.css\"]\n# Custom JavaScript to make external links open in new tabs\nhtml_js_files = [\n    \"external_links.js\",\n    \"api-detection.js\",\n]\nhtml_title = \"Think Reason Learn\"\nhtml_short_title = \"TRL\"\nhtml_theme_options = {",
         "detail": "docs.source.conf",
         "documentation": {}
     },
@@ -1872,7 +1872,7 @@
         "kind": 5,
         "importPath": "docs.source.conf",
         "description": "docs.source.conf",
-        "peekOfCode": "html_css_files = [\"custom.css\"]\n# Custom JavaScript to make external links open in new tabs\nhtml_js_files = [\n    \"external_links.js\",\n]\nhtml_title = \"Think Reason Learn\"\nhtml_short_title = \"TRL\"\nhtml_theme_options = {\n    \"logo\": {\n        \"image_light\": \"_static/logo-light.png\",",
+        "peekOfCode": "html_css_files = [\"custom.css\"]\n# Custom JavaScript to make external links open in new tabs\nhtml_js_files = [\n    \"external_links.js\",\n    \"api-detection.js\",\n]\nhtml_title = \"Think Reason Learn\"\nhtml_short_title = \"TRL\"\nhtml_theme_options = {\n    \"logo\": {",
         "detail": "docs.source.conf",
         "documentation": {}
     },
@@ -1881,7 +1881,7 @@
         "kind": 5,
         "importPath": "docs.source.conf",
         "description": "docs.source.conf",
-        "peekOfCode": "html_js_files = [\n    \"external_links.js\",\n]\nhtml_title = \"Think Reason Learn\"\nhtml_short_title = \"TRL\"\nhtml_theme_options = {\n    \"logo\": {\n        \"image_light\": \"_static/logo-light.png\",\n        \"image_dark\": \"_static/logo-dark.png\",\n        \"alt_text\": \"Think Reason Learn\",",
+        "peekOfCode": "html_js_files = [\n    \"external_links.js\",\n    \"api-detection.js\",\n]\nhtml_title = \"Think Reason Learn\"\nhtml_short_title = \"TRL\"\nhtml_theme_options = {\n    \"logo\": {\n        \"image_light\": \"_static/logo-light.png\",\n        \"image_dark\": \"_static/logo-dark.png\",",
         "detail": "docs.source.conf",
         "documentation": {}
     },

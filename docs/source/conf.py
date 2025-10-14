@@ -100,6 +100,7 @@ nitpick_ignore = [
     ("py:class", "TypeAliasForwardRef"),
     ("py:class", "LLMChoiceModel"),
     ("py:class", "asyncio.locks.Lock"),
+    ("py:data", "typing.Union"),
 ]
 
 nitpick_ignore_regex = [

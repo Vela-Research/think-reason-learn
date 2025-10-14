@@ -71,7 +71,7 @@ class PolicyInduction:
         llm_semaphore_limit: int = 3,
         max_policy_length: int = 200,
         class_ratio: Tuple[float, float] = (1.0, 1.0),
-        max_samples_as_context: int = 3,
+        max_samples_as_context: int = 10,
         p_predict_update_interval: int = 10,
         save_path: str | PathLike[str] | None = None,
         name: str | None = None,
@@ -619,6 +619,9 @@ class PolicyInduction:
 
         self._policy_memory = temp_memory
 
+    def _set_weight(self) -> None:
+        pass
+
     async def _build_PolicyInduction(self) -> None:
         X = self._X
         y = self._y
@@ -632,9 +635,9 @@ class PolicyInduction:
 
         logger.info("Scoring Policies")
         await self._score_policies()
-        #
-        # logger.info("Setting policy weight")
-        # self._set_weight()
+
+        logger.info("Setting policy weight")
+        self._set_weight()
 
     async def fit(
         self,

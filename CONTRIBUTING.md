@@ -1,6 +1,6 @@
 # Contributing to Think Reason Learn
 
-Thank you for considering contributing to think-reason-learn! We welcome contributions from the community to help improve this open-source library.
+Thank you for your interest in contributing to think-reason-learn! We welcome and appreciate community efforts to improve this open-source library.
 
 ## How to Contribute
 

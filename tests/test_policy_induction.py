@@ -1,11 +1,13 @@
 """Tests for PolicyInduction."""
 
+import logging
 import pytest
 import pandas as pd
 import numpy as np
 from think_reason_learn.policy_induction import PolicyInduction
 from think_reason_learn.core.llms import GoogleChoice, OpenAIChoice
 
+logging.getLogger("google_genai").setLevel(logging.WARNING)
 
 X = pd.DataFrame(
     {
@@ -24,7 +26,6 @@ X = pd.DataFrame(
     }
 )
 
-# TODO: Array not Sequence
 y = np.array(["YES", "NO", "YES", "NO", "YES"]).tolist()
 
 
@@ -49,5 +50,12 @@ async def test_general():
     print(qgit)
 
     fitter = await policies.fit(X, y, reset=True)
+
+    df = pd.DataFrame()
+    async for sample_index, results, final_answer, token_counter in fitter.predict(X):
+        print(f"Sample {sample_index}, Predict: {final_answer}")
+        df[sample_index] = results
     print(fitter.get_memory())
+    print("predictions")
+    print(df)
     return fitter

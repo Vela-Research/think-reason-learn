@@ -1,13 +1,9 @@
-"""Tests for PolicyInduction."""
-
-import logging
+# """Tests for PolicyInduction."""
 import pytest
 import pandas as pd
 import numpy as np
 from think_reason_learn.policy_induction import PolicyInduction
 from think_reason_learn.core.llms import GoogleChoice, OpenAIChoice
-
-logging.getLogger("google_genai").setLevel(logging.WARNING)
 
 X = pd.DataFrame(
     {
@@ -28,11 +24,12 @@ X = pd.DataFrame(
 
 y = np.array(["YES", "NO", "YES", "NO", "YES"]).tolist()
 
+sav_dir = "policy_induction"
 
 @pytest.mark.asyncio
 async def test_general():
     """Test the PolicyInduction general workflow."""
-    policies = PolicyInduction(
+    pi = PolicyInduction(
         gen_llmc=[
             GoogleChoice(model="gemini-2.5-flash"),
             OpenAIChoice(model="gpt-4o-mini"),
@@ -43,19 +40,30 @@ async def test_general():
         ],
     )
 
-    qgit = await policies.set_task(
+    pgit = await pi.set_task(
         task_description="Predict if a startup founder will be successful "
         "or fail based on their background.",
     )
-    print(qgit)
+    print(pgit)
 
-    fitter = await policies.fit(X, y, reset=True)
+    pi = await pi.fit(X, y, reset=True)
 
     df = pd.DataFrame()
-    async for sample_index, results, final_answer, token_counter in fitter.predict(X):
+    async for sample_index, results, final_answer, token_counter in pi.predict(X):
         print(f"Sample {sample_index}, Predict: {final_answer}")
         df[sample_index] = results
-    print(fitter.get_memory())
+    print(pi.get_memory())
     print("predictions")
     print(df)
-    return fitter
+    pi.save(sav_dir)
+    return pi
+
+
+# @pytest.mark.asyncio
+# async def test_load_and_predict():
+#     pi = PolicyInduction.load(sav_dir)
+#     async for idx, policy_vector, answer, token_counter in pi.predict(X):
+#         print(idx, answer)
+#     return pi
+
+

@@ -27,7 +27,7 @@ details from this example
 across different startups
 3. Focus on transferable insights: Identify underlying success 
 factors that apply beyond this specific case
-4. Maintain conciseness: Keep policies clear and actionable (max 20 items)
+4. Maintain conciseness: Keep policies clear and actionable
 5. Avoid overfitting: Don't create policies that are too specific 
 to this single example
 6. Do not exceeding {max_policy_num_tag} rows.
@@ -37,9 +37,9 @@ what the policy generator should consider and how it should approach
 refinement, without prescribing exact rules or data features to focus on.
 - Your task is to produce only the **prompt template** that guides the 
 policy-generator LLM in this refinement process.
-- Ensure the template you produce includes the placeholder {max_policy_num_tag},
-  which represents the maximum allowed policy length and will be 
-  dynamically substituted later.
+- Ensure the template you produce includes the placeholder {max_policy_num_tag} 
+(not any exact number), which represents the maximum allowed policy length and 
+will be dynamically substituted later.
 
 Return:
 - Only the text of the prompt/instructions template that will be sent to the

@@ -240,8 +240,9 @@ class PolicyInduction:
             raise ValueError("Name must be only alphanumeric and underscores")
         return name
 
-    def _validate_config(self, cfg: Union[None, 
-                    WeightTrainerConfig, Dict]) -> WeightTrainerConfig:
+    def _validate_config(
+        self, cfg: Union[None, WeightTrainerConfig, Dict]
+    ) -> WeightTrainerConfig:
         """Validate or create a WeightTrainerConfig object."""
         if cfg is None:
             return WeightTrainerConfig()
@@ -254,8 +255,8 @@ class PolicyInduction:
                 config = WeightTrainerConfig(**cfg)
             except TypeError as e:
                 raise ValueError(
-                    f"Invalid config keys in dict: {e}. "\
-                    f"Expected fields:" 
+                    f"Invalid config keys in dict: {e}. "
+                    f"Expected fields:"
                     f"{list(WeightTrainerConfig.__annotations__.keys())}"
                 )
 
@@ -271,7 +272,7 @@ class PolicyInduction:
             return config
 
         raise ValueError(
-            f"config must be a WeightTrainerConfig, dict, "\
+            f"config must be a WeightTrainerConfig, dict, "
             f"or None, but got {type(cfg).__name__}"
         )
 
@@ -732,8 +733,9 @@ class PolicyInduction:
         required = {"policy", "predictions"}
         missing = required - set(pm.columns)
         if missing:
-            raise ValueError(f"Invalid _policy_memory: "\
-                             f"missing columns {sorted(missing)}")
+            raise ValueError(
+                f"Invalid _policy_memory: " f"missing columns {sorted(missing)}"
+            )
 
         pm = pm.copy()
         is_policy_str = pm["policy"].apply(lambda x: isinstance(x, str))
@@ -742,13 +744,12 @@ class PolicyInduction:
             is_pred_series = pm["predictions"].apply(lambda x: isinstance(x, pd.Series))
             pm = pm[is_policy_str & is_pred_series]
         else:
-            pm = pm[is_policy_str] 
+            pm = pm[is_policy_str]
 
         if len(pm) == 0:
             raise ValueError("Invalid _policy_memory: empty after filtering")
 
-        self._policy_memory = pm # type: ignore
-
+        self._policy_memory = pm  # type: ignore
 
     def _build_feature_matrix(
         self,
@@ -1102,7 +1103,6 @@ class PolicyInduction:
                 if not task.done():
                     task.cancel()
 
-
     async def add_policy(self, policy: str) -> Literal[True]:
         """Add a new policy to the PolicyInduction.
 
@@ -1123,7 +1123,6 @@ class PolicyInduction:
         logger.info("Setting policy weight")
         self._fit_weights()
         return True
-    
 
     def save(
         self,
@@ -1137,7 +1136,7 @@ class PolicyInduction:
         - policy_induction.json      (manifest/config/state)
         - data.parquet               (X + y; only when not for_production)
         - policies.parquet           (policy_id, policy)
-        - policy_predictions.parquet (long-form: sample_index, policy_id, pred; 
+        - policy_predictions.parquet (long-form: sample_index, policy_id, pred;
                                         only when not for_production)
         - lr.joblib                  (trained LogisticRegression, if available)
         """
@@ -1216,7 +1215,7 @@ class PolicyInduction:
             "threshold": self._threshold,
             "validation_result": self._validation_result,
             "feature_order": (
-                getattr(self, "_feature_order_", None).tolist() #type: ignore
+                getattr(self, "_feature_order_", None).tolist()  # type: ignore
                 if hasattr(self, "_feature_order_") and self._feature_order_ is not None
                 else None
             ),
@@ -1227,7 +1226,6 @@ class PolicyInduction:
         }
         with (base / "policy_induction.json").open("wb") as f:
             f.write(orjson.dumps(manifest, option=orjson.OPT_SERIALIZE_NUMPY))
-
 
     @classmethod
     def _load(cls, dir_path: str | PathLike[str]) -> "PolicyInduction":
@@ -1241,8 +1239,9 @@ class PolicyInduction:
 
         manifest_path = base / "policy_induction.json"
         if not manifest_path.exists():
-            raise FileNotFoundError("'policy_induction.json' " \
-                                    f"not found in directory: {base}")
+            raise FileNotFoundError(
+                "'policy_induction.json' " f"not found in directory: {base}"
+            )
 
         with manifest_path.open("rb") as f:
             manifest = orjson.loads(f.read())
@@ -1266,8 +1265,8 @@ class PolicyInduction:
 
         # Restore runtime attributes
         inst._task_description = manifest.get("task_description")
-        inst._pgen_instructions_template = (
-            manifest.get("policy_gen_instructions_template")
+        inst._pgen_instructions_template = manifest.get(
+            "policy_gen_instructions_template"
         )
         tk_dict = manifest.get("token_counter")
         if tk_dict:
@@ -1282,8 +1281,8 @@ class PolicyInduction:
         feature_order = manifest.get("feature_order")
         if feature_order is not None:
             inst._feature_order_ = np.array(feature_order, dtype=str)
-            inst._n_features_ = (
-                int(manifest.get("n_features", len(inst._feature_order_)))
+            inst._n_features_ = int(
+                manifest.get("n_features", len(inst._feature_order_))
             )
             inst._policy_pos_ = {name: i for i, name in enumerate(inst._feature_order_)}
 
@@ -1315,11 +1314,11 @@ class PolicyInduction:
                 "policy": p_df["policy"],
                 "predictions": pd.Series(
                     [None] * len(p_df), index=p_df.index, dtype=object
-                )
+                ),
             }
         )
 
-        # Load cached policy predictions for training set 
+        # Load cached policy predictions for training set
         preds_path = base / "policy_predictions.parquet"
         if preds_path.exists() and inst._X is not None:
             pp = pd.read_parquet(preds_path)  # type: ignore
@@ -1332,9 +1331,7 @@ class PolicyInduction:
             pp["policy_id"] = pp["policy_id"].astype(str)
             for pid, g in pp.groupby("policy_id"):
                 s = pd.Series(
-                    g["pred"].values, 
-                    index=g["sample_index"].values, 
-                    dtype="object"
+                    g["pred"].values, index=g["sample_index"].values, dtype="object"
                 )
                 s = s.reindex(inst._X.index)  # align to training index
                 if pid in inst._policy_memory.index:
@@ -1348,7 +1345,6 @@ class PolicyInduction:
                 inst._lr = joblib_load(model_path)
 
         return inst
-
 
     @classmethod
     def load(cls, dir_path: str | PathLike[str]) -> "PolicyInduction":
@@ -1367,5 +1363,3 @@ class PolicyInduction:
 
     def __str__(self) -> str:
         return f"PolicyInduction(name={self.name})"
-    
-        

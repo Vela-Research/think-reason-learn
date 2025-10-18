@@ -47,7 +47,8 @@ Thumbs.db
 
 # Custom
 llm_context.md
-
+poetry.toml
+lab.py
 lab.ipynb
 .env
 gptrees

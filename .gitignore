@@ -52,5 +52,6 @@ lab.py
 lab.ipynb
 .env
 gptrees
+experiment_vcbench/*
 examples/*
 !examples/**/*.ipynb

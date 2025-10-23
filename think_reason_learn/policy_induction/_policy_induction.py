@@ -415,8 +415,6 @@ class PolicyInduction:
             self._X = X.reset_index(drop=True)  # type: ignore
             self._y = y_array
 
-        self._policy_memory = self._set_initial_memory_df()
-
     def _get_policy_gen_instructions(self):
         if not self._pgen_instructions_template:
             raise ValueError(
@@ -482,6 +480,14 @@ class PolicyInduction:
     async def _generate_policies(self) -> None:
         if self._X is None:
             raise ValueError("X must be set")
+
+        if len(self._policy_memory) > 0:
+            logger.info(
+                f"Skip generate policy: Policy memory already exists with "
+                f"{len(self._policy_memory)} records.\n"
+                f"{self._policy_memory}"
+            )
+            return
 
         instructions = self._get_policy_gen_instructions()
         all_policies: List[str] = []
@@ -719,6 +725,10 @@ class PolicyInduction:
                         f"Scored {completions} policies out of {num_not_scored}"
                     )
 
+                for idx, pred in predictions_buffer.items():
+                    temp_memory.at[idx, "predictions"] = pred
+                self._policy_memory = temp_memory
+
         for idx, pred in predictions_buffer.items():
             temp_memory.at[idx, "predictions"] = pred
 
@@ -899,7 +909,7 @@ class PolicyInduction:
             X: Training features. Required on first run or with reset=True.
             y: Training labels. Required on first run or with reset=True.
             copy_data: Whether to copy input data.
-            reset: Clear existing state and restart forest generation.
+            reset: Clear existing state and restart policy generation.
 
         Returns:
             Self: Updated PolicyInduction.
@@ -911,15 +921,10 @@ class PolicyInduction:
             if X is None or y is None:
                 raise ValueError("reset=True requires X and y")
             self._set_data(X, y, copy_data)
+            self._policy_memory = self._set_initial_memory_df()
 
         else:
             if X is not None or y is not None:
-                if self._X is not None or self._y is not None:
-                    raise ValueError(
-                        "Data already set on PolicyInduction. "
-                        "Explicitly pass reset=True "
-                        "to replace data and restart training."
-                    )
                 if X is None or y is None:
                     raise ValueError("Both X and y must be provided together")
                 self._set_data(X, y, copy_data)

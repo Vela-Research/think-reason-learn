@@ -558,7 +558,7 @@ class PolicyInduction:
                 continue
 
             if isinstance(val, pd.Series):
-                if len(val) != expected_rows:
+                if len(val) != expected_rows or val.isnull().any():
                     temp_memory.at[idx, "predictions"] = None
             else:
                 temp_memory.at[idx, "predictions"] = None
@@ -735,7 +735,6 @@ class PolicyInduction:
         self._policy_memory = temp_memory
 
     def _check_memory(self, require_predictions: bool = False) -> None:
-        self._fix_memory_prediction()
         pm = self._policy_memory
         if pm is None or not isinstance(pm, pd.DataFrame):
             raise ValueError("Invalid _policy_memory: not a pandas DataFrame")
@@ -1062,11 +1061,15 @@ class PolicyInduction:
             samples: Samples to predict.
 
         Returns:
-            Generator of predictions[sample_index, question, answer, token_counter]
+            Generator of predictions [sample_index, question, answer, token_counter]
 
         Raises:
             ValueError: If samples is empty or does not have the correct column.
         """
+        logger.info(
+            f"Predicting {len(samples)} samples with max "
+            f"{self.llm_semaphore_limit} concurrent workers"
+        )
         self._check_memory()
 
         queue: asyncio.Queue[
@@ -1075,7 +1078,11 @@ class PolicyInduction:
 
         token_counter = TokenCounter()
 
+        sample_semaphore = asyncio.Semaphore(self.llm_semaphore_limit)
+
         async def worker(sample_index: Any, sample: str) -> None:
+            """Worker task to process a single sample, respecting concurrency limit."""
+            await sample_semaphore.acquire()
             try:
                 rec = await self._predict_single(
                     sample_index=sample_index,
@@ -1085,6 +1092,7 @@ class PolicyInduction:
                 await queue.put(rec)
             finally:
                 await queue.put("DONE")
+                sample_semaphore.release()
 
         tasks: List[asyncio.Task[None]] = []
         try:
@@ -1313,7 +1321,6 @@ class PolicyInduction:
         p_df["policy_id"] = p_df["policy_id"].astype(str)
         p_df = p_df.set_index("policy_id")
 
-        # Rebuild _policy_memory skeleton; fill predictions later if available
         inst._policy_memory = pd.DataFrame(
             {
                 "policy": p_df["policy"],

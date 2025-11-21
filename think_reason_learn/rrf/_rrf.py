@@ -82,6 +82,9 @@ class RRF:
         save_path: Directory to save checkpoints/models.
         name: Name of the forest instance.
         random_state: Random seed.
+        qanswer_batch_size: Maximum number of samples to answer in a single LLM call.
+            If None or 1, batching is disabled and the original per-sample behaviour
+            is used (one LLM call per sample). Set >1 to enable true batched answering.
     """
 
     def __init__(
@@ -99,6 +102,7 @@ class RRF:
         save_path: str | PathLike[str] | None = None,
         name: str | None = None,
         random_state: int = 42,
+        qanswer_batch_size: int | None = None,
     ):
         locals_dict = deepcopy(locals())
         del locals_dict["self"]
@@ -117,6 +121,7 @@ class RRF:
         self.save_path: Path = self._set_save_path(save_path)
         self.q_answer_update_interval = q_answer_update_interval
         self.random_state = random_state
+        self.qanswer_batch_size = qanswer_batch_size
 
         self._token_counter: TokenCounter = TokenCounter()
 
@@ -170,6 +175,9 @@ class RRF:
         val = kwargs["answer_similarity_func"]
         if val not in ["hamming", "jaccard"]:
             raise ValueError("answer_similarity_func must be 'hamming' or 'jaccard'")
+        val = kwargs["qanswer_batch_size"]
+        if not (val is None or (isinstance(val, int) and val > 0)):
+            raise ValueError("qanswer_batch_size must be None or a positive integer")
 
     def _get_name(self, name: str | None) -> str:
         if name is None:
@@ -683,6 +691,140 @@ class RRF:
                 exc_info=True,
             )
 
+    async def _answer_questions_batch(
+        self,
+        question_id: str,
+        question: str,
+        samples: list[tuple[Any, str]],
+        token_counter: TokenCounter,
+    ) -> list[tuple[Any, str, str]]:
+        """Answer the same question for multiple samples with a single LLM call.
+
+        Args:
+            question_id: The ID of the question being answered.
+            question: The question text.
+            samples: A list of (sample_index, sample_str) pairs.
+            token_counter: Token counter to update with this LLM call.
+
+        Returns:
+            A list of (sample_index, question_id, label) tuples, where label is
+            'YES' or 'NO' for each successfully answered sample.
+        """
+        if not samples:
+            return []
+
+        # Build a batched prompt: one question, multiple samples with indices 0..N-1.
+        samples_text_parts: list[str] = []
+        for idx, (_sample_index, sample_str) in enumerate(samples):
+            samples_text_parts.append(f"Sample {idx}:\n{sample_str}")
+        samples_block = "\n\n".join(samples_text_parts)
+
+        query = (
+            "You are a VC analyst evaluating multiple founders.\n"
+            "You will be given a binary yes/no question and several samples.\n"
+            "For each sample, decide whether the question applies to that sample.\n\n"
+            "Return ONLY a JSON list. Each element must be of the form:\n"
+            '{"sample_index": <int>, "answer": "YES" or "NO"}.\n'
+            "Use 0-based sample_index corresponding to the 'Sample <index>' labels.\n"
+            "Do not include any extra keys or any prose outside the JSON.\n\n"
+            f"Question:\n{question}\n\n"
+            f"Samples:\n{samples_block}"
+        )
+
+        try:
+            async with self._llm_semaphore:
+                response = await llm.respond(
+                    llm_priority=self.qanswer_llmc,
+                    query=query,
+                    instructions=QUESTION_ANSWER_INSTRUCTIONS,
+                    response_format=str,
+                    temperature=self.qanswer_temperature,
+                )
+
+            await token_counter.append(
+                provider=response.provider_model.provider,
+                model=response.provider_model.model,
+                value=response.total_tokens,
+                caller="RRF._answer_questions_batch",
+            )
+
+            raw = response.response
+            if raw is None:
+                raise LLMError("No response from LLM in batched mode")
+
+            # Strip possible markdown fences
+            cleaned = raw.strip()
+            if cleaned.startswith("```"):
+                # e.g. ```json\n...\n```
+                cleaned = cleaned.strip("`")
+                # After stripping backticks, sometimes a leading 'json' remains
+                cleaned = cleaned.lstrip("json").strip()
+
+            try:
+                parsed = orjson.loads(cleaned)
+            except Exception:
+                logger.warning(
+                    "Failed to parse batched JSON response for question '%s': %r",
+                    question_id,
+                    raw,
+                    exc_info=True,
+                )
+                return []
+
+            if not isinstance(parsed, list):
+                logger.warning(
+                    "Batched JSON response for question '%s' is not a list: %r",
+                    question_id,
+                    parsed,
+                )
+                return []
+
+            idx_to_label: dict[int, str] = {}
+            for item in parsed:
+                if not isinstance(item, dict):
+                    continue
+                idx = item.get("sample_index")
+                ans = item.get("answer") or item.get("Answer")
+                if not isinstance(idx, int) or not isinstance(ans, str):
+                    continue
+                token = ans.strip().split()[0].strip(".,;:! ").upper()
+                if token in ("YES", "NO"):
+                    idx_to_label[idx] = token
+
+            results: list[tuple[Any, str, str]] = []
+            for idx, (sample_index, _sample_str) in enumerate(samples):
+                label = idx_to_label.get(idx)
+                if label is None:
+                    continue
+                results.append((sample_index, question_id, label))
+
+            if len(results) != len(samples):
+                logger.warning(
+                    "Batched answer coverage mismatch for question '%s': "
+                    "expected %d samples, got labels for %d",
+                    question_id,
+                    len(samples),
+                    len(results),
+                )
+
+            logger.debug(
+                "Answered question '%s' for %d/%d samples in a single batch call.",
+                question_id,
+                len(results),
+                len(samples),
+            )
+
+            return results
+
+        except Exception:
+            logger.warning(
+                "Error answering batched question '%s' for %d samples",
+                question_id,
+                len(samples),
+                exc_info=True,
+            )
+            return []
+
     def _update_answers_df_columns(self) -> None:
         """Ensure all non excluded questions are in the answers dataframe."""
         not_excluded_df = cast(
@@ -717,72 +859,201 @@ class RRF:
 
         mask = self._answers.isna().stack()
         not_answered = cast(Iterable[Tuple[int, str]], mask[mask].index)  # type: ignore
-        num_not_answered = not_answered.size  # type: ignore
 
         # Buffered updates: per-question updates applied in batches
+        # (for both single-sample and batched modes)
         answers_buffer: Dict[str, Dict[Any, str]] = {}
 
-        completion_queue: asyncio.Queue[None] = asyncio.Queue()
-
-        async def worker(sample_index: Any, question_id: str) -> None:
-            try:
-                qdf = self._questions
-                xdf = self._X
-                question = cast(str, qdf.at[question_id, "question"])  # type: ignore
-                sample = cast(str, xdf.iloc[sample_index])  # type: ignore
-                sample_str = "\n".join(
-                    [f"{col}: {val}" for col, val in sample.items()]  # type: ignore
-                )
-                result = await self._answer_single_question(
-                    sample_index=sample_index,
-                    sample=sample_str,
-                    question_id=question_id,
-                    question=question,
-                    token_counter=self._token_counter,
-                )
-                if result is not None:
-                    sidx, qid, answer = result
-                    bucket = answers_buffer.get(qid)
-                    if bucket is None:
-                        bucket = {}
-                        answers_buffer[qid] = bucket
-                    bucket[sidx] = answer.answer.upper()
-            except asyncio.CancelledError:
-                pass
-            except Exception:
-                logger.warning("Error in RRF worker answering question", exc_info=True)
-            finally:
-                completion_queue.put_nowait(None)
-
-        not_answered_iter = iter(not_answered)
-        in_flight = 0
-        completions = 0
-
         try:
-            async with asyncio.TaskGroup() as tg:
-                for _ in range(self.llm_semaphore_limit):
-                    try:
-                        sidx, qid = next(not_answered_iter)
-                    except StopIteration:
-                        break
-                    tg.create_task(worker(sidx, qid))
-                    in_flight += 1
+            # ------------------------------------------------------------------
+            # 1) Backwards-compatible path: no batching (or batch_size == 1)
+            #    -> behaves exactly like the original implementation.
+            # ------------------------------------------------------------------
+            if self.qanswer_batch_size is None or self.qanswer_batch_size == 1:
+                num_not_answered = not_answered.size  # type: ignore
+                single_completion_queue: asyncio.Queue[None] = asyncio.Queue()
 
-                while in_flight > 0:
-                    await completion_queue.get()
-                    in_flight -= 1
-                    completions += 1
-                    if completions % self.q_answer_update_interval == 0:
-                        logger.info(
-                            f"Answered {completions} questions out "
-                            f"of {num_not_answered}"
-                        )
+                async def worker_single(sample_index: Any, question_id: str) -> None:
                     try:
-                        sidx, qid = next(not_answered_iter)
-                    except StopIteration:
-                        continue
-                    tg.create_task(worker(sidx, qid))
-                    in_flight += 1
+                        qdf = self._questions
+                        xdf = self._X
+                        question = cast(str, qdf.at[question_id, "question"])  # type: ignore
+                        sample = cast(str, xdf.iloc[sample_index])  # type: ignore
+                        sample_str = "\n".join(
+                            [f"{col}: {val}" for col, val in sample.items()]  # type: ignore
+                        )
+                        result = await self._answer_single_question(
+                            sample_index=sample_index,
+                            sample=sample_str,
+                            question_id=question_id,
+                            question=question,
+                            token_counter=self._token_counter,
+                        )
+                        if result is not None:
+                            sidx, qid, answer = result
+                            bucket = answers_buffer.get(qid)
+                            if bucket is None:
+                                bucket = {}
+                                answers_buffer[qid] = bucket
+                            bucket[sidx] = answer.answer.upper()
+                    except asyncio.CancelledError:
+                        pass
+                    except Exception:
+                        logger.warning(
+                            "Error in RRF worker answering question",
+                            exc_info=True,
+                        )
+                    finally:
+                        single_completion_queue.put_nowait(None)
+
+                not_answered_iter = iter(not_answered)
+                in_flight = 0
+                completions = 0
+
+                async with asyncio.TaskGroup() as tg:
+                    # Kick off up to llm_semaphore_limit initial tasks
+                    for _ in range(self.llm_semaphore_limit):
+                        try:
+                            sidx, qid = next(not_answered_iter)
+                        except StopIteration:
+                            break
+                        tg.create_task(worker_single(sidx, qid))
+                        in_flight += 1
+
+                    while in_flight > 0:
+                        await single_completion_queue.get()
+                        in_flight -= 1
+                        completions += 1
+
+                        if completions % self.q_answer_update_interval == 0:
+                            logger.info(
+                                "Answered %d questions out of %d",
+                                completions,
+                                num_not_answered,
+                            )
+
+                        try:
+                            sidx, qid = next(not_answered_iter)
+                        except StopIteration:
+                            continue
+                        tg.create_task(worker_single(sidx, qid))
+                        in_flight += 1
+
+            # ------------------------------------------------------------------
+            # 2) Batched path: qanswer_batch_size > 1
+            #    -> group by question and answer samples in batches per question.
+            # ------------------------------------------------------------------
+            else:
+                logger.info(
+                    "[BATCH] Using batched answering (batch_size=%s)",
+                    self.qanswer_batch_size,
+                )
+                batch_size = cast(int, self.qanswer_batch_size)
+
+                # Group unanswered pairs by question, so we can batch per question
+                pending_by_question: Dict[str, List[int]] = {}
+                for sidx, qid in not_answered:
+                    pending_by_question.setdefault(qid, []).append(sidx)
+
+                # Total number of unanswered (sample, question) pairs for logging
+                num_not_answered = sum(
+                    len(sidxs) for sidxs in pending_by_question.values()
+                )
+
+                # Count how many (sample, question) pairs each worker answers
+                batch_completion_queue: asyncio.Queue[int] = asyncio.Queue()
+
+                async def worker_batch(
+                    question_id: str, sample_indices: List[int]
+                ) -> None:
+                    """Answer one question for a batch of samples."""
+                    results_count = 0
+                    try:
+                        qdf = self._questions
+                        xdf = self._X
+
+                        question = cast(str, qdf.at[question_id, "question"])  # type: ignore
+
+                        # Build (sample_index, sample_str) list for this batch
+                        samples_for_batch: list[tuple[Any, str]] = []
+                        for sidx in sample_indices:
+                            sample = cast(str, xdf.iloc[sidx])  # type: ignore
+                            sample_str = "\n".join(
+                                [f"{col}: {val}" for col, val in sample.items()]  # type: ignore
+                            )
+                            samples_for_batch.append((sidx, sample_str))
+
+                        # Use the batched LLM call (one call per question+batch)
+                        results = await self._answer_questions_batch(
+                            question_id=question_id,
+                            question=question,
+                            samples=samples_for_batch,
+                            token_counter=self._token_counter,
+                        )
+
+                        results_count = len(results)
+
+                        # Buffer results as before (label string)
+                        for sidx, qid, label in results:
+                            bucket = answers_buffer.get(qid)
+                            if bucket is None:
+                                bucket = {}
+                                answers_buffer[qid] = bucket
+                            bucket[sidx] = label.upper()
+
+                    except asyncio.CancelledError:
+                        pass
+                    except Exception:
+                        logger.warning(
+                            "Error in RRF worker answering question batch",
+                            exc_info=True,
+                        )
+                    finally:
+                        # Tell the outer loop how many pairs we just answered
+                        batch_completion_queue.put_nowait(results_count)
+
+                # Build a flat list of (question_id, [sample_indices]) batches
+                batches: list[tuple[str, List[int]]] = []
+                for qid, sidxs in pending_by_question.items():
+                    for i in range(0, len(sidxs), batch_size):
+                        batches.append((qid, sidxs[i : i + batch_size]))
+
+                in_flight = 0
+                completions = 0  # number of (sample, question) pairs answered so far
+
+                async with asyncio.TaskGroup() as tg:
+                    batches_iter = iter(batches)
+
+                    # Kick off up to llm_semaphore_limit initial batch tasks
+                    for _ in range(self.llm_semaphore_limit):
+                        try:
+                            qid, batch_sidxs = next(batches_iter)
+                        except StopIteration:
+                            break
+                        tg.create_task(worker_batch(qid, batch_sidxs))
+                        in_flight += 1
+
+                    while in_flight > 0:
+                        # Each worker tells us how many pairs it answered
+                        answered_in_batch = await batch_completion_queue.get()
+                        in_flight -= 1
+                        completions += answered_in_batch
+
+                        if completions % self.q_answer_update_interval == 0:
+                            logger.info(
+                                "Answered %d questions out of %d",
+                                min(completions, num_not_answered),
+                                num_not_answered,
+                            )
+
+                        # Start a new batch task if available
+                        try:
+                            qid, batch_sidxs = next(batches_iter)
+                        except StopIteration:
+                            continue
+                        tg.create_task(worker_batch(qid, batch_sidxs))
+                        in_flight += 1
+
         finally:
             ansdf = self._answers
             for qid, mapping in answers_buffer.items():

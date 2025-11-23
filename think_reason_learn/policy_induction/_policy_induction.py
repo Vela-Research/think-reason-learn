@@ -137,7 +137,7 @@ class PolicyInduction:
         self._token_counter: TokenCounter = TokenCounter()
         self._llm_semaphore = asyncio.Semaphore(llm_semaphore_limit)  # async with
         self._pgen_instructions_template: str | None = None
-        self._task_description: str | None = None
+        self._task_description: str
 
         self._X: pd.DataFrame | None = None
         self._y: npt.NDArray[np.str_] | None = None
@@ -315,7 +315,7 @@ class PolicyInduction:
 
     async def set_task(
         self,
-        task_description: str | None = None,
+        task_description: str,
         instructions_template: str | None = None,
     ) -> str:
         """Initialize policy generation instructions template.
@@ -328,8 +328,10 @@ class PolicyInduction:
             instructions_template: Custom template to use. Must contain
                 '<max_policy_length>' tag. If None, generates template
                 from task_description using LLM.
-            task_description: Description of classification task to help LLM generate
-                the template.
+            task_description: Description of the binary classification task. 
+                This is used to help the LLM understand the classification objective, 
+                refine the induced policies, and generate an instructions_template 
+                when one is not provided.
 
         Returns:
             The policy generation instructions template.
@@ -538,12 +540,12 @@ class PolicyInduction:
             all_policies = policies.policies
             logger.info(f"Generated policies: {len(policies.policies)}")
 
-        policy_lenth = len(all_policies)
+        policy_length = len(all_policies)
 
         self._policy_memory = pd.DataFrame(
             {
                 "policy": all_policies,
-                "predictions": [None] * policy_lenth,
+                "predictions": [None] * policy_length,
             }
         )
 
@@ -773,14 +775,17 @@ class PolicyInduction:
         for idx, row in pm.iterrows():
             preds = row["predictions"]
             mapped = preds.map(  # type: ignore
-                lambda v: 1 if (v == 1 or str(v).upper() == "YES") else 0
+                lambda v: 1 if str(v).strip().lower() 
+                in {"1", "true", "yes", "y", "t"} else 0
             )
             col_name = str(idx)
             X_df[col_name] = mapped.reindex(sample_index).astype(np.float32)
             col_names.append(col_name)
 
         y_series: pd.Series = pd.Series(self._y, index=sample_index)
-        y_num = y_series.map(lambda v: 1 if (v == 1 or str(v).upper() == "YES") else 0)
+        y_num = y_series.map(lambda v: 1 if str(v).strip().lower() 
+                             in {"1", "true", "yes", "y", "t"} else 0
+                             )
 
         X_df = X_df.fillna(0.0).astype(np.float32)
 
@@ -934,7 +939,7 @@ class PolicyInduction:
             )
 
         await self._build_policyinduction()
-        logger.info("PolicyInductioin settled successfully")
+        logger.info("PolicyInduction settled successfully")
         return self
 
     def _lr_predict(self, raw: NDArray) -> Literal["YES", "NO"]:
@@ -1126,7 +1131,7 @@ class PolicyInduction:
             ValueError: If policy not str.
         """
         if not isinstance(policy, str):
-            raise ValueError(f"Policy should be str, get {type(policy)} instead")
+            raise ValueError(f"Policy should be str, got {type(policy)} instead")
 
         self._policy_memory.at[len(self._policy_memory), "policy"] = policy
 
@@ -1244,7 +1249,6 @@ class PolicyInduction:
     def _load(cls, dir_path: str | PathLike[str]) -> "PolicyInduction":
         """Load a PolicyInduction instance previously saved with `save`."""
         from joblib import load as joblib_load
-        import orjson
 
         base = Path(dir_path)
         if not base.is_dir():
@@ -1253,7 +1257,7 @@ class PolicyInduction:
         manifest_path = base / "policy_induction.json"
         if not manifest_path.exists():
             raise FileNotFoundError(
-                "'policy_induction.json' " f"not found in directory: {base}"
+                f"'policy_induction.json' not found in directory: {base}"
             )
 
         with manifest_path.open("rb") as f:

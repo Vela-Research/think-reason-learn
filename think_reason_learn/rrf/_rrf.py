@@ -82,6 +82,8 @@ class RRF:
         save_path: Directory to save checkpoints/models.
         name: Name of the forest instance.
         random_state: Random seed.
+        use_cumulative_memory: Whether to use cumulative memory when generating
+            questions across multiple LLM calls.
         qanswer_batch_size: Maximum number of samples to answer in a single LLM call.
             If None or 1, batching is disabled and the original per-sample behaviour
             is used (one LLM call per sample). Set >1 to enable true batched answering.
@@ -102,6 +104,7 @@ class RRF:
         save_path: str | PathLike[str] | None = None,
         name: str | None = None,
         random_state: int = 42,
+        use_cumulative_memory: bool = True,
         qanswer_batch_size: int | None = None,
     ):
         locals_dict = deepcopy(locals())
@@ -121,6 +124,7 @@ class RRF:
         self.save_path: Path = self._set_save_path(save_path)
         self.q_answer_update_interval = q_answer_update_interval
         self.random_state = random_state
+        self.use_cumulative_memory = use_cumulative_memory
         self.qanswer_batch_size = qanswer_batch_size
 
         self._token_counter: TokenCounter = TokenCounter()
@@ -420,7 +424,13 @@ class RRF:
                 )
                 samples_str += f"\n{sample_str};"
 
-            query = f"SAMPLES:\n{samples_str}\n\nCUMULATIVE MEMORY: {cumulative_memory}"
+            if self.use_cumulative_memory:
+                query = (
+                    f"SAMPLES:\n{samples_str}\n\n"
+                    f"CUMULATIVE MEMORY: {cumulative_memory}"
+                )
+            else:
+                query = f"SAMPLES:\n{samples_str}"
 
             async with self._llm_semaphore:
                 response = await llm.respond(
@@ -447,8 +457,9 @@ class RRF:
                     f"\n\nInstructions: {instructions[:200]}..."
                 )
             all_questions.extend(questions.questions)
-            cumulative_memory = questions.cumulative_memory
-            logger.info(f"Cumulative memory: {cumulative_memory}")
+            if self.use_cumulative_memory:
+                cumulative_memory = questions.cumulative_memory
+                logger.info(f"Cumulative memory: {cumulative_memory}")
             logger.info(f"Generated questions: {len(questions.questions)}")
 
         qlen = len(all_questions)
@@ -1478,6 +1489,7 @@ class RRF:
             if not for_production
             else None,
             "random_state": self.random_state,
+            "use_cumulative_memory": self.use_cumulative_memory,
         }
         with (base / "rrf.json").open("w", encoding="utf-8") as f:
             f.write(orjson.dumps(manifest).decode())
@@ -1516,6 +1528,7 @@ class RRF:
             random_state=manifest["random_state"],
             save_path=str(base.parent),
             name=manifest["name"],
+            use_cumulative_memory=manifest.get("use_cumulative_memory", True),
         )
 
         inst._task_description = manifest["task_description"]

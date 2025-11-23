@@ -328,9 +328,9 @@ class PolicyInduction:
             instructions_template: Custom template to use. Must contain
                 '<max_policy_length>' tag. If None, generates template
                 from task_description using LLM.
-            task_description: Description of the binary classification task. 
-                This is used to help the LLM understand the classification objective, 
-                refine the induced policies, and generate an instructions_template 
+            task_description: Description of the binary classification task.
+                This is used to help the LLM understand the classification objective,
+                refine the induced policies, and generate an instructions_template
                 when one is not provided.
 
         Returns:
@@ -775,17 +775,20 @@ class PolicyInduction:
         for idx, row in pm.iterrows():
             preds = row["predictions"]
             mapped = preds.map(  # type: ignore
-                lambda v: 1 if str(v).strip().lower() 
-                in {"1", "true", "yes", "y", "t"} else 0
+                lambda v: 1
+                if str(v).strip().lower() in {"1", "true", "yes", "y", "t"}
+                else 0
             )
             col_name = str(idx)
             X_df[col_name] = mapped.reindex(sample_index).astype(np.float32)
             col_names.append(col_name)
 
         y_series: pd.Series = pd.Series(self._y, index=sample_index)
-        y_num = y_series.map(lambda v: 1 if str(v).strip().lower() 
-                             in {"1", "true", "yes", "y", "t"} else 0
-                             )
+        y_num = y_series.map(
+            lambda v: 1
+            if str(v).strip().lower() in {"1", "true", "yes", "y", "t"}
+            else 0
+        )
 
         X_df = X_df.fillna(0.0).astype(np.float32)
 

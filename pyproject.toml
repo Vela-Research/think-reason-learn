@@ -26,6 +26,8 @@ dependencies = [
     "furo (>=2025.7.19,<2026.0.0)",
     "pydata-sphinx-theme (>=0.16.1,<0.17.0)",
     "sphinx-design (>=0.6.1,<0.7.0)",
+    "scikit-learn (>=1.7.2,<2.0.0)",
+    "pyarrow (>=21.0.0,<22.0.0)",
 ]
 
 [project.urls]

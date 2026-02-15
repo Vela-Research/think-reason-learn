@@ -1392,6 +1392,10 @@ class RRF:
     ) -> AsyncGenerator[Tuple[Any, str, Literal["YES", "NO"], TokenCounter], None]:
         """Predict labels for samples.
 
+        Uses batched LLM answering to reduce API calls. Each batch groups
+        multiple samples into a single LLM call per question. The batch size
+        is controlled by ``qanswer_batch_size`` (default 20 when not set).
+
         Args:
             samples: Samples to predict.
 
@@ -1401,44 +1405,41 @@ class RRF:
         Raises:
             ValueError: If samples is empty or does not have the correct column.
         """
-        queue: asyncio.Queue[
-            Literal["DONE"] | Tuple[Any, str, Literal["YES", "NO"]]
-        ] = asyncio.Queue()
-
         token_counter = TokenCounter()
+        batch_size = self.qanswer_batch_size if self.qanswer_batch_size else 20
 
-        async def worker(sample_index: Any, sample: str) -> None:
-            try:
-                async for record in self._predict_single(
-                    sample_index=sample_index,
-                    sample=sample,
+        # Build list of (sample_index, sample_str) pairs
+        all_samples: list[tuple[Any, str]] = []
+        for sample_index, row in samples.iterrows():
+            sample_str = "\n".join([f"{col}: {val}" for col, val in row.items()])
+            all_samples.append((sample_index, sample_str))
+
+        # Get active (non-excluded) question IDs
+        active_qids: list[str] = [
+            cast(str, qid)
+            for qid in self._questions.index
+            if self._questions.at[qid, "exclusion"] is None
+        ]
+
+        for qid in active_qids:
+            question = cast(str, self._questions.at[qid, "question"])
+
+            # Process samples in batches for this question
+            for i in range(0, len(all_samples), batch_size):
+                batch = all_samples[i : i + batch_size]
+                results = await self._answer_questions_batch(
+                    question_id=qid,
+                    question=question,
+                    samples=batch,
                     token_counter=token_counter,
-                ):
-                    await queue.put(record)
-            finally:
-                await queue.put("DONE")
-
-        tasks: List[asyncio.Task[None]] = []
-        try:
-            for sample_index, row in samples.iterrows():
-                sample_str = "\n".join([f"{col}: {val}" for col, val in row.items()])
-                tasks.append(asyncio.create_task(worker(sample_index, sample_str)))
-
-            remaining = len(tasks)
-            while remaining > 0:
-                item = await queue.get()
-                if item == "DONE":
-                    remaining -= 1
-                    continue
-                else:
-                    yield item + (token_counter,)
-            return
-        except asyncio.CancelledError:
-            pass
-        finally:
-            for task in tasks:
-                if not task.done():
-                    task.cancel()
+                )
+                for sample_index, _question_id, label in results:
+                    yield (
+                        sample_index,
+                        qid,
+                        cast(Literal["YES", "NO"], label),
+                        token_counter,
+                    )
 
     async def update_question_exclusion(
         self,

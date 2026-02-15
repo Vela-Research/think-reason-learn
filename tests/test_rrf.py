@@ -549,3 +549,200 @@ class TestSaveLoad:
         loaded = RRF.load(save_dir)
         assert loaded.get_questions().shape == rrf.get_questions().shape
         assert loaded.get_answers().shape == rrf.get_answers().shape
+
+
+# ---------------------------------------------------------------------------
+# exclusion_report (issue #45)
+# ---------------------------------------------------------------------------
+
+
+class TestExclusionReport:
+    @pytest.mark.asyncio
+    async def test_empty_report_before_filtering(
+        self, sample_data: tuple[pd.DataFrame, list[str]]
+    ) -> None:
+        fake = FakeLLM()
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_excl_empty",
+            max_samples_as_context=8,
+            max_generated_questions=3,
+            _llm=fake,
+        )
+        X, y = sample_data
+        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.fit(X, y)
+
+        report = rrf.exclusion_report()
+        assert isinstance(report, pd.DataFrame)
+        assert len(report) == 0
+        expected_cols = {
+            "excluded_question_id",
+            "exclusion_reason",
+            "reference_question_id",
+            "similarity_score",
+            "threshold",
+            "metric_used",
+        }
+        assert set(report.columns) == expected_cols
+
+    @pytest.mark.asyncio
+    async def test_pred_similarity_exclusion_report(
+        self, sample_data: tuple[pd.DataFrame, list[str]]
+    ) -> None:
+        fake = FakeLLM(default_answer="YES")
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_excl_pred",
+            max_samples_as_context=8,
+            max_generated_questions=6,
+            _llm=fake,
+        )
+        X, y = sample_data
+        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.fit(X, y)
+        rrf.filter_questions_on_pred_similarity(threshold=0.9)
+
+        report = rrf.exclusion_report()
+        assert isinstance(report, pd.DataFrame)
+        assert len(report) > 0
+        for _, row in report.iterrows():
+            assert row["exclusion_reason"] == "prediction_similarity"
+            assert row["reference_question_id"] is not None
+            assert isinstance(row["similarity_score"], float)
+            assert row["threshold"] == 0.9
+            assert row["metric_used"] == "hamming"
+
+    @pytest.mark.asyncio
+    async def test_semantic_similarity_exclusion_report(
+        self, sample_data: tuple[pd.DataFrame, list[str]]
+    ) -> None:
+        fake = FakeLLM()
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_excl_sem",
+            max_samples_as_context=8,
+            max_generated_questions=6,
+            _llm=fake,
+        )
+        X, y = sample_data
+        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.fit(X, y)
+        await rrf.filter_questions_on_semantics(
+            threshold=0.01, emb_model="hashed_bag_of_words"
+        )
+
+        report = rrf.exclusion_report()
+        assert isinstance(report, pd.DataFrame)
+        assert len(report) > 0
+        for _, row in report.iterrows():
+            assert row["exclusion_reason"] == "semantic_similarity"
+            assert row["reference_question_id"] is not None
+            assert isinstance(row["similarity_score"], float)
+            assert row["similarity_score"] >= 0.01
+            assert row["threshold"] == 0.01
+            assert row["metric_used"] == "dot_product"
+
+    @pytest.mark.asyncio
+    async def test_expert_exclusion_report(
+        self, sample_data: tuple[pd.DataFrame, list[str]]
+    ) -> None:
+        fake = FakeLLM()
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_excl_expert",
+            max_samples_as_context=8,
+            max_generated_questions=3,
+            _llm=fake,
+        )
+        X, y = sample_data
+        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.fit(X, y)
+        qid = str(rrf.get_questions().index[0])
+        await rrf.update_question_exclusion(qid, QuestionExclusion.EXPERT)
+
+        report = rrf.exclusion_report()
+        assert isinstance(report, pd.DataFrame)
+        assert len(report) == 1
+        row = report.iloc[0]
+        assert row["excluded_question_id"] == qid
+        assert row["exclusion_reason"] == "expert"
+        assert row["reference_question_id"] is None
+        assert row["similarity_score"] is None
+        assert row["threshold"] is None
+        assert row["metric_used"] is None
+
+    @pytest.mark.asyncio
+    async def test_report_as_dict(
+        self, sample_data: tuple[pd.DataFrame, list[str]]
+    ) -> None:
+        import json
+
+        fake = FakeLLM(default_answer="YES")
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_excl_dict",
+            max_samples_as_context=8,
+            max_generated_questions=6,
+            _llm=fake,
+        )
+        X, y = sample_data
+        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.fit(X, y)
+        rrf.filter_questions_on_pred_similarity(threshold=0.9)
+
+        result = rrf.exclusion_report(as_dict=True)
+        assert isinstance(result, list)
+        assert len(result) > 0
+        assert all(isinstance(e, dict) for e in result)
+        # Must be JSON-serialisable
+        json.dumps(result)
+
+    @pytest.mark.asyncio
+    async def test_clearing_removes_events(
+        self, sample_data: tuple[pd.DataFrame, list[str]]
+    ) -> None:
+        fake = FakeLLM(default_answer="YES")
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_excl_clear",
+            max_samples_as_context=8,
+            max_generated_questions=6,
+            _llm=fake,
+        )
+        X, y = sample_data
+        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.fit(X, y)
+        rrf.filter_questions_on_pred_similarity(threshold=0.9)
+        assert len(rrf.exclusion_report()) > 0
+        # Clear
+        rrf.filter_questions_on_pred_similarity(threshold=None)
+        assert len(rrf.exclusion_report()) == 0
+
+    @pytest.mark.asyncio
+    async def test_exclusion_report_save_load(
+        self,
+        sample_data: tuple[pd.DataFrame, list[str]],
+        tmp_path: object,
+    ) -> None:
+        fake = FakeLLM(default_answer="YES")
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_excl_sl",
+            max_samples_as_context=8,
+            max_generated_questions=6,
+            _llm=fake,
+        )
+        X, y = sample_data
+        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.fit(X, y)
+        rrf.filter_questions_on_pred_similarity(threshold=0.9)
+        original_report = rrf.exclusion_report(as_dict=True)
+        assert len(original_report) > 0
+
+        save_dir = str(tmp_path)
+        rrf.save(save_dir)
+        loaded = RRF.load(save_dir)
+
+        loaded_report = loaded.exclusion_report(as_dict=True)
+        assert loaded_report == original_report

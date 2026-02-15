@@ -87,6 +87,9 @@ class RRF:
         qanswer_batch_size: Maximum number of samples to answer in a single LLM call.
             If None or 1, batching is disabled and the original per-sample behaviour
             is used (one LLM call per sample). Set >1 to enable true batched answering.
+        question_scoring_f_beta: Beta parameter for computing F-beta score on
+            questions. Default 1.0 (F1). Use 0.5 to weight precision more, or
+            2.0 to weight recall more. Must be > 0.
     """
 
     def __init__(
@@ -106,6 +109,7 @@ class RRF:
         random_state: int = 42,
         use_cumulative_memory: bool = True,
         qanswer_batch_size: int | None = None,
+        question_scoring_f_beta: float = 1.0,
         _llm: Any = None,
     ):
         locals_dict = deepcopy(locals())
@@ -128,6 +132,7 @@ class RRF:
         self.random_state = random_state
         self.use_cumulative_memory = use_cumulative_memory
         self.qanswer_batch_size = qanswer_batch_size
+        self.question_scoring_f_beta = question_scoring_f_beta
         self._llm_instance: Any = _llm if _llm is not None else llm
 
         self._token_counter: TokenCounter = TokenCounter()
@@ -185,6 +190,9 @@ class RRF:
         val = kwargs["qanswer_batch_size"]
         if not (val is None or (isinstance(val, int) and val > 0)):
             raise ValueError("qanswer_batch_size must be None or a positive integer")
+        val = kwargs["question_scoring_f_beta"]
+        if not (isinstance(val, (int, float)) and val > 0):
+            raise ValueError("question_scoring_f_beta must be a positive float (> 0)")
 
     def _get_name(self, name: str | None) -> str:
         if name is None:
@@ -219,6 +227,7 @@ class RRF:
                 "precision": pd.Series([], dtype=float),
                 "recall": pd.Series([], dtype=float),
                 "f1_score": pd.Series([], dtype=float),
+                "f_beta_score": pd.Series([], dtype=float),
                 "accuracy": pd.Series([], dtype=float),
             },
             index=pd.Index([], dtype=str, name="id"),
@@ -235,6 +244,8 @@ class RRF:
                 - precision: Precision for each question
                 - recall: Recall for each question
                 - f1_score: F1 score for each question
+                - f_beta_score: F-beta score for each question (configurable via
+                    question_scoring_f_beta; defaults to F1 when beta=1.0)
                 - accuracy: Accuracy for each question
         """
         return self._questions
@@ -477,6 +488,7 @@ class RRF:
                 "precision": [None] * qlen,
                 "recall": [None] * qlen,
                 "f1_score": [None] * qlen,
+                "f_beta_score": [None] * qlen,
                 "accuracy": [None] * qlen,
             },
             index=index,  # type: ignore
@@ -1111,9 +1123,18 @@ class RRF:
                 else 0.0
             )
 
+            beta = self.question_scoring_f_beta
+            beta_sq = beta * beta
+            f_beta = (
+                ((1 + beta_sq) * precision * recall / (beta_sq * precision + recall))
+                if (beta_sq * precision + recall)
+                else 0.0
+            )
+
             self._questions.at[qid, "precision"] = precision
             self._questions.at[qid, "recall"] = recall
             self._questions.at[qid, "f1_score"] = f1
+            self._questions.at[qid, "f_beta_score"] = f_beta
             self._questions.at[qid, "accuracy"] = accuracy
 
     def _jaccard_similarity(self, col1: pd.Series, col2: pd.Series) -> float:
@@ -1493,6 +1514,7 @@ class RRF:
             else None,
             "random_state": self.random_state,
             "use_cumulative_memory": self.use_cumulative_memory,
+            "question_scoring_f_beta": self.question_scoring_f_beta,
         }
         with (base / "rrf.json").open("w", encoding="utf-8") as f:
             f.write(orjson.dumps(manifest).decode())
@@ -1532,6 +1554,7 @@ class RRF:
             save_path=str(base.parent),
             name=manifest["name"],
             use_cumulative_memory=manifest.get("use_cumulative_memory", True),
+            question_scoring_f_beta=manifest.get("question_scoring_f_beta", 1.0),
         )
 
         inst._task_description = manifest["task_description"]

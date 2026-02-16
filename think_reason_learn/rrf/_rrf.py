@@ -886,7 +886,10 @@ class RRF:
         self._update_answers_df_columns()
 
         mask = self._answers.isna().stack()
-        not_answered_all = mask[mask].index  # type: ignore[reportGeneralTypeIssues]
+        not_answered_all_idx = mask[mask].index
+        not_answered_all = cast(
+            Iterable[Tuple[int, str]], not_answered_all_idx
+        )  # Type hint for MultiIndex
 
         # Filter to screening indices if requested
         if use_screening:
@@ -895,13 +898,13 @@ class RRF:
             screening_set = set(self._screening_indices)
             # Filter the MultiIndex to only include screening samples
             not_answered = [
-                (sidx, qid) for sidx, qid in not_answered_all if sidx in screening_set  # type: ignore[reportGeneralTypeIssues]
+                (sidx, qid) for sidx, qid in not_answered_all if sidx in screening_set
             ]
             not_answered = pd.MultiIndex.from_tuples(
                 not_answered
             )  # Convert back to MultiIndex
         else:
-            not_answered = not_answered_all
+            not_answered = not_answered_all_idx
 
         not_answered = cast(Iterable[Tuple[int, str]], not_answered)
 

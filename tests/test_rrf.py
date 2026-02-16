@@ -28,7 +28,7 @@ async def test_standard_mode_baseline(
     fake_llm = FakeLLM(questions_per_call=3)
 
     rrf = RRF(
-        qgen_llmc=["gpt-4o-mini"],
+        qgen_llmc=["gpt-4o-mini"],  # type: ignore
         max_generated_questions=3,
         random_state=42,
         cost_sensitive=False,
@@ -59,7 +59,7 @@ async def test_cost_sensitive_reduces_calls(
     # Standard mode
     fake_llm_std = FakeLLM(questions_per_call=6)
     rrf_std = RRF(
-        qgen_llmc=["gpt-4o-mini"],
+        qgen_llmc=["gpt-4o-mini"],  # type: ignore
         max_generated_questions=6,
         random_state=42,
         cost_sensitive=False,
@@ -77,7 +77,7 @@ async def test_cost_sensitive_reduces_calls(
         enable_semantic_filter=False,  # Disable for clearer call counting
     )
     rrf_cs = RRF(
-        qgen_llmc=["gpt-4o-mini"],
+        qgen_llmc=["gpt-4o-mini"],  # type: ignore
         max_generated_questions=6,
         random_state=42,
         cost_sensitive=True,
@@ -111,7 +111,7 @@ async def test_screening_baseline_majority(
     )
 
     rrf = RRF(
-        qgen_llmc=["gpt-4o-mini"],
+        qgen_llmc=["gpt-4o-mini"],  # type: ignore
         max_generated_questions=5,
         random_state=42,
         cost_sensitive=True,
@@ -148,7 +148,7 @@ async def test_screening_baseline_float(
     )
 
     rrf = RRF(
-        qgen_llmc=["gpt-4o-mini"],
+        qgen_llmc=["gpt-4o-mini"],  # type: ignore
         max_generated_questions=4,
         random_state=42,
         cost_sensitive=True,
@@ -180,7 +180,7 @@ async def test_top_n_selection(sample_data: tuple[pd.DataFrame, list[str]]) -> N
     )
 
     rrf = RRF(
-        qgen_llmc=["gpt-4o-mini"],
+        qgen_llmc=["gpt-4o-mini"],  # type: ignore
         max_generated_questions=10,
         random_state=42,
         cost_sensitive=True,
@@ -215,7 +215,7 @@ async def test_val_set_support(sample_data: tuple[pd.DataFrame, list[str]]) -> N
     )
 
     rrf = RRF(
-        qgen_llmc=["gpt-4o-mini"],
+        qgen_llmc=["gpt-4o-mini"],  # type: ignore
         max_generated_questions=3,
         random_state=42,
         cost_sensitive=True,
@@ -249,7 +249,7 @@ async def test_deterministic_screening_split(
     )
 
     rrf1 = RRF(
-        qgen_llmc=["gpt-4o-mini"],
+        qgen_llmc=["gpt-4o-mini"],  # type: ignore
         max_generated_questions=3,
         random_state=42,
         cost_sensitive=True,
@@ -258,7 +258,7 @@ async def test_deterministic_screening_split(
     )
 
     rrf2 = RRF(
-        qgen_llmc=["gpt-4o-mini"],
+        qgen_llmc=["gpt-4o-mini"],  # type: ignore
         max_generated_questions=3,
         random_state=42,
         cost_sensitive=True,
@@ -286,7 +286,7 @@ async def test_cost_sensitive_false_unchanged(
     fake_llm = FakeLLM(questions_per_call=4)
 
     rrf = RRF(
-        qgen_llmc=["gpt-4o-mini"],
+        qgen_llmc=["gpt-4o-mini"],  # type: ignore
         max_generated_questions=4,
         random_state=42,
         cost_sensitive=False,  # Explicitly false
@@ -321,7 +321,7 @@ async def test_semantic_filtering_auto_applied(
     )
 
     rrf = RRF(
-        qgen_llmc=["gpt-4o-mini"],
+        qgen_llmc=["gpt-4o-mini"],  # type: ignore
         max_generated_questions=8,
         random_state=42,
         cost_sensitive=True,
@@ -353,7 +353,7 @@ async def test_semantic_filtering_disabled(
     )
 
     rrf = RRF(
-        qgen_llmc=["gpt-4o-mini"],
+        qgen_llmc=["gpt-4o-mini"],  # type: ignore
         max_generated_questions=6,
         random_state=42,
         cost_sensitive=True,
@@ -378,7 +378,7 @@ async def test_val_set_validation(sample_data: tuple[pd.DataFrame, list[str]]) -
     # Only X_val should raise
     fake_llm1 = FakeLLM()
     rrf1 = RRF(
-        qgen_llmc=["gpt-4o-mini"],
+        qgen_llmc=["gpt-4o-mini"],  # type: ignore
         random_state=42,
         _llm=fake_llm1,
     )
@@ -388,7 +388,7 @@ async def test_val_set_validation(sample_data: tuple[pd.DataFrame, list[str]]) -
     # Only y_val should raise
     fake_llm2 = FakeLLM()
     rrf2 = RRF(
-        qgen_llmc=["gpt-4o-mini"],
+        qgen_llmc=["gpt-4o-mini"],  # type: ignore
         random_state=42,
         _llm=fake_llm2,
     )

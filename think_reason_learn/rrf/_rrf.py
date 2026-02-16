@@ -895,7 +895,7 @@ class RRF:
             screening_set = set(self._screening_indices)
             # Filter the MultiIndex to only include screening samples
             not_answered = [
-                (sidx, qid) for sidx, qid in not_answered_all if sidx in screening_set
+                (sidx, qid) for sidx, qid in not_answered_all if sidx in screening_set  # type: ignore
             ]
             not_answered = pd.MultiIndex.from_tuples(
                 not_answered
@@ -1343,7 +1343,7 @@ class RRF:
         active = self._questions[self._questions["exclusion"].isna()]
         below = active[active[metric_col] <= baseline]
 
-        for qid in below.index:
+        for qid in below.index:  # type: ignore
             self._questions.at[qid, "exclusion"] = QuestionExclusion.COST_PRUNING
 
         return len(below)
@@ -1357,8 +1357,8 @@ class RRF:
         if len(active) <= max_questions:
             return len(active)
 
-        sorted_q = active.sort_values(by=metric_col, ascending=False)
-        for qid in sorted_q.index[max_questions:]:
+        sorted_q = active.sort_values(by=metric_col, ascending=False)  # type: ignore
+        for qid in sorted_q.index[max_questions:]:  # type: ignore
             self._questions.at[qid, "exclusion"] = QuestionExclusion.COST_PRUNING
 
         return max_questions

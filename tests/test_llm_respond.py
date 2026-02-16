@@ -42,32 +42,22 @@ def test_error_message_interpolates_parameters():
         error_message = str(exc_info.value)
 
         # Assert actual values are interpolated (NOT literal template strings)
-        assert (
-            test_query in error_message
-        ), "Query should be interpolated"
-        assert (
-            test_instructions in error_message
-        ), "Instructions should be interpolated"
-        assert (
-            "0.7" in error_message
-        ), "Temperature should be interpolated"
+        assert test_query in error_message, "Query should be interpolated"
+        assert test_instructions in error_message, "Instructions should be interpolated"
+        assert "0.7" in error_message, "Temperature should be interpolated"
         assert (
             "100" in error_message or "max_tokens" in error_message
         ), "kwargs should be interpolated"
 
         # Assert literal template strings are NOT present
-        assert (
-            "{query}" not in error_message
-        ), "Should not contain literal {query}"
+        assert "{query}" not in error_message, "Should not contain literal {query}"
         assert (
             "{instructions}" not in error_message
         ), "Should not contain literal {instructions}"
         assert (
             "{temperature}" not in error_message
         ), "Should not contain literal {temperature}"
-        assert (
-            "{kwargs}" not in error_message
-        ), "Should not contain literal {kwargs}"
+        assert "{kwargs}" not in error_message, "Should not contain literal {kwargs}"
 
     finally:
         # Restore original methods
@@ -75,4 +65,3 @@ def test_error_message_interpolates_parameters():
         llm.google_llm = orig_google
         llm.anthropic_llm = orig_anthropic
         llm.xai_llm = orig_xai
-

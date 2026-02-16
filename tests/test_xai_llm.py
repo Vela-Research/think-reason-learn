@@ -12,11 +12,11 @@ from unittest.mock import MagicMock, patch
 class KwargsDict(dict):
     """Dict that excludes 'messages' during ** unpacking."""
 
-    def keys(self):
+    def keys(self):  # type: ignore[override]
         """Return keys excluding 'messages'."""
         return [k for k in super().keys() if k != "messages"]
 
-    def items(self):
+    def items(self):  # type: ignore[override]
         """Return items excluding 'messages'."""
         return [(k, v) for k, v in super().items() if k != "messages"]
 

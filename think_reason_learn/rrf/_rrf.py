@@ -886,7 +886,7 @@ class RRF:
         self._update_answers_df_columns()
 
         mask = self._answers.isna().stack()
-        not_answered_all_idx = mask[mask].index
+        not_answered_all_idx = mask[mask].index  # type: ignore[reportAttributeAccessIssue]
         not_answered_all = cast(
             Iterable[Tuple[int, str]], not_answered_all_idx
         )  # Type hint for MultiIndex

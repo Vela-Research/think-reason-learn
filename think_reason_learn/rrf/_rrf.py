@@ -894,8 +894,8 @@ class RRF:
                 raise ValueError("Screening indices not set")
             screening_set = set(self._screening_indices)
             # Filter the MultiIndex to only include screening samples
-            not_answered = [
-                (sidx, qid) for sidx, qid in not_answered_all if sidx in screening_set  # type: ignore
+            not_answered = [  # type: ignore
+                (sidx, qid) for sidx, qid in not_answered_all if sidx in screening_set
             ]
             not_answered = pd.MultiIndex.from_tuples(
                 not_answered

@@ -115,12 +115,12 @@ def test_instructions_injected_when_no_system_message_sync():
 
                 # Assert: system message was injected at position 0
                 assert len(messages_sent) >= 2, "Should have system + user messages"
-                assert messages_sent[0].role == MockMessageRole.ROLE_SYSTEM, (
-                    "First message should be system message"
-                )
-                assert messages_sent[0] == system_msg, (
-                    "System message should contain instructions"
-                )
+                assert (
+                    messages_sent[0].role == MockMessageRole.ROLE_SYSTEM
+                ), "First message should be system message"
+                assert (
+                    messages_sent[0] == system_msg
+                ), "System message should contain instructions"
 
                 # Verify system() was called with correct instructions
                 mock_system.assert_called_with(test_instructions)

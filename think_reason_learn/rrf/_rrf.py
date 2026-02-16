@@ -675,9 +675,7 @@ class RRF:
                 best_qid = cast(str, self._questions.index[indices[best]])
                 for r in group:
                     if r != best:
-                        loser_qid = cast(
-                            str, self._questions.index[indices[r]]
-                        )
+                        loser_qid = cast(str, self._questions.index[indices[r]])
                         sim_score = float(emb_matrix[r] @ emb_matrix[best])
                         self._exclusion_log.append(
                             {

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 import pandas as pd
 
@@ -1121,3 +1122,228 @@ class TestEarlySemanticFiltering:
 
         # Fewer total LLM calls because fewer questions were answered
         assert calls_early < calls_baseline
+
+
+# ---------------------------------------------------------------------------
+# founder-level prediction (issue #47)
+# ---------------------------------------------------------------------------
+
+
+class TestFounderPredictions:
+    """Tests for founder-level aggregation: aggregate_predictions,
+    _tune_aggregation (inside fit), and predict_founder_level."""
+
+    # -- static aggregate_predictions tests (no LLM) --
+
+    def test_aggregate_predictions_basic(self) -> None:
+        """Hand-crafted 4x3 matrix: verify correct aggregation."""
+        matrix = pd.DataFrame(
+            {
+                "q0": [1, 0, 1, 0],
+                "q1": [1, 1, 0, 0],
+                "q2": [0, 0, 1, 1],
+            },
+            index=pd.Index([0, 1, 2, 3]),
+        )
+        scores = pd.Series({"q0": 0.9, "q1": 0.7, "q2": 0.5})
+        # K=2: top questions are q0, q1
+        # yes_counts: [2, 1, 1, 0]
+        # T=1: predictions: [YES, YES, YES, NO]
+        result = RRF.aggregate_predictions(matrix, scores, k=2, t=1)
+        assert list(result) == ["YES", "YES", "YES", "NO"]
+
+    def test_aggregate_predictions_k1_t1(self) -> None:
+        """K=1, T=1: prediction equals top-scored question's column."""
+        matrix = pd.DataFrame(
+            {"q0": [1, 0, 1], "q1": [0, 1, 0]},
+            index=pd.Index([0, 1, 2]),
+        )
+        scores = pd.Series({"q0": 0.3, "q1": 0.8})
+        # Top question is q1 (score 0.8)
+        result = RRF.aggregate_predictions(matrix, scores, k=1, t=1)
+        assert list(result) == ["NO", "YES", "NO"]
+
+    def test_aggregate_predictions_all_yes(self) -> None:
+        """All-ones matrix: any T<=K should predict all YES."""
+        matrix = pd.DataFrame(
+            {"q0": [1, 1], "q1": [1, 1], "q2": [1, 1]},
+            index=pd.Index([0, 1]),
+        )
+        scores = pd.Series({"q0": 0.9, "q1": 0.7, "q2": 0.5})
+        for k in range(1, 4):
+            for t in range(1, k + 1):
+                result = RRF.aggregate_predictions(matrix, scores, k=k, t=t)
+                assert list(result) == ["YES", "YES"]
+
+    def test_aggregate_predictions_invalid_params(self) -> None:
+        """Invalid K/T raise ValueError."""
+        matrix = pd.DataFrame({"q0": [1], "q1": [0]}, index=pd.Index([0]))
+        scores = pd.Series({"q0": 0.9, "q1": 0.5})
+
+        with pytest.raises(ValueError, match="k must be"):
+            RRF.aggregate_predictions(matrix, scores, k=0, t=1)
+        with pytest.raises(ValueError, match="k must be"):
+            RRF.aggregate_predictions(matrix, scores, k=3, t=1)
+        with pytest.raises(ValueError, match="t must be"):
+            RRF.aggregate_predictions(matrix, scores, k=2, t=0)
+        with pytest.raises(ValueError, match="t must be"):
+            RRF.aggregate_predictions(matrix, scores, k=2, t=3)
+
+    # -- integration tests (FakeLLM) --
+
+    @pytest.mark.asyncio
+    async def test_fit_tunes_aggregation(
+        self, sample_data: tuple[pd.DataFrame, list[str]]
+    ) -> None:
+        """After fit(), _aggregation_k and _aggregation_t are set."""
+        fake = FakeLLM(default_answer="ALTERNATE")
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_fit_tunes",
+            max_samples_as_context=8,
+            max_generated_questions=6,
+            _llm=fake,
+        )
+        X, y = sample_data
+        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.fit(X, y)
+
+        assert isinstance(rrf._aggregation_k, int)
+        assert isinstance(rrf._aggregation_t, int)
+        assert rrf._aggregation_k >= 1
+        assert rrf._aggregation_t >= 1
+
+    @pytest.mark.asyncio
+    async def test_predict_founder_level_after_fit(
+        self, sample_data: tuple[pd.DataFrame, list[str]]
+    ) -> None:
+        """fit() then predict_founder_level(X) returns correct DataFrame."""
+        fake = FakeLLM()
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_pf_after_fit",
+            max_samples_as_context=8,
+            max_generated_questions=3,
+            _llm=fake,
+        )
+        X, y = sample_data
+        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.fit(X, y)
+
+        result = await rrf.predict_founder_level(X)
+        assert isinstance(result, pd.DataFrame)
+        assert set(result.columns) == {"prediction", "yes_count", "k", "t"}
+        assert len(result) == len(X)
+        assert list(result.index) == list(X.index)
+
+    @pytest.mark.asyncio
+    async def test_predict_founder_level_explicit_params(
+        self, sample_data: tuple[pd.DataFrame, list[str]]
+    ) -> None:
+        """predict_founder_level(X, k=1, t=1) works with explicit params."""
+        fake = FakeLLM()
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_pf_explicit",
+            max_samples_as_context=8,
+            max_generated_questions=3,
+            _llm=fake,
+        )
+        X, y = sample_data
+        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.fit(X, y)
+
+        result = await rrf.predict_founder_level(X, k=1, t=1)
+        assert isinstance(result, pd.DataFrame)
+        assert (result["k"] == 1).all()
+        assert (result["t"] == 1).all()
+
+    @pytest.mark.asyncio
+    async def test_predict_founder_level_raises_without_fit(self) -> None:
+        """predict_founder_level without fit raises ValueError."""
+        fake = FakeLLM()
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_pf_no_fit",
+            max_samples_as_context=8,
+            max_generated_questions=3,
+            _llm=fake,
+        )
+        await rrf.set_tasks(task_description="Classify founders")
+        X = pd.DataFrame({"data": ["test person"]})
+        with pytest.raises(ValueError):
+            await rrf.predict_founder_level(X)
+
+    @pytest.mark.asyncio
+    async def test_predict_founder_level_all_yes_answers(
+        self, sample_data: tuple[pd.DataFrame, list[str]]
+    ) -> None:
+        """FakeLLM(YES): all yes_count == K, all predictions YES."""
+        fake = FakeLLM(default_answer="YES")
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_pf_all_yes",
+            max_samples_as_context=8,
+            max_generated_questions=3,
+            _llm=fake,
+        )
+        X, y = sample_data
+        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.fit(X, y)
+
+        k = rrf._aggregation_k
+        assert k is not None
+        result = await rrf.predict_founder_level(X, k=k, t=1)
+        assert (result["prediction"] == "YES").all()
+        assert (result["yes_count"] == k).all()
+
+    @pytest.mark.asyncio
+    async def test_aggregation_save_load(
+        self,
+        sample_data: tuple[pd.DataFrame, list[str]],
+        tmp_path: object,
+    ) -> None:
+        """Save/load preserves aggregation K, T, and config params."""
+        fake = FakeLLM()
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_agg_sl",
+            max_samples_as_context=8,
+            max_generated_questions=3,
+            aggregation_metric="precision",
+            _llm=fake,
+        )
+        X, y = sample_data
+        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.fit(X, y)
+
+        save_dir = str(tmp_path)
+        rrf.save(save_dir)
+        loaded = RRF.load(save_dir)
+
+        assert loaded._aggregation_k == rrf._aggregation_k
+        assert loaded._aggregation_t == rrf._aggregation_t
+        assert loaded.aggregation_metric == "precision"
+
+    @pytest.mark.asyncio
+    async def test_predict_founder_level_output_contract(
+        self, sample_data: tuple[pd.DataFrame, list[str]]
+    ) -> None:
+        """Verify DataFrame columns, dtypes, and index alignment."""
+        fake = FakeLLM()
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_pf_contract",
+            max_samples_as_context=8,
+            max_generated_questions=3,
+            _llm=fake,
+        )
+        X, y = sample_data
+        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.fit(X, y)
+
+        result = await rrf.predict_founder_level(X)
+        assert all(v in ("YES", "NO") for v in result["prediction"])
+        assert result["yes_count"].dtype in (np.int64, np.int32, int)
+        assert (result["k"] == rrf._aggregation_k).all()
+        assert (result["t"] == rrf._aggregation_t).all()

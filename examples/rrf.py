@@ -9,6 +9,7 @@ A quick walkthrough of the Random Rule Forest (RRF) workflow:
   5. Compare F1 vs F-beta scoring
   6. Predict on new data
   7. Save / load and verify predictions match
+  8. Founder-level prediction with train/test split
 
 Prerequisites:
   export OPENAI_API_KEY="sk-..."
@@ -53,10 +54,11 @@ def print_df_compact(df: pd.DataFrame, cols: list[str], n: int = 5) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Toy dataset  (8 founder profiles)
+# Toy dataset  (20 founder profiles)
 # ---------------------------------------------------------------------------
 
 PERSONS = [
+    # --- Original 8 ---
     (
         "A: 30yo woman, CS Stanford, 6yr Google, AI healthcare startup, $2M seed.",
         "YES",
@@ -87,6 +89,55 @@ PERSONS = [
     ),
     (
         "H: 7 companies 3 industries, PM fintech startup, edutech idea.",
+        "NO",
+    ),
+    # --- Extra 12 for train/test split ---
+    (
+        "I: 35yo man, PhD robotics CMU, 4yr Tesla autopilot, autonomous drones.",
+        "YES",
+    ),
+    (
+        "J: 22yo woman, dropped out art school, sells NFTs, no revenue.",
+        "NO",
+    ),
+    (
+        "K: 38yo man, 2 prior exits (acqui-hired), SaaS analytics platform.",
+        "YES",
+    ),
+    (
+        "L: 29yo woman, biology PhD, first-time founder, biotech diagnostics.",
+        "NO",
+    ),
+    (
+        "M: 45yo man, 20yr banking VP, left Goldman, wealth-tech startup.",
+        "YES",
+    ),
+    (
+        "N: 26yo man, bootcamp grad, 1yr junior dev, wants to build CRM.",
+        "NO",
+    ),
+    (
+        "O: 33yo woman, ex-Stripe engineer, YC alum, payments API startup.",
+        "YES",
+    ),
+    (
+        "P: 30yo man, MBA Wharton, 2yr McKinsey, marketplace for tutors.",
+        "NO",
+    ),
+    (
+        "Q: 28yo woman, CS MIT, 3yr Meta AI research, computer vision startup.",
+        "YES",
+    ),
+    (
+        "R: 40yo man, real estate agent, no tech bg, proptech idea.",
+        "NO",
+    ),
+    (
+        "S: 31yo woman, ex-Airbnb PM, repeat founder, travel-tech platform.",
+        "YES",
+    ),
+    (
+        "T: 24yo man, economics major, no work exp, crypto trading bot.",
         "NO",
     ),
 ]
@@ -276,6 +327,52 @@ async def main() -> None:  # noqa: D103
 
     # Clean up
     shutil.rmtree(save_dir)
+
+    # ------------------------------------------------------------------
+    # 8. Founder-level prediction (issue #47)
+    # ------------------------------------------------------------------
+    print_section("8. Founder-level prediction (train/test split)")
+
+    # Split into train (first 16) / test (last 4) — 80/20
+    split_idx = 16
+    X_all = pd.DataFrame({"data": [p for p, _ in PERSONS]})
+    y_all = [label for _, label in PERSONS]
+    X_train, X_test = X_all.iloc[:split_idx], X_all.iloc[split_idx:]
+    y_train = y_all[:split_idx]
+    y_test = y_all[split_idx:]
+
+    print(f"Train: {len(X_train)} samples, Test: {len(X_test)} samples\n")
+
+    # Fit: generates questions, answers them, computes metrics,
+    # and tunes (K, T) for founder-level aggregation — all on train.
+    rrf_fl = RRF(
+        qgen_llmc=llm_choices,
+        name="example_founder_level",
+        max_samples_as_context=8,
+        max_generated_questions=8,
+        question_scoring_f_beta=0.5,
+    )
+    await rrf_fl.set_tasks(
+        task_description="Classify founders as likely to succeed or not"
+    )
+    await rrf_fl.fit(X_train, y_train, reset=True)
+
+    print(
+        f"Tuned aggregation: K={rrf_fl._aggregation_k}, "
+        f"T={rrf_fl._aggregation_t}\n"
+    )
+
+    # Predict on held-out test set
+    results = await rrf_fl.predict_founder_level(X_test)
+    print(results[["prediction", "yes_count"]].to_string())
+    print()
+
+    # Compare to ground truth
+    n_correct = sum(
+        results.loc[i, "prediction"] == y_test[j]
+        for j, i in enumerate(X_test.index)
+    )
+    print(f"Test accuracy: {n_correct}/{len(y_test)}")
     print("Done.")
 
 

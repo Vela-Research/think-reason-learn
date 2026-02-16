@@ -29,6 +29,7 @@ from think_reason_learn.core.exceptions import CorruptionError, DataError, LLMEr
 from ._prompts import num_questions_tag, CUMULATIVE_MEMORY_INSTRUCTIONS
 from ._prompts import QUESTION_GEN_INSTRUCTIONS, QUESTION_ANSWER_INSTRUCTIONS
 from ._types import EmbeddingModel, AnsSimilarityFunc
+from ._cost_sensitive import CostSensitiveConfig
 import re
 
 
@@ -54,6 +55,10 @@ class QuestionExclusion(StrEnum):
         "Excluded due to high prediction similarity with other questions",
     )
     EXPERT = ("expert", "Excluded manually by expert")
+    COST_PRUNING = (
+        "cost_pruning",
+        "Excluded by cost-sensitive screening (below baseline or outside top-N)",
+    )
 
     def __new__(cls, value: str, description: str) -> QuestionExclusion:
         obj = str.__new__(cls, value)
@@ -87,6 +92,10 @@ class RRF:
         qanswer_batch_size: Maximum number of samples to answer in a single LLM call.
             If None or 1, batching is disabled and the original per-sample behaviour
             is used (one LLM call per sample). Set >1 to enable true batched answering.
+        cost_sensitive: Enable cost-sensitive mode with screening and early pruning.
+        cost_sensitive_config: Configuration for cost-sensitive mode. If None,
+            uses default CostSensitiveConfig.
+        _llm: LLM instance for testing (dependency injection). If None, uses global llm.
     """
 
     def __init__(
@@ -106,6 +115,9 @@ class RRF:
         random_state: int = 42,
         use_cumulative_memory: bool = True,
         qanswer_batch_size: int | None = None,
+        cost_sensitive: bool = False,
+        cost_sensitive_config: CostSensitiveConfig | None = None,
+        _llm: Any = None,
     ):
         locals_dict = deepcopy(locals())
         del locals_dict["self"]
@@ -126,6 +138,9 @@ class RRF:
         self.random_state = random_state
         self.use_cumulative_memory = use_cumulative_memory
         self.qanswer_batch_size = qanswer_batch_size
+        self.cost_sensitive = cost_sensitive
+        self.cost_sensitive_config = cost_sensitive_config or CostSensitiveConfig()
+        self._llm_instance = _llm if _llm is not None else llm
 
         self._token_counter: TokenCounter = TokenCounter()
 
@@ -138,6 +153,9 @@ class RRF:
         self._questions: pd.DataFrame = self._get_initial_questions_df()
         self._answers: pd.DataFrame = self._create_answers_df(index=None)
         self._last_emb_model: EmbeddingModel | None = None
+        self._X_val: pd.DataFrame | None = None
+        self._y_val: npt.NDArray[np.str_] | None = None
+        self._screening_indices: npt.NDArray[np.int_] | None = None
 
     @property
     def llm_semaphore_limit(self) -> int:
@@ -287,9 +305,9 @@ class RRF:
             ValueError: If template missing required tag or generation fails.
             AssertionError: If both parameters are None.
         """
-        assert (
-            instructions_template is not None or task_description is not None
-        ), "Either instructions_template or task_description must be provided"
+        assert instructions_template is not None or task_description is not None, (
+            "Either instructions_template or task_description must be provided"
+        )
 
         if instructions_template:
             if num_questions_tag not in instructions_template:
@@ -302,7 +320,7 @@ class RRF:
                 return instructions_template
 
         async with self._llm_semaphore:
-            response = await llm.respond(
+            response = await self._llm_instance.respond(
                 query=f"Generate YES/NO questions for:\n{task_description}",
                 llm_priority=self.qgen_llmc,
                 response_format=str,
@@ -426,14 +444,13 @@ class RRF:
 
             if self.use_cumulative_memory:
                 query = (
-                    f"SAMPLES:\n{samples_str}\n\n"
-                    f"CUMULATIVE MEMORY: {cumulative_memory}"
+                    f"SAMPLES:\n{samples_str}\n\nCUMULATIVE MEMORY: {cumulative_memory}"
                 )
             else:
                 query = f"SAMPLES:\n{samples_str}"
 
             async with self._llm_semaphore:
-                response = await llm.respond(
+                response = await self._llm_instance.respond(
                     query=query,
                     llm_priority=self.qgen_llmc,
                     response_format=Questions,
@@ -668,7 +685,7 @@ class RRF:
         """Returns sample_index, question_id, answer."""
         try:
             async with self._llm_semaphore:
-                response = await llm.respond(
+                response = await self._llm_instance.respond(
                     llm_priority=self.qanswer_llmc,
                     query=f"Query: {question}\n\nSample: {sample}",
                     instructions=QUESTION_ANSWER_INSTRUCTIONS,
@@ -744,7 +761,7 @@ class RRF:
 
         try:
             async with self._llm_semaphore:
-                response = await llm.respond(
+                response = await self._llm_instance.respond(
                     llm_priority=self.qanswer_llmc,
                     query=query,
                     instructions=QUESTION_ANSWER_INSTRUCTIONS,
@@ -862,14 +879,31 @@ class RRF:
             answers_any: Any = self._answers
             self._answers = cast(pd.DataFrame, answers_any.astype(coerce_map))
 
-    async def _answer_questions(self) -> None:
+    async def _answer_questions(self, use_screening: bool = False) -> None:
         if self._X is None or self._y is None:
             raise ValueError("X and y must be set")
 
         self._update_answers_df_columns()
 
         mask = self._answers.isna().stack()
-        not_answered = cast(Iterable[Tuple[int, str]], mask[mask].index)  # type: ignore
+        not_answered_all = mask[mask].index  # type: ignore
+
+        # Filter to screening indices if requested
+        if use_screening:
+            if self._screening_indices is None:
+                raise ValueError("Screening indices not set")
+            screening_set = set(self._screening_indices)
+            # Filter the MultiIndex to only include screening samples
+            not_answered = [
+                (sidx, qid) for sidx, qid in not_answered_all if sidx in screening_set
+            ]
+            not_answered = pd.MultiIndex.from_tuples(
+                not_answered
+            )  # Convert back to MultiIndex
+        else:
+            not_answered = not_answered_all
+
+        not_answered = cast(Iterable[Tuple[int, str]], not_answered)
 
         # Buffered updates: per-question updates applied in batches
         # (for both single-sample and batched modes)
@@ -1077,20 +1111,29 @@ class RRF:
                 index_update = cast(pd.Index, series_update.index)
                 ansdf.loc[index_update, qid] = series_update
 
-    def _set_questions_metrics(self) -> None:
+    def _set_questions_metrics(self, use_screening: bool = False) -> None:
         if self._y is None:
             return
 
-        y_series = pd.Series(self._y, index=self._answers.index)
+        # Filter to screening subset if requested
+        if use_screening:
+            if self._screening_indices is None:
+                raise ValueError("Screening indices not set")
+            y_subset = self._y[self._screening_indices]
+            answers_subset = self._answers.loc[self._screening_indices]
+            y_series = pd.Series(y_subset, index=answers_subset.index)
+        else:
+            y_series = pd.Series(self._y, index=self._answers.index)
+            answers_subset = self._answers
 
         true_yes = set(y_series.index[y_series == "YES"])  # type: ignore
         true_no = set(y_series.index[y_series == "NO"])  # type: ignore
 
         for qid in cast(List[str], self._questions.index):
-            if qid not in self._answers.columns:
+            if qid not in answers_subset.columns:
                 continue
 
-            col = cast(pd.Series, self._answers[qid])
+            col = cast(pd.Series, answers_subset[qid])
             pred_yes = set(col.index[col == "YES"])  # type: ignore
             pred_no = set(col.index[col == "NO"])  # type: ignore
 
@@ -1211,11 +1254,140 @@ class RRF:
         await self._generate_questions()
         logger.info(f"Generated {self._questions.shape[0]} questions")
 
+        if self.cost_sensitive:
+            await self._build_rrf_cost_sensitive()
+        else:
+            await self._build_rrf_standard()
+
+    async def _build_rrf_standard(self) -> None:
+        """Standard pipeline: answer all questions on all samples."""
         logger.info("Answering questions")
         await self._answer_questions()
 
         logger.info("Setting questions metrics")
         self._set_questions_metrics()
+
+    async def _build_rrf_cost_sensitive(self) -> None:
+        """Cost-sensitive pipeline with screening and early pruning."""
+        cfg = self.cost_sensitive_config
+
+        # 1. Auto semantic filtering
+        if cfg.enable_semantic_filter:
+            logger.info("Auto-applying semantic filtering")
+            await self.filter_questions_on_semantics(
+                threshold=cfg.semantic_threshold,
+                emb_model=cfg.semantic_emb_model,
+            )
+            active_after_semantic = len(
+                self._questions[self._questions["exclusion"].isna()]
+            )
+            logger.info(f"Questions after semantic filtering: {active_after_semantic}")
+
+        # 2. Create screening split
+        self._create_screening_split()
+        logger.info(f"Screening on {len(self._screening_indices)} samples")  # type: ignore
+
+        # 3. Screening evaluation
+        logger.info("Answering questions on screening subset")
+        await self._answer_questions(use_screening=True)
+        self._set_questions_metrics(use_screening=True)
+
+        # 4. Prune low performers
+        pruned_count = self._prune_low_performers()
+        logger.info(f"Pruned {pruned_count} questions below baseline")
+
+        # 5. Select top N
+        active_after_baseline = len(
+            self._questions[self._questions["exclusion"].isna()]
+        )
+        kept_count = self._select_top_questions(cfg.max_questions_full_eval)
+        logger.info(
+            f"Selected top {kept_count} questions for full evaluation "
+            f"(from {active_after_baseline})"
+        )
+
+        # 6. Full evaluation
+        logger.info("Answering top questions on full training set")
+        await self._answer_questions(use_screening=False)
+        self._set_questions_metrics(use_screening=False)
+
+        # 7. Optional val evaluation (future: could add validation reporting here)
+        if self._X_val is not None:
+            logger.info("Validation set provided (not used for question selection)")
+            # Future: could evaluate on val set for reporting
+
+    def _create_screening_split(self) -> None:
+        """Sample screening subset from training data."""
+        cfg = self.cost_sensitive_config
+        n_train = len(self._X)  # type: ignore
+        n_screen = int(n_train * cfg.screening_fraction)
+        if cfg.max_screening_samples:
+            n_screen = min(n_screen, cfg.max_screening_samples)
+        n_screen = max(1, n_screen)
+
+        rng = np.random.RandomState(self.random_state)
+        self._screening_indices = rng.choice(n_train, size=n_screen, replace=False)
+
+    def _prune_low_performers(self) -> int:
+        """Exclude questions below baseline performance."""
+        cfg = self.cost_sensitive_config
+        metric_col = f"{cfg.screening_metric}_score"
+
+        if cfg.screening_baseline == "majority":
+            baseline = self._compute_majority_baseline()
+        elif cfg.screening_baseline == "random":
+            baseline = self._compute_random_baseline()
+        else:
+            baseline = float(cfg.screening_baseline)
+
+        active = self._questions[self._questions["exclusion"].isna()]
+        below = active[active[metric_col] <= baseline]
+
+        for qid in below.index:
+            self._questions.at[qid, "exclusion"] = QuestionExclusion.COST_PRUNING
+
+        return len(below)
+
+    def _select_top_questions(self, max_questions: int) -> int:
+        """Keep only top N questions by screening metric."""
+        cfg = self.cost_sensitive_config
+        metric_col = f"{cfg.screening_metric}_score"
+
+        active = self._questions[self._questions["exclusion"].isna()]
+        if len(active) <= max_questions:
+            return len(active)
+
+        sorted_q = active.sort_values(by=metric_col, ascending=False)
+        for qid in sorted_q.index[max_questions:]:
+            self._questions.at[qid, "exclusion"] = QuestionExclusion.COST_PRUNING
+
+        return max_questions
+
+    def _compute_majority_baseline(self) -> float:
+        """Compute F1 score of majority-class baseline on screening set."""
+        y_screen = self._y[self._screening_indices]  # type: ignore
+        majority = "YES" if (y_screen == "YES").sum() > len(y_screen) / 2 else "NO"
+        preds = np.array([majority] * len(y_screen))
+
+        tp = ((y_screen == "YES") & (preds == "YES")).sum()
+        fp = ((y_screen == "NO") & (preds == "YES")).sum()
+        fn = ((y_screen == "YES") & (preds == "NO")).sum()
+
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        f1 = (
+            2 * precision * recall / (precision + recall)
+            if (precision + recall) > 0
+            else 0.0
+        )
+        return f1
+
+    def _compute_random_baseline(self) -> float:
+        """Compute expected F1 of random classifier on screening set."""
+        y_screen = self._y[self._screening_indices]  # type: ignore
+        prevalence = (y_screen == "YES").sum() / len(y_screen)
+        # Expected F1 for random classifier: 2 * p * (1-p)
+        return 2 * prevalence * (1 - prevalence)
 
     def _set_data(self, X: pd.DataFrame, y: Sequence[str], copy_data: bool) -> None:
         if not all(isinstance(item, str) for item in y):  # type: ignore
@@ -1241,11 +1413,39 @@ class RRF:
         self._questions = self._get_initial_questions_df()
         self._answers = self._create_answers_df(index=X.index)
 
+    def _set_val_data(
+        self, X_val: pd.DataFrame, y_val: Sequence[str], copy_data: bool
+    ) -> None:
+        """Set validation data for cost-sensitive mode."""
+        if not all(isinstance(item, str) for item in y_val):  # type: ignore
+            raise DataError("y_val must be a sequence of strings")
+
+        if len(y_val) != X_val.shape[0]:
+            raise DataError("y_val and X_val must have the same number of rows")
+
+        unique_vals = set(np.unique(y_val))
+        if not unique_vals.issubset({"YES", "NO"}):
+            raise DataError(
+                "y_val must be a sequence of only 'YES' or 'NO' values "
+                "(case insensitive)"
+            )
+
+        y_val_array = np.array([yi.upper() for yi in y_val], dtype=np.str_)
+
+        if copy_data:
+            self._X_val = deepcopy(X_val).reset_index(drop=True)  # type: ignore
+            self._y_val = deepcopy(y_val_array)
+        else:
+            self._X_val = X_val.reset_index(drop=True)  # type: ignore
+            self._y_val = y_val_array
+
     async def fit(
         self,
         X: pd.DataFrame | None = None,
         y: Sequence[str] | None = None,
         *,
+        X_val: pd.DataFrame | None = None,
+        y_val: Sequence[str] | None = None,
         copy_data: bool = True,
         reset: bool = False,
     ) -> Self:
@@ -1254,6 +1454,8 @@ class RRF:
         Args:
             X: Training features. Required on first run or with reset=True.
             y: Training labels. Required on first run or with reset=True.
+            X_val: Optional validation features for cost-sensitive mode.
+            y_val: Optional validation labels for cost-sensitive mode.
             copy_data: Whether to copy input data.
             reset: Clear existing state and restart forest generation.
 
@@ -1282,6 +1484,12 @@ class RRF:
             raise ValueError(
                 "No data found on forest. Provide X and y (or reset=True with X,y)"
             )
+
+        # Handle validation set
+        if X_val is not None or y_val is not None:
+            if X_val is None or y_val is None:
+                raise ValueError("Both X_val and y_val must be provided together")
+            self._set_val_data(X_val, y_val, copy_data)
 
         await self._build_rrf()
         logger.info("RRF built successfully")
@@ -1440,11 +1648,13 @@ class RRF:
             qdf = self._questions.copy()
             if "embedding" in qdf.columns:
                 qdf["embedding"] = qdf["embedding"].apply(  # type: ignore
-                    lambda x: orjson.dumps(  # type: ignore
-                        x.tolist() if isinstance(x, np.ndarray) else x
-                    ).decode()
-                    if x is not None
-                    else None
+                    lambda x: (
+                        orjson.dumps(  # type: ignore
+                            x.tolist() if isinstance(x, np.ndarray) else x
+                        ).decode()
+                        if x is not None
+                        else None
+                    )
                 )
             qdf.to_parquet(base / "questions.parquet")  # type: ignore
 
@@ -1543,9 +1753,11 @@ class RRF:
         qdf = pd.read_parquet(q_path)  # type: ignore
         if "embedding" in qdf.columns:
             qdf["embedding"] = qdf["embedding"].apply(  # type: ignore
-                lambda x: np.array(orjson.loads(x), dtype=np.float32)  # type: ignore
-                if x is not None
-                else None
+                lambda x: (
+                    np.array(orjson.loads(x), dtype=np.float32)  # type: ignore
+                    if x is not None
+                    else None
+                )
             )
         for col in [
             "excluded_in_semantics",

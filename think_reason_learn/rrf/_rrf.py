@@ -124,9 +124,7 @@ class RRF:
         question_scoring_f_beta: float = 1.0,
         semantic_filtering_during_fit: bool = False,
         semantic_similarity_threshold: float = 0.9,
-        aggregation_metric: Literal[
-            "f1", "accuracy", "precision", "recall"
-        ] = "f1",
+        aggregation_metric: Literal["f1", "accuracy", "precision", "recall"] = "f1",
         aggregation_max_k: int | None = None,
         _llm: Any = None,
     ):
@@ -228,14 +226,11 @@ class RRF:
         val = kwargs["aggregation_metric"]
         if val not in ("f1", "accuracy", "precision", "recall"):
             raise ValueError(
-                "aggregation_metric must be 'f1', 'accuracy', "
-                "'precision', or 'recall'"
+                "aggregation_metric must be 'f1', 'accuracy', 'precision', or 'recall'"
             )
         val = kwargs["aggregation_max_k"]
         if val is not None and (not isinstance(val, int) or val < 1):
-            raise ValueError(
-                "aggregation_max_k must be None or a positive integer"
-            )
+            raise ValueError("aggregation_max_k must be None or a positive integer")
 
     def _get_name(self, name: str | None) -> str:
         if name is None:
@@ -483,8 +478,7 @@ class RRF:
 
             if self.use_cumulative_memory:
                 query = (
-                    f"SAMPLES:\n{samples_str}\n\n"
-                    f"CUMULATIVE MEMORY: {cumulative_memory}"
+                    f"SAMPLES:\n{samples_str}\n\nCUMULATIVE MEMORY: {cumulative_memory}"
                 )
             else:
                 query = f"SAMPLES:\n{samples_str}"
@@ -717,9 +711,7 @@ class RRF:
                 best_qid = cast(str, self._questions.index[indices[best]])
                 for r in group:
                     if r != best:
-                        loser_qid = cast(
-                            str, self._questions.index[indices[r]]
-                        )
+                        loser_qid = cast(str, self._questions.index[indices[r]])
                         sim_score = float(emb_matrix[r] @ emb_matrix[best])
                         self._exclusion_log.append(
                             {
@@ -1271,13 +1263,9 @@ class RRF:
         """
         n_questions = len(question_scores)
         if k < 1 or k > n_questions:
-            raise ValueError(
-                f"k must be between 1 and {n_questions}, got {k}"
-            )
+            raise ValueError(f"k must be between 1 and {n_questions}, got {k}")
         if t < 1 or t > k:
-            raise ValueError(
-                f"t must be between 1 and k={k}, got {t}"
-            )
+            raise ValueError(f"t must be between 1 and k={k}, got {t}")
 
         sorted_qids = question_scores.sort_values(ascending=False).index[:k]
         top_k = response_matrix[sorted_qids]
@@ -1309,15 +1297,11 @@ class RRF:
         binary = self._answers[active_qids].apply(
             lambda col: (col == "YES").astype(int)
         )
-        scores = self._questions.loc[
-            active_qids, "f_beta_score"
-        ].astype(float)
+        scores = self._questions.loc[active_qids, "f_beta_score"].astype(float)
         sorted_qids = scores.sort_values(ascending=False).index
         sorted_binary = binary[sorted_qids].values  # type: ignore[union-attr]
         cumsum = np.cumsum(sorted_binary, axis=1)  # type: ignore[arg-type]
-        y_true = np.array(
-            [1 if yi == "YES" else 0 for yi in self._y]
-        )
+        y_true = np.array([1 if yi == "YES" else 0 for yi in self._y])
 
         q_count = len(sorted_qids)
         max_k = (
@@ -1331,9 +1315,7 @@ class RRF:
             yes_at_k = cumsum[:, k - 1]
             for t_val in range(1, k + 1):
                 preds = (yes_at_k >= t_val).astype(int)
-                score = RRF._compute_metric(
-                    preds, y_true, self.aggregation_metric
-                )
+                score = RRF._compute_metric(preds, y_true, self.aggregation_metric)
                 if score > best_score:
                     best_score, best_k, best_t = score, k, t_val
 
@@ -1347,9 +1329,7 @@ class RRF:
             best_score,
         )
 
-    async def _build_response_matrix(
-        self, X: pd.DataFrame
-    ) -> pd.DataFrame:
+    async def _build_response_matrix(self, X: pd.DataFrame) -> pd.DataFrame:
         """Run predict() on X and build a binary response matrix.
 
         Returns:
@@ -1363,7 +1343,10 @@ class RRF:
         ]
 
         matrix = pd.DataFrame(
-            0, index=X.index, columns=active_qids, dtype=int  # type: ignore[arg-type]
+            0,
+            index=X.index,
+            columns=active_qids,  # type: ignore[arg-type]
+            dtype=int,
         )
 
         async for sample_idx, qid, answer, _tc in self.predict(X):
@@ -1431,17 +1414,11 @@ class RRF:
 
         matrix = await self._build_response_matrix(X)
         active_qids = list(matrix.columns)
-        scores = self._questions.loc[
-            active_qids, "f_beta_score"
-        ].astype(float)
+        scores = self._questions.loc[active_qids, "f_beta_score"].astype(float)
 
-        predictions = self.aggregate_predictions(
-            matrix, scores, k_val, t_val
-        )
+        predictions = self.aggregate_predictions(matrix, scores, k_val, t_val)
 
-        sorted_qids = scores.sort_values(
-            ascending=False
-        ).index[:k_val]
+        sorted_qids = scores.sort_values(ascending=False).index[:k_val]
         yes_counts = matrix[sorted_qids].sum(axis=1)
 
         return pd.DataFrame(
@@ -1887,11 +1864,13 @@ class RRF:
             qdf = self._questions.copy()
             if "embedding" in qdf.columns:
                 qdf["embedding"] = qdf["embedding"].apply(  # type: ignore
-                    lambda x: orjson.dumps(  # type: ignore
-                        x.tolist() if isinstance(x, np.ndarray) else x
-                    ).decode()
-                    if x is not None
-                    else None
+                    lambda x: (
+                        orjson.dumps(  # type: ignore
+                            x.tolist() if isinstance(x, np.ndarray) else x
+                        ).decode()
+                        if x is not None
+                        else None
+                    )
                 )
             qdf.to_parquet(base / "questions.parquet")  # type: ignore
 
@@ -1991,9 +1970,7 @@ class RRF:
             semantic_similarity_threshold=manifest.get(
                 "semantic_similarity_threshold", 0.9
             ),
-            aggregation_metric=manifest.get(
-                "aggregation_metric", "f1"
-            ),
+            aggregation_metric=manifest.get("aggregation_metric", "f1"),
             aggregation_max_k=manifest.get("aggregation_max_k"),
         )
 
@@ -2012,9 +1989,11 @@ class RRF:
         qdf = pd.read_parquet(q_path)  # type: ignore
         if "embedding" in qdf.columns:
             qdf["embedding"] = qdf["embedding"].apply(  # type: ignore
-                lambda x: np.array(orjson.loads(x), dtype=np.float32)  # type: ignore
-                if x is not None
-                else None
+                lambda x: (
+                    np.array(orjson.loads(x), dtype=np.float32)  # type: ignore
+                    if x is not None
+                    else None
+                )
             )
         for col in [
             "excluded_in_semantics",

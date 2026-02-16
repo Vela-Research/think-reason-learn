@@ -27,6 +27,7 @@ from pathlib import Path
 import pandas as pd
 
 from think_reason_learn.core.llms import OpenAIChoice
+from think_reason_learn.core.llms._schemas import LLMChoice
 from think_reason_learn.rrf import RRF
 
 
@@ -104,7 +105,7 @@ async def main() -> None:  # noqa: D103
     X = pd.DataFrame({"data": [p for p, _ in PERSONS]})
     y = [label for _, label in PERSONS]
 
-    llm_choices = [OpenAIChoice(model="gpt-4.1-nano")]
+    llm_choices: list[LLMChoice] = [OpenAIChoice(model="gpt-4.1-nano")]
 
     # ------------------------------------------------------------------
     # 1. Create RRF and generate questions
@@ -195,6 +196,7 @@ async def main() -> None:  # noqa: D103
     print_section("5. Exclusion report — why were questions dropped?")
 
     report = rrf.exclusion_report()
+    assert isinstance(report, pd.DataFrame)
     if len(report) == 0:
         print("No exclusions recorded.\n")
     else:

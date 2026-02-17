@@ -7,6 +7,7 @@ import pytest
 import pandas as pd
 
 from think_reason_learn.rrf import RRF, QuestionExclusion
+from think_reason_learn.rrf._rrf import Questions, Answer
 from think_reason_learn.core.llms import LLMChoice, OpenAIChoice
 from think_reason_learn.core.exceptions import DataError
 from tests.fake_llm import FakeLLM
@@ -1748,3 +1749,151 @@ async def test_val_set_validation(
     )
     with pytest.raises(ValueError, match="Both X_val and y_val must be provided"):
         await rrf2.fit(X, y, y_val=["YES", "NO"])
+
+
+# ---------------------------------------------------------------------------
+# Prompt preset tests
+# ---------------------------------------------------------------------------
+
+from think_reason_learn.rrf._prompt_presets import (  # noqa: E402
+    PromptPreset,
+    VC_FOUNDER_PRESET,
+)
+
+
+class TestPromptPresets:
+    """Tests for the prompt_preset parameter."""
+
+    @pytest.mark.asyncio
+    async def test_preset_skips_meta_prompt(self) -> None:
+        """With a preset, set_tasks() should NOT make a meta-prompt LLM call."""
+        fake = FakeLLM()
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_preset_skip",
+            max_samples_as_context=8,
+            max_generated_questions=3,
+            prompt_preset=VC_FOUNDER_PRESET,
+            _llm=fake,
+        )
+
+        template = await rrf.set_tasks(task_description="Classify founders")
+
+        # No LLM call should have been made (meta-prompt skipped)
+        assert fake.call_count == 0
+        assert len(fake.calls) == 0
+        # Template should be set
+        assert template is not None
+
+    @pytest.mark.asyncio
+    async def test_preset_uses_custom_gen_system(
+        self,
+        sample_data: tuple[pd.DataFrame, list[str]],
+    ) -> None:
+        """Generation calls should use the preset's system message."""
+        fake = FakeLLM()
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_preset_gen",
+            max_samples_as_context=8,
+            max_generated_questions=3,
+            prompt_preset=VC_FOUNDER_PRESET,
+            _llm=fake,
+        )
+        X, y = sample_data
+        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.fit(X, y)
+
+        # Find the Questions-format call (generation)
+        gen_calls = [c for c in fake.calls if c["response_format"] is Questions]
+        assert len(gen_calls) > 0
+        # The instructions should be the preset's generation system message
+        assert gen_calls[0]["instructions"] == VC_FOUNDER_PRESET.question_gen_system
+
+    @pytest.mark.asyncio
+    async def test_preset_uses_custom_answer_system(
+        self,
+        sample_data: tuple[pd.DataFrame, list[str]],
+    ) -> None:
+        """Answer calls should use the preset's answer system message."""
+        fake = FakeLLM()
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_preset_ans",
+            max_samples_as_context=8,
+            max_generated_questions=3,
+            prompt_preset=VC_FOUNDER_PRESET,
+            _llm=fake,
+        )
+        X, y = sample_data
+        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.fit(X, y)
+
+        # Find the Answer-format calls (answering)
+        answer_calls = [c for c in fake.calls if c["response_format"] is Answer]
+        assert len(answer_calls) > 0
+        # The instructions should be the preset's answer system message
+        expected = VC_FOUNDER_PRESET.question_answer_system
+        assert answer_calls[0]["instructions"] == expected
+
+    @pytest.mark.asyncio
+    async def test_preset_and_template_mutually_exclusive(self) -> None:
+        """Providing both preset and instructions_template should raise."""
+        fake = FakeLLM()
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_preset_excl",
+            max_generated_questions=3,
+            prompt_preset=VC_FOUNDER_PRESET,
+            _llm=fake,
+        )
+
+        with pytest.raises(ValueError, match="[Cc]annot.*both|[Mm]utually"):
+            await rrf.set_tasks(
+                instructions_template="Generate <number_of_questions> questions"
+            )
+
+    @pytest.mark.asyncio
+    async def test_preset_by_name_lookup(self) -> None:
+        """Passing a string name should resolve to the built-in preset."""
+        fake = FakeLLM()
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_preset_name",
+            max_samples_as_context=8,
+            max_generated_questions=3,
+            prompt_preset="vc_founder_evaluation",
+            _llm=fake,
+        )
+
+        template = await rrf.set_tasks(task_description="Classify founders")
+        # Should work — name resolved to VC_FOUNDER_PRESET
+        assert fake.call_count == 0
+        assert template is not None
+
+    @pytest.mark.asyncio
+    async def test_custom_preset_object(self) -> None:
+        """A user-created PromptPreset instance should work."""
+        custom = PromptPreset(
+            name="custom_test",
+            description="A test preset",
+            question_gen_system="You are a custom system.",
+            question_gen_user_template=(
+                "Generate {num_questions} YES/NO questions.\n\n{samples}"
+            ),
+            question_answer_system="You are a custom answering system.",
+            question_answer_user_template=("Question: {question}\nSample: {sample}"),
+        )
+        fake = FakeLLM()
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_custom_preset",
+            max_samples_as_context=8,
+            max_generated_questions=3,
+            prompt_preset=custom,
+            _llm=fake,
+        )
+
+        template = await rrf.set_tasks(task_description="Classify founders")
+        assert fake.call_count == 0
+        assert template is not None

@@ -77,6 +77,7 @@ class FakeLLM:
             {
                 "query": query,
                 "response_format": response_format,
+                "instructions": instructions,
                 "n": self._call_count,
             }
         )

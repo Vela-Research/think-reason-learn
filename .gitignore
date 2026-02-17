@@ -53,5 +53,7 @@ lab.ipynb
 .env
 gptrees
 experiment_vcbench/*
+experiments/
+pyrightconfig.json
 examples/*
 !examples/**/*.ipynb

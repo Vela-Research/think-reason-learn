@@ -1752,6 +1752,80 @@ async def test_val_set_validation(
 
 
 # ---------------------------------------------------------------------------
+# F-beta aggregation metric tests
+# ---------------------------------------------------------------------------
+
+
+class TestFBetaAggregation:
+    """Tests for f_beta support in aggregation tuning."""
+
+    def test_compute_metric_f_beta_matches_f1_when_beta_1(self) -> None:
+        """f_beta with beta=1.0 should equal f1."""
+        preds = np.array([1, 1, 0, 0, 1])
+        y_true = np.array([1, 0, 0, 1, 1])
+        f1 = RRF._compute_metric(preds, y_true, "f1")
+        f_beta = RRF._compute_metric(preds, y_true, "f_beta", beta=1.0)
+        assert f1 == pytest.approx(f_beta)
+
+    def test_compute_metric_f_beta_precision_weighted(self) -> None:
+        """beta=0.5 should favour precision; beta=2.0 should favour recall."""
+        # High precision, low recall: 1 TP, 0 FP, 3 FN
+        preds = np.array([1, 0, 0, 0])
+        y_true = np.array([1, 1, 1, 1])
+        f05 = RRF._compute_metric(preds, y_true, "f_beta", beta=0.5)
+        f2 = RRF._compute_metric(preds, y_true, "f_beta", beta=2.0)
+        # precision=1.0, recall=0.25 → F0.5 weights precision more → higher
+        assert f05 > f2
+
+    def test_compute_metric_f_beta_zero_division(self) -> None:
+        """All-zero predictions should return 0.0, not raise."""
+        preds = np.array([0, 0, 0])
+        y_true = np.array([1, 1, 0])
+        assert RRF._compute_metric(preds, y_true, "f_beta", beta=0.5) == 0.0
+        assert RRF._compute_metric(preds, y_true, "f_beta", beta=2.0) == 0.0
+
+    @pytest.mark.asyncio
+    async def test_tune_aggregation_with_f_beta(self) -> None:
+        """fit() with aggregation_metric='f_beta' sets K and T."""
+        fake = FakeLLM(default_answer="ALTERNATE")
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_fbeta_agg",
+            max_samples_as_context=8,
+            max_generated_questions=6,
+            aggregation_metric="f_beta",
+            question_scoring_f_beta=0.5,
+            _llm=fake,
+        )
+        X = pd.DataFrame({"text": [f"sample {i}" for i in range(20)]})
+        y = ["YES"] * 4 + ["NO"] * 16
+        await rrf.set_tasks(task_description="Classify samples")
+        await rrf.fit(X, y)
+        assert isinstance(rrf._aggregation_k, int)
+        assert isinstance(rrf._aggregation_t, int)
+        assert rrf._aggregation_k >= 1
+        assert rrf._aggregation_t >= 1
+
+    def test_aggregation_metric_f_beta_accepted(self) -> None:
+        """'f_beta' is accepted as a valid aggregation_metric value."""
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_fbeta_valid",
+            aggregation_metric="f_beta",
+        )
+        assert rrf.aggregation_metric == "f_beta"
+
+    def test_aggregation_metric_invalid_rejected(self) -> None:
+        """Invalid metric values are rejected."""
+        with pytest.raises(ValueError, match="aggregation_metric"):
+            RRF(
+                qgen_llmc=LLM_CHOICE,
+                name="test_invalid",
+                aggregation_metric="f_beta_invalid",  # type: ignore[arg-type]
+            )
+
+
+# ---------------------------------------------------------------------------
 # Prompt preset tests
 # ---------------------------------------------------------------------------
 

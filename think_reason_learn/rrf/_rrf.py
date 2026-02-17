@@ -104,7 +104,9 @@ class RRF:
             ``semantic_filtering_during_fit=True``. Default 0.9.
         aggregation_metric: Metric optimized when tuning (K, T) for
             founder-level prediction during ``fit()``. One of ``"f1"``,
-            ``"accuracy"``, ``"precision"``, ``"recall"``. Default ``"f1"``.
+            ``"f_beta"``, ``"accuracy"``, ``"precision"``, ``"recall"``.
+            When ``"f_beta"`` is selected, uses ``question_scoring_f_beta``
+            as the beta parameter. Default ``"f1"``.
         aggregation_max_k: Maximum K (number of top questions) to consider
             during (K, T) grid search. ``None`` means use all active
             questions. Default ``None``.
@@ -137,7 +139,9 @@ class RRF:
         question_scoring_f_beta: float = 1.0,
         semantic_filtering_during_fit: bool = False,
         semantic_similarity_threshold: float = 0.9,
-        aggregation_metric: Literal["f1", "accuracy", "precision", "recall"] = "f1",
+        aggregation_metric: Literal[
+            "f1", "f_beta", "accuracy", "precision", "recall"
+        ] = "f1",
         aggregation_max_k: int | None = None,
         cost_sensitive: bool = False,
         cost_sensitive_config: CostSensitiveConfig | None = None,
@@ -258,9 +262,10 @@ class RRF:
         if not (isinstance(val, (int, float)) and 0 <= val <= 1):
             raise ValueError("semantic_similarity_threshold must be between 0 and 1")
         val = kwargs["aggregation_metric"]
-        if val not in ("f1", "accuracy", "precision", "recall"):
+        if val not in ("f1", "f_beta", "accuracy", "precision", "recall"):
             raise ValueError(
-                "aggregation_metric must be 'f1', 'accuracy', 'precision', or 'recall'"
+                "aggregation_metric must be 'f1', 'f_beta', 'accuracy',"
+                " 'precision', or 'recall'"
             )
         val = kwargs["aggregation_max_k"]
         if val is not None and (not isinstance(val, int) or val < 1):
@@ -1311,13 +1316,18 @@ class RRF:
         preds: npt.NDArray[np.int_],
         y_true: npt.NDArray[np.int_],
         metric: str,
+        *,
+        beta: float = 1.0,
     ) -> float:
         """Compute a classification metric from binary arrays.
 
         Args:
             preds: Predicted labels (0/1).
             y_true: True labels (0/1).
-            metric: One of "f1", "accuracy", "precision", "recall".
+            metric: One of ``"f1"``, ``"accuracy"``, ``"precision"``,
+                ``"recall"``, ``"f_beta"``.
+            beta: Beta parameter for ``"f_beta"`` metric. Ignored for
+                other metrics. Default 1.0.
 
         Returns:
             The metric value as a float.
@@ -1338,6 +1348,13 @@ class RRF:
             p = tp / (tp + fp) if (tp + fp) else 0.0
             r = tp / (tp + fn) if (tp + fn) else 0.0
             return 2 * p * r / (p + r) if (p + r) else 0.0
+        if metric == "f_beta":
+            p = tp / (tp + fp) if (tp + fp) else 0.0
+            r = tp / (tp + fn) if (tp + fn) else 0.0
+            beta_sq = beta * beta
+            return (
+                (1 + beta_sq) * p * r / (beta_sq * p + r) if (beta_sq * p + r) else 0.0
+            )
         raise ValueError(f"Unknown metric: {metric}")
 
     @staticmethod
@@ -1419,7 +1436,12 @@ class RRF:
             yes_at_k = cumsum[:, k - 1]
             for t_val in range(1, k + 1):
                 preds = (yes_at_k >= t_val).astype(int)
-                score = RRF._compute_metric(preds, y_true, self.aggregation_metric)
+                score = RRF._compute_metric(
+                    preds,
+                    y_true,
+                    self.aggregation_metric,
+                    beta=self.question_scoring_f_beta,
+                )
                 if score > best_score:
                     best_score, best_k, best_t = score, k, t_val
 

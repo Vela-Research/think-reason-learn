@@ -1002,6 +1002,7 @@ class GPTree:
         )
         logger.info(f"Generated {len(questions.questions)} questions for node {id}")
         chosen_question: NodeQuestion | None = None
+        min_gini = 1.0
 
         node_questions: List[NodeQuestion] = []
         for llm_question in questions.questions:
@@ -1026,7 +1027,7 @@ class GPTree:
                 )
                 continue
 
-            min_gini, total, skip = 1, 0, False
+            total, skip = 0, False
 
             for sub_indices in df_split_indices:
                 if len(sub_indices) >= self.min_samples_leaf:

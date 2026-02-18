@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 class GeminiLLM(metaclass=SingletonMeta):
     def __init__(self, api_key: str) -> None:
         self.client = genai.Client(api_key=api_key)
+        self._logprobs_disabled = False
 
     def _process_kwargs(
         self,
@@ -46,7 +47,7 @@ class GeminiLLM(metaclass=SingletonMeta):
             system_instruction=instructions,
             response_schema=response_schema,
             response_mime_type=response_mime_type,
-            response_logprobs=True,
+            response_logprobs=not self._logprobs_disabled,
             **kwargs,
         )
 
@@ -132,6 +133,20 @@ class GeminiLLM(metaclass=SingletonMeta):
             )
             return self._parse_response(response, model, response_format)
         except Exception as e:
+            if not self._logprobs_disabled and "logprobs" in str(e).lower():
+                logger.info(
+                    "Logprobs not supported for %s, disabling and retrying.", model
+                )
+                self._logprobs_disabled = True
+                return self.respond_sync(
+                    query=query,
+                    model=model,
+                    response_format=response_format,
+                    instructions=instructions,
+                    temperature=temperature,
+                    raise_=raise_,
+                    **kwargs,
+                )
             logger.warning(f"Error responding with Google: {e}", exc_info=True)
             if raise_:
                 raise e
@@ -163,6 +178,20 @@ class GeminiLLM(metaclass=SingletonMeta):
             )
             return self._parse_response(response, model, response_format)
         except Exception as e:
+            if not self._logprobs_disabled and "logprobs" in str(e).lower():
+                logger.info(
+                    "Logprobs not supported for %s, disabling and retrying.", model
+                )
+                self._logprobs_disabled = True
+                return await self.respond(
+                    query=query,
+                    model=model,
+                    response_format=response_format,
+                    instructions=instructions,
+                    temperature=temperature,
+                    raise_=raise_,
+                    **kwargs,
+                )
             logger.warning(f"Error responding with Google: {e}", exc_info=True)
             if raise_:
                 raise e

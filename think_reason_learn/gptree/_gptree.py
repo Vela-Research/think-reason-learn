@@ -174,7 +174,7 @@ class BuildTask:
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> BuildTask:
         """Convert a dictionary to a build task."""
-        if sample_indices := d.get("sample_indices"):
+        if (sample_indices := d.get("sample_indices")) is not None:
             d["sample_indices"] = np.array(sample_indices, dtype=np.intp)
         return cls(**d)
 
@@ -231,6 +231,8 @@ class GPTree:
         expert_advice: str | None = None,
         n_samples_as_context: int = 30,
         class_ratio: Dict[str, int] | Literal["balanced"] = "balanced",
+        class_weight: Dict[str, float] | Literal["balanced"] | None = None,
+        decision_threshold: float | None = None,
         use_critic: bool = False,
         save_path: str | PathLike[str] | None = None,
         name: str | None = None,
@@ -261,10 +263,13 @@ class GPTree:
         self._expert_advice = expert_advice
         self.n_samples_as_context = n_samples_as_context
         self.class_ratio = class_ratio
+        self.class_weight = class_weight
+        self.decision_threshold = decision_threshold
         self.use_critic = use_critic
         self.random_state = random_state
 
         self._token_counter: TokenCounter = TokenCounter()
+        self._class_weights: Dict[str, float] | None = None
 
         self._classes: List[str] | None = None
         self._X: pd.DataFrame | None = None
@@ -332,6 +337,29 @@ class GPTree:
         elif class_ratio != "balanced":
             raise ValueError("class_ratio must be 'balanced' or a dict[str, int]")
 
+        class_weight = kwargs.get("class_weight")
+        if class_weight is not None:
+            if isinstance(class_weight, dict):
+                if not all(isinstance(k, str) for k in class_weight):  # type: ignore
+                    raise ValueError("class_weight keys must be strings")
+                if not all(
+                    isinstance(v, (int, float)) and v > 0 for v in class_weight.values()
+                ):  # type: ignore
+                    raise ValueError("class_weight values must be positive numbers")
+            elif class_weight != "balanced":
+                raise ValueError(
+                    "class_weight must be None, 'balanced', or a dict[str, float]"
+                )
+
+        decision_threshold = kwargs.get("decision_threshold")
+        if decision_threshold is not None:
+            if not isinstance(decision_threshold, (int, float)):
+                raise ValueError("decision_threshold must be a number")
+            if not (0 < decision_threshold < 1):
+                raise ValueError(
+                    "decision_threshold must be between 0 and 1 (exclusive)"
+                )
+
     def get_root_id(self) -> int | None:
         """Get the root node id."""
         return (
@@ -351,6 +379,67 @@ class GPTree:
         if self._X is None or self._y is None:
             return None
         return pd.concat([self._X, pd.Series(self._y, name="y")], axis=1)
+
+    def get_leaf_proba(self, node_id: int) -> Dict[str, float]:
+        """Get class probabilities for a leaf node.
+
+        Args:
+            node_id: The id of the leaf node.
+
+        Returns:
+            Dictionary mapping class labels to their probabilities.
+        """
+        node = self._nodes.get(node_id)
+        if node is None:
+            raise ValueError(f"Node {node_id} not found")
+        dist = node.class_distribution
+        total = sum(dist.values())
+        if total == 0:
+            return {}
+        return {k: v / total for k, v in dist.items()}
+
+    def get_leaf_prediction(self, node_id: int) -> str:
+        """Get predicted class for a leaf node.
+
+        Uses decision_threshold if set (binary classification only),
+        otherwise majority vote.
+
+        Args:
+            node_id: The id of the leaf node.
+
+        Returns:
+            The predicted class label.
+        """
+        proba = self.get_leaf_proba(node_id)
+        if not proba:
+            raise ValueError(f"Node {node_id} has empty class distribution")
+
+        if self.decision_threshold is not None:
+            # Pure leaf with only one class — return that class directly
+            if len(proba) == 1:
+                return next(iter(proba))
+
+            if len(proba) != 2:
+                raise ValueError(
+                    "decision_threshold requires exactly 2 classes, "
+                    f"got {len(proba)}"
+                )
+            # Minority class = class with lower count in root distribution
+            root_id = self.get_root_id()
+            root = self._nodes.get(root_id) if root_id is not None else None
+            if root is not None:
+                minority = min(
+                    root.class_distribution,
+                    key=root.class_distribution.get,  # type: ignore
+                )
+            else:
+                minority = min(proba, key=proba.get)  # type: ignore
+
+            if proba.get(minority, 0) >= self.decision_threshold:
+                return minority
+            return max(proba, key=proba.get)  # type: ignore
+
+        return max(proba, key=proba.get)  # type: ignore
 
     def get_questions(self) -> pd.DataFrame | None:
         """Get all questions generated in the tree."""
@@ -554,9 +643,30 @@ class GPTree:
         """Classes the tree is trying to classify."""
         return self._classes
 
+    def _compute_class_weights(self) -> None:
+        """Compute class weights from training data and class_weight param."""
+        if self.class_weight is None or self._y is None:
+            self._class_weights = None
+            return
+        if self.class_weight == "balanced":
+            labels, counts = np.unique(self._y, return_counts=True)
+            n_total = len(self._y)
+            n_classes = len(labels)
+            self._class_weights = {
+                str(label): float(n_total / (n_classes * count))
+                for label, count in zip(labels, counts)
+            }
+        elif isinstance(self.class_weight, dict):
+            self._class_weights = self.class_weight
+
     def _gini(self, indices: IndexArray) -> float:
-        _, counts = np.unique(self._y[indices], return_counts=True)  # type: ignore
-        probs = counts / counts.sum()
+        labels, counts = np.unique(self._y[indices], return_counts=True)  # type: ignore
+        if self._class_weights is not None:
+            weights = np.array([self._class_weights[str(lab)] for lab in labels])
+            weighted_counts = counts * weights
+            probs = weighted_counts / weighted_counts.sum()
+        else:
+            probs = counts / counts.sum()
         return float(1 - np.sum(probs**2))
 
     def _get_next_node_id(self) -> int:
@@ -876,7 +986,9 @@ class GPTree:
 
                     idx_label = row_tuple[0]
                     sample_text = "\n".join(
-                        [f"{col}: {val}" for col, val in zip(X.columns, row_tuple[1:])]  # type: ignore
+                        f"{col}: {val}"
+                        for col, val in zip(X.columns, row_tuple[1:])
+                        if pd.notna(val) and val is not None
                     )
                     tg.create_task(worker(idx_label, sample_text))
                     in_flight += 1
@@ -890,7 +1002,9 @@ class GPTree:
                         continue
                     idx_label = row_tuple[0]
                     sample_text = "\n".join(
-                        [f"{col}: {val}" for col, val in zip(X.columns, row_tuple[1:])]  # type: ignore
+                        f"{col}: {val}"
+                        for col, val in zip(X.columns, row_tuple[1:])
+                        if pd.notna(val) and val is not None
                     )
                     tg.create_task(worker(idx_label, sample_text))
                     in_flight += 1
@@ -1037,9 +1151,28 @@ class GPTree:
                     logger.debug(f"Not enough samples to split. Terminating node {id}.")
 
             if not skip:
-                weighted_gini = sum(
-                    ((len(si) * self._gini(si) / total) for si in df_split_indices)
-                )
+                if self._class_weights is not None:
+                    w_sizes = []
+                    for si in df_split_indices:
+                        si_labels, si_counts = np.unique(
+                            self._y[si],  # type: ignore[index]
+                            return_counts=True,
+                        )
+                        w_sizes.append(
+                            sum(
+                                float(cnt) * self._class_weights[str(lab)]
+                                for lab, cnt in zip(si_labels, si_counts)
+                            )
+                        )
+                    w_total = sum(w_sizes)
+                    weighted_gini = sum(
+                        ws * self._gini(si) / w_total
+                        for ws, si in zip(w_sizes, df_split_indices)
+                    )
+                else:
+                    weighted_gini = sum(
+                        (len(si) * self._gini(si) / total) for si in df_split_indices
+                    )
                 if weighted_gini < min_gini:
                     min_gini = weighted_gini
                     chosen_question = node_question
@@ -1216,6 +1349,8 @@ class GPTree:
             self._X = X.reset_index(drop=True)  # type: ignore
             self._y = y_array
 
+        self._compute_class_weights()
+
         self._nodes = {}
         self._node_counter = 0
         self._frontier = []
@@ -1358,7 +1493,11 @@ class GPTree:
         tasks: List[asyncio.Task[None]] = []
         try:
             for sample_index, row in samples.iterrows():
-                sample = "\n".join([f"{col}: {val}" for col, val in row.items()])
+                sample = "\n".join(
+                    f"{col}: {val}"
+                    for col, val in row.items()
+                    if pd.notna(val) and val is not None
+                )
                 tasks.append(asyncio.create_task(worker(sample_index, sample)))
 
             remaining = len(tasks)
@@ -1546,6 +1685,8 @@ class GPTree:
             expert_advice=manifest["expert_advice"],
             n_samples_as_context=params["n_samples_as_context"],
             class_ratio=params["class_ratio"],
+            class_weight=params.get("class_weight"),
+            decision_threshold=params.get("decision_threshold"),
             use_critic=params["use_critic"],
             save_path=base,
             name=name,
@@ -1593,6 +1734,7 @@ class GPTree:
             df = pd.read_parquet(data_parquet_path)  # type: ignore
             inst._y = df["y"].to_numpy(dtype=np.str_)  # type: ignore
             inst._X = df.drop(columns=["y"])  # type: ignore
+            inst._compute_class_weights()
 
         # Ensure save_path aligns with loaded data
         inst.save_path = base
@@ -1657,6 +1799,8 @@ class GPTree:
                 "max_question_candidates": self.max_question_candidates,
                 "n_samples_as_context": self.n_samples_as_context,
                 "class_ratio": self.class_ratio,
+                "class_weight": self.class_weight,
+                "decision_threshold": self.decision_threshold,
                 "use_critic": self.use_critic,
                 "qgen_temperature": self.qgen_temperature,
                 "critic_temperature": self.critic_temperature,

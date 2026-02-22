@@ -4,7 +4,7 @@ Each node uses language models to generate contextual questions and evaluate
 answers, enabling adaptive tree construction for classification tasks.
 """
 
-from ._gptree import GPTree, Node, NodeQuestion
+from ._gptree import GPTree, Node, NodeQuestion, TimingStats
 from ._types import QuestionType, Criterion
 
-__all__ = ["GPTree", "Node", "NodeQuestion", "QuestionType", "Criterion"]
+__all__ = ["GPTree", "Node", "NodeQuestion", "TimingStats", "QuestionType", "Criterion"]

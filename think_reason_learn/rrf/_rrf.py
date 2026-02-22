@@ -247,8 +247,10 @@ class RRF:
         if not (0 <= val <= 2):
             raise ValueError("qanswer_temperature must be >= 0 and <= 2")
         val = kwargs["answer_similarity_func"]
-        if val not in ["hamming", "jaccard"]:
-            raise ValueError("answer_similarity_func must be 'hamming' or 'jaccard'")
+        if val not in ["hamming", "jaccard", "correlation"]:
+            raise ValueError(
+                "answer_similarity_func must be 'hamming', 'jaccard', or 'correlation'"
+            )
         val = kwargs["qanswer_batch_size"]
         if not (val is None or (isinstance(val, int) and val > 0)):
             raise ValueError("qanswer_batch_size must be None or a positive integer")
@@ -1571,12 +1573,22 @@ class RRF:
             return 0.0
         return float((col1[mask] == col2[mask]).mean())  # type: ignore
 
+    def _correlation_similarity(self, col1: pd.Series, col2: pd.Series) -> float:
+        mask = col1.notna() & col2.notna()
+        if not mask.any():
+            return 0.0
+        binary1 = (col1[mask] == "YES").astype(float)
+        binary2 = (col2[mask] == "YES").astype(float)
+        if binary1.std() == 0 or binary2.std() == 0:
+            return 0.0
+        return float(binary1.corr(binary2))
+
     def _similarity(self, col1: pd.Series, col2: pd.Series) -> float:
-        return (
-            self._jaccard_similarity(col1, col2)
-            if self.answer_similarity_func == "jaccard"
-            else self._hamming_similarity(col1, col2)
-        )
+        if self.answer_similarity_func == "jaccard":
+            return self._jaccard_similarity(col1, col2)
+        if self.answer_similarity_func == "correlation":
+            return self._correlation_similarity(col1, col2)
+        return self._hamming_similarity(col1, col2)
 
     def filter_questions_on_pred_similarity(self, threshold: float | None) -> None:
         """Filter questions on prediction similarity.

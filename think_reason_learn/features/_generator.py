@@ -13,7 +13,7 @@ from typing import Any, Sequence
 from think_reason_learn.core.llms import LLMChoice, llm
 
 from ._prompts import build_system_prompt, build_user_prompt, format_samples
-from ._types import DataSchema, GeneratedRules, HelperFunction, Rule
+from ._types import CognitiveMode, DataSchema, GeneratedRules, HelperFunction, Rule
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,12 @@ class FeatureGenerator:
         LLM provider / model choices, tried in order (see
         :class:`~think_reason_learn.core.llms.LLMChoice`).
     temperature:
-        Sampling temperature for the LLM call.
+        Sampling temperature for the LLM call.  Pass ``None`` to omit the
+        parameter (required for reasoning models like ``o3-mini``).
+    cognitive_modes:
+        Optional set of :class:`CognitiveMode` values that inject cognitive
+        reasoning constraints into the system prompt (CoFEE-style).  When
+        ``None`` or empty, the prompt is unchanged (baseline behaviour).
     """
 
     def __init__(
@@ -41,12 +46,14 @@ class FeatureGenerator:
         schema: DataSchema,
         helpers: Sequence[HelperFunction],
         llm_priority: Sequence[LLMChoice],
-        temperature: float = 0.7,
+        temperature: float | None = 0.7,
+        cognitive_modes: set[CognitiveMode] | None = None,
     ) -> None:
         self._schema = schema
         self._helpers = list(helpers)
         self._llm_priority = list(llm_priority)
         self._temperature = temperature
+        self._cognitive_modes = cognitive_modes or set()
 
     async def generate(
         self,
@@ -81,6 +88,7 @@ class FeatureGenerator:
             self._schema,
             self._helpers,
             n_rules,
+            cognitive_modes=self._cognitive_modes,
         )
         samples_text = format_samples(samples, labels, n_samples)
         user_prompt = build_user_prompt(

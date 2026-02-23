@@ -106,9 +106,11 @@ class RRF:
         random_state: int = 42,
         use_cumulative_memory: bool = True,
         qanswer_batch_size: int | None = None,
+        _llm: Any = None,
     ):
         locals_dict = deepcopy(locals())
         del locals_dict["self"]
+        locals_dict.pop("_llm", None)
         self._verify_input_data(**locals_dict)
 
         self.qgen_llmc = qgen_llmc
@@ -126,6 +128,7 @@ class RRF:
         self.random_state = random_state
         self.use_cumulative_memory = use_cumulative_memory
         self.qanswer_batch_size = qanswer_batch_size
+        self._llm_instance: Any = _llm if _llm is not None else llm
 
         self._token_counter: TokenCounter = TokenCounter()
 
@@ -302,7 +305,7 @@ class RRF:
                 return instructions_template
 
         async with self._llm_semaphore:
-            response = await llm.respond(
+            response = await self._llm_instance.respond(
                 query=f"Generate YES/NO questions for:\n{task_description}",
                 llm_priority=self.qgen_llmc,
                 response_format=str,
@@ -433,7 +436,7 @@ class RRF:
                 query = f"SAMPLES:\n{samples_str}"
 
             async with self._llm_semaphore:
-                response = await llm.respond(
+                response = await self._llm_instance.respond(
                     query=query,
                     llm_priority=self.qgen_llmc,
                     response_format=Questions,
@@ -668,7 +671,7 @@ class RRF:
         """Returns sample_index, question_id, answer."""
         try:
             async with self._llm_semaphore:
-                response = await llm.respond(
+                response = await self._llm_instance.respond(
                     llm_priority=self.qanswer_llmc,
                     query=f"Query: {question}\n\nSample: {sample}",
                     instructions=QUESTION_ANSWER_INSTRUCTIONS,
@@ -744,7 +747,7 @@ class RRF:
 
         try:
             async with self._llm_semaphore:
-                response = await llm.respond(
+                response = await self._llm_instance.respond(
                     llm_priority=self.qanswer_llmc,
                     query=query,
                     instructions=QUESTION_ANSWER_INSTRUCTIONS,

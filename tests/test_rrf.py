@@ -277,6 +277,178 @@ class TestPredict:
         assert answer in ("YES", "NO")
 
 
+class TestPredictBatch:
+    @pytest.mark.asyncio
+    async def test_batch_predict_reduces_calls(
+        self, sample_data: tuple[pd.DataFrame, list[str]]
+    ) -> None:
+        fake = FakeLLM()
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_pred_batch",
+            max_samples_as_context=8,
+            max_generated_questions=3,
+            qanswer_batch_size=20,
+            _llm=fake,
+        )
+        X, y = sample_data
+        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.fit(X, y)
+
+        active_qs = rrf.get_questions()
+        active_qs = active_qs[active_qs["exclusion"].isna()]
+        num_active = len(active_qs)
+
+        # Reset call counter before predict
+        fake._call_count = 0
+        fake.calls.clear()
+
+        preds = []
+        async for pred in rrf.predict(X):
+            preds.append(pred)
+
+        # With batch_size=20 and 8 samples, all samples fit in one batch
+        # per question => exactly num_active_questions batch calls
+        batch_calls = [
+            c
+            for c in fake.calls
+            if c["response_format"] is str
+            and "generate yes/no" not in c["query"].lower()
+        ]
+        assert len(batch_calls) == num_active
+
+        # All (sample, question) pairs should be yielded
+        assert len(preds) == len(X) * num_active
+        for sample_idx, qid, answer, tc in preds:
+            assert answer in ("YES", "NO")
+
+    @pytest.mark.asyncio
+    async def test_batch_predict_smaller_batch_size(
+        self, sample_data: tuple[pd.DataFrame, list[str]]
+    ) -> None:
+        import math
+
+        fake = FakeLLM()
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_pred_batch_small",
+            max_samples_as_context=8,
+            max_generated_questions=3,
+            qanswer_batch_size=3,
+            _llm=fake,
+        )
+        X, y = sample_data
+        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.fit(X, y)
+
+        active_qs = rrf.get_questions()
+        active_qs = active_qs[active_qs["exclusion"].isna()]
+        num_active = len(active_qs)
+
+        fake._call_count = 0
+        fake.calls.clear()
+
+        preds = []
+        async for pred in rrf.predict(X):
+            preds.append(pred)
+
+        # batch_size=3, 8 samples => ceil(8/3)=3 batches per question
+        expected_calls = math.ceil(len(X) / 3) * num_active
+        batch_calls = [
+            c
+            for c in fake.calls
+            if c["response_format"] is str
+            and "generate yes/no" not in c["query"].lower()
+        ]
+        assert len(batch_calls) == expected_calls
+        assert len(preds) == len(X) * num_active
+
+    @pytest.mark.asyncio
+    async def test_batch_predict_matches_single_predict(
+        self, sample_data: tuple[pd.DataFrame, list[str]]
+    ) -> None:
+        X, y = sample_data
+
+        # Single (unbatched) predict
+        fake_single = FakeLLM()
+        rrf_single = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_pred_single",
+            max_samples_as_context=8,
+            max_generated_questions=3,
+            _llm=fake_single,
+        )
+        await rrf_single.set_tasks(task_description="Classify founders")
+        await rrf_single.fit(X, y)
+
+        single_preds: dict[tuple[int, str], str] = {}
+        async for sample_idx, qid, answer, _tc in rrf_single.predict(X):
+            single_preds[(int(sample_idx), qid)] = answer
+
+        # Batched predict
+        fake_batch = FakeLLM()
+        rrf_batch = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_pred_match",
+            max_samples_as_context=8,
+            max_generated_questions=3,
+            qanswer_batch_size=20,
+            _llm=fake_batch,
+        )
+        await rrf_batch.set_tasks(task_description="Classify founders")
+        await rrf_batch.fit(X, y)
+
+        batch_preds: dict[tuple[int, str], str] = {}
+        async for sample_idx, qid, answer, _tc in rrf_batch.predict(X):
+            batch_preds[(int(sample_idx), qid)] = answer
+
+        # Same keys and same answers
+        assert set(single_preds.keys()) == set(batch_preds.keys())
+        for key in single_preds:
+            assert single_preds[key] == batch_preds[key], (
+                f"Mismatch at {key}: single={single_preds[key]}, "
+                f"batch={batch_preds[key]}"
+            )
+
+    @pytest.mark.asyncio
+    async def test_batch_predict_default_batch_size(
+        self, sample_data: tuple[pd.DataFrame, list[str]]
+    ) -> None:
+        fake = FakeLLM()
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_pred_default_batch",
+            max_samples_as_context=8,
+            max_generated_questions=3,
+            _llm=fake,
+        )
+        X, y = sample_data
+        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.fit(X, y)
+
+        active_qs = rrf.get_questions()
+        active_qs = active_qs[active_qs["exclusion"].isna()]
+        num_active = len(active_qs)
+
+        fake._call_count = 0
+        fake.calls.clear()
+
+        preds = []
+        async for pred in rrf.predict(X):
+            preds.append(pred)
+
+        # Default qanswer_batch_size=None should use batch_size=20 in predict
+        # With 8 samples < 20, all fit in one batch per question
+        batch_calls = [
+            c
+            for c in fake.calls
+            if c["response_format"] is str
+            and "generate yes/no" not in c["query"].lower()
+        ]
+        assert len(batch_calls) == num_active
+        assert len(preds) == len(X) * num_active
+
+
 # ---------------------------------------------------------------------------
 # data validation
 # ---------------------------------------------------------------------------

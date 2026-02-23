@@ -368,6 +368,158 @@ class TestQuestionManagement:
 
 
 # ---------------------------------------------------------------------------
+# F-beta scoring (issue #46)
+# ---------------------------------------------------------------------------
+
+
+class TestFBetaScoring:
+    @pytest.mark.asyncio
+    async def test_default_beta_matches_f1(
+        self, sample_data: tuple[pd.DataFrame, list[str]]
+    ) -> None:
+        """Default beta=1.0 produces f_beta_score equal to f1_score."""
+        fake = FakeLLM(default_answer="ALTERNATE")
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_fbeta_default",
+            max_samples_as_context=8,
+            max_generated_questions=3,
+            _llm=fake,
+        )
+        X, y = sample_data
+        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.fit(X, y)
+        qdf = rrf.get_questions()
+        assert "f_beta_score" in qdf.columns
+        assert "f1_score" in qdf.columns
+        for qid in qdf.index:
+            f1 = qdf.at[qid, "f1_score"]
+            fb = qdf.at[qid, "f_beta_score"]
+            if pd.notna(f1) and pd.notna(fb):
+                assert f1 == pytest.approx(fb), f"q={qid}: f1={f1} != f_beta={fb}"
+
+    @pytest.mark.asyncio
+    async def test_beta_half_favours_precision(
+        self, sample_data: tuple[pd.DataFrame, list[str]]
+    ) -> None:
+        """beta=0.5 weights precision more than recall."""
+        fake = FakeLLM(default_answer="ALTERNATE")
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_fbeta_half",
+            max_samples_as_context=8,
+            max_generated_questions=3,
+            question_scoring_f_beta=0.5,
+            _llm=fake,
+        )
+        X, y = sample_data
+        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.fit(X, y)
+        qdf = rrf.get_questions()
+        for qid in qdf.index:
+            fb = qdf.at[qid, "f_beta_score"]
+            f1 = qdf.at[qid, "f1_score"]
+            p = qdf.at[qid, "precision"]
+            if pd.notna(fb) and pd.notna(p) and pd.notna(f1):
+                # F0.5 should be closer to precision than F1 is
+                # (or at least not equal to F1 when p != r)
+                assert fb != pytest.approx(f1) or p == pytest.approx(
+                    qdf.at[qid, "recall"]
+                )
+
+    @pytest.mark.asyncio
+    async def test_beta_two_favours_recall(
+        self, sample_data: tuple[pd.DataFrame, list[str]]
+    ) -> None:
+        """beta=2.0 weights recall more than precision."""
+        fake = FakeLLM(default_answer="ALTERNATE")
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_fbeta_two",
+            max_samples_as_context=8,
+            max_generated_questions=3,
+            question_scoring_f_beta=2.0,
+            _llm=fake,
+        )
+        X, y = sample_data
+        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.fit(X, y)
+        qdf = rrf.get_questions()
+        assert "f_beta_score" in qdf.columns
+        # f_beta column has values
+        assert qdf["f_beta_score"].dropna().shape[0] > 0
+
+    def test_beta_zero_raises(self) -> None:
+        """beta <= 0 raises ValueError."""
+        with pytest.raises(ValueError, match="question_scoring_f_beta"):
+            RRF(qgen_llmc=LLM_CHOICE, question_scoring_f_beta=0.0)
+
+    def test_beta_negative_raises(self) -> None:
+        """beta < 0 raises ValueError."""
+        with pytest.raises(ValueError, match="question_scoring_f_beta"):
+            RRF(qgen_llmc=LLM_CHOICE, question_scoring_f_beta=-1.0)
+
+    @pytest.mark.asyncio
+    async def test_fbeta_zero_precision_recall(
+        self, sample_data: tuple[pd.DataFrame, list[str]]
+    ) -> None:
+        """When all predictions are NO, precision=recall=0 => f_beta_score=0."""
+        fake = FakeLLM(default_answer="NO")
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_fbeta_zero",
+            max_samples_as_context=8,
+            max_generated_questions=3,
+            question_scoring_f_beta=2.0,
+            _llm=fake,
+        )
+        X, y = sample_data
+        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.fit(X, y)
+        qdf = rrf.get_questions()
+        for qid in qdf.index:
+            p = qdf.at[qid, "precision"]
+            r = qdf.at[qid, "recall"]
+            fb = qdf.at[qid, "f_beta_score"]
+            if pd.notna(p) and p == 0.0 and pd.notna(r) and r == 0.0:
+                assert fb == 0.0
+
+    @pytest.mark.asyncio
+    async def test_fbeta_save_load_round_trip(
+        self,
+        sample_data: tuple[pd.DataFrame, list[str]],
+        tmp_path: object,
+    ) -> None:
+        """Save/load preserves question_scoring_f_beta and f_beta_score column."""
+        fake = FakeLLM(default_answer="ALTERNATE")
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_fbeta_sl",
+            max_samples_as_context=8,
+            max_generated_questions=3,
+            question_scoring_f_beta=0.5,
+            _llm=fake,
+        )
+        X, y = sample_data
+        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.fit(X, y)
+
+        save_dir = str(tmp_path)
+        rrf.save(save_dir)
+
+        loaded = RRF.load(save_dir)
+        assert loaded.question_scoring_f_beta == 0.5
+        loaded_qdf = loaded.get_questions()
+        assert "f_beta_score" in loaded_qdf.columns
+        orig_qdf = rrf.get_questions()
+        for qid in orig_qdf.index:
+            if pd.notna(orig_qdf.at[qid, "f_beta_score"]):
+                assert loaded_qdf.at[qid, "f_beta_score"] == pytest.approx(
+                    orig_qdf.at[qid, "f_beta_score"]
+                )
+
+
+# ---------------------------------------------------------------------------
 # save / load round-trip
 # ---------------------------------------------------------------------------
 

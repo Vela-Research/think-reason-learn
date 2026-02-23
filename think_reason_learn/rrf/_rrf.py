@@ -134,6 +134,7 @@ class RRF:
         self.qanswer_batch_size = qanswer_batch_size
         self.question_scoring_f_beta = question_scoring_f_beta
         self._llm_instance: Any = _llm if _llm is not None else llm
+        self._exclusion_log: list[dict[str, Any]] = []
 
         self._token_counter: TokenCounter = TokenCounter()
 
@@ -599,6 +600,11 @@ class RRF:
                 self._questions["exclusion"] == QuestionExclusion.SEMANTICS.value,
                 "exclusion",
             ] = None
+            self._exclusion_log = [
+                e
+                for e in self._exclusion_log
+                if e["exclusion_reason"] != "semantic_similarity"
+            ]
             return
 
         await self._set_questions_semantics(emb_model)
@@ -606,6 +612,11 @@ class RRF:
             self._questions["exclusion"] == QuestionExclusion.SEMANTICS.value,
             "exclusion",
         ] = None
+        self._exclusion_log = [
+            e
+            for e in self._exclusion_log
+            if e["exclusion_reason"] != "semantic_similarity"
+        ]
 
         qdf = self._questions
         embeddings_list: List[npt.NDArray[np.float32]] = []
@@ -661,7 +672,21 @@ class RRF:
                     return _safe_f1(qid)
 
                 best = max(group, key=f1_for_row)
+                best_qid = cast(str, self._questions.index[indices[best]])
                 for r in group:
+                    if r != best:
+                        loser_qid = cast(str, self._questions.index[indices[r]])
+                        sim_score = float(emb_matrix[r] @ emb_matrix[best])
+                        self._exclusion_log.append(
+                            {
+                                "excluded_question_id": loser_qid,
+                                "exclusion_reason": "semantic_similarity",
+                                "reference_question_id": best_qid,
+                                "similarity_score": sim_score,
+                                "threshold": threshold,
+                                "metric_used": "dot_product",
+                            }
+                        )
                     keep_flags[r] = False
                 keep_flags[best] = True
 
@@ -1180,6 +1205,11 @@ class RRF:
             == QuestionExclusion.PREDICTION_SIMILARITY.value,
             "exclusion",
         ] = None
+        self._exclusion_log = [
+            e
+            for e in self._exclusion_log
+            if e["exclusion_reason"] != "prediction_similarity"
+        ]
         if threshold is None:
             return
 
@@ -1214,9 +1244,29 @@ class RRF:
                     f1_j = _safe_f1(qids[j])
                     if f1_i < f1_j:
                         keep[i] = False
+                        self._exclusion_log.append(
+                            {
+                                "excluded_question_id": qids[i],
+                                "exclusion_reason": "prediction_similarity",
+                                "reference_question_id": qids[j],
+                                "similarity_score": sim,
+                                "threshold": threshold,
+                                "metric_used": self.answer_similarity_func,
+                            }
+                        )
                         break
                     else:
                         keep[j] = False
+                        self._exclusion_log.append(
+                            {
+                                "excluded_question_id": qids[j],
+                                "exclusion_reason": "prediction_similarity",
+                                "reference_question_id": qids[i],
+                                "similarity_score": sim,
+                                "threshold": threshold,
+                                "metric_used": self.answer_similarity_func,
+                            }
+                        )
 
         to_remove = [qids[k] for k in range(num_questions) if not keep[k]]
         if to_remove:
@@ -1340,6 +1390,10 @@ class RRF:
     ) -> AsyncGenerator[Tuple[Any, str, Literal["YES", "NO"], TokenCounter], None]:
         """Predict labels for samples.
 
+        Uses batched LLM answering to reduce API calls. Each batch groups
+        multiple samples into a single LLM call per question. The batch size
+        is controlled by ``qanswer_batch_size`` (default 20 when not set).
+
         Args:
             samples: Samples to predict.
 
@@ -1349,44 +1403,41 @@ class RRF:
         Raises:
             ValueError: If samples is empty or does not have the correct column.
         """
-        queue: asyncio.Queue[
-            Literal["DONE"] | Tuple[Any, str, Literal["YES", "NO"]]
-        ] = asyncio.Queue()
-
         token_counter = TokenCounter()
+        batch_size = self.qanswer_batch_size if self.qanswer_batch_size else 20
 
-        async def worker(sample_index: Any, sample: str) -> None:
-            try:
-                async for record in self._predict_single(
-                    sample_index=sample_index,
-                    sample=sample,
+        # Build list of (sample_index, sample_str) pairs
+        all_samples: list[tuple[Any, str]] = []
+        for sample_index, row in samples.iterrows():
+            sample_str = "\n".join([f"{col}: {val}" for col, val in row.items()])
+            all_samples.append((sample_index, sample_str))
+
+        # Get active (non-excluded) question IDs
+        active_qids: list[str] = [
+            cast(str, qid)
+            for qid in self._questions.index
+            if self._questions.at[qid, "exclusion"] is None
+        ]
+
+        for qid in active_qids:
+            question = cast(str, self._questions.at[qid, "question"])
+
+            # Process samples in batches for this question
+            for i in range(0, len(all_samples), batch_size):
+                batch = all_samples[i : i + batch_size]
+                results = await self._answer_questions_batch(
+                    question_id=qid,
+                    question=question,
+                    samples=batch,
                     token_counter=token_counter,
-                ):
-                    await queue.put(record)
-            finally:
-                await queue.put("DONE")
-
-        tasks: List[asyncio.Task[None]] = []
-        try:
-            for sample_index, row in samples.iterrows():
-                sample_str = "\n".join([f"{col}: {val}" for col, val in row.items()])
-                tasks.append(asyncio.create_task(worker(sample_index, sample_str)))
-
-            remaining = len(tasks)
-            while remaining > 0:
-                item = await queue.get()
-                if item == "DONE":
-                    remaining -= 1
-                    continue
-                else:
-                    yield item + (token_counter,)
-            return
-        except asyncio.CancelledError:
-            pass
-        finally:
-            for task in tasks:
-                if not task.done():
-                    task.cancel()
+                )
+                for sample_index, _question_id, label in results:
+                    yield (
+                        sample_index,
+                        qid,
+                        cast(Literal["YES", "NO"], label),
+                        token_counter,
+                    )
 
     async def update_question_exclusion(
         self,
@@ -1411,10 +1462,59 @@ class RRF:
             exclusion.value if exclusion else None
         )
 
+        if exclusion is not None:
+            self._exclusion_log.append(
+                {
+                    "excluded_question_id": question_id,
+                    "exclusion_reason": "expert",
+                    "reference_question_id": None,
+                    "similarity_score": None,
+                    "threshold": None,
+                    "metric_used": None,
+                }
+            )
+        else:
+            self._exclusion_log = [
+                e
+                for e in self._exclusion_log
+                if e["excluded_question_id"] != question_id
+            ]
+
         return (
             f"Updated exclusion of '{self._questions.at[question_id, 'question']}'"
             f" to {exclusion.value if exclusion else 'Not Excluded'}"
         )
+
+    def exclusion_report(
+        self, as_dict: bool = False
+    ) -> pd.DataFrame | list[dict[str, Any]]:
+        """Return a structured summary of excluded questions and why they were dropped.
+
+        Args:
+            as_dict: If True, return a list of dicts (JSON-serialisable).
+                If False (default), return a pandas DataFrame.
+
+        Returns:
+            A DataFrame or list of dicts with columns: excluded_question_id,
+            exclusion_reason, reference_question_id, similarity_score,
+            threshold, metric_used.
+        """
+        if as_dict:
+            return [dict(e) for e in self._exclusion_log]
+        if not self._exclusion_log:
+            return pd.DataFrame(
+                columns=pd.Index(
+                    [
+                        "excluded_question_id",
+                        "exclusion_reason",
+                        "reference_question_id",
+                        "similarity_score",
+                        "threshold",
+                        "metric_used",
+                    ]
+                )
+            )
+        return pd.DataFrame(self._exclusion_log)
 
     async def add_question(self, question: str) -> Literal[True]:
         """Add a question to the RRF.
@@ -1515,6 +1615,7 @@ class RRF:
             "random_state": self.random_state,
             "use_cumulative_memory": self.use_cumulative_memory,
             "question_scoring_f_beta": self.question_scoring_f_beta,
+            "exclusion_log": self._exclusion_log,
         }
         with (base / "rrf.json").open("w", encoding="utf-8") as f:
             f.write(orjson.dumps(manifest).decode())
@@ -1560,6 +1661,7 @@ class RRF:
         inst._task_description = manifest["task_description"]
         inst._qgen_instructions_template = manifest["qgen_instructions_template"]
         inst._last_emb_model = manifest["last_emb_model"]
+        inst._exclusion_log = manifest.get("exclusion_log", [])
         if tk_dict := manifest["token_counter"]:
             inst._token_counter = TokenCounter.from_dict(tk_dict)
 

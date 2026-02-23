@@ -918,3 +918,206 @@ class TestExclusionReport:
 
         loaded_report = loaded.exclusion_report(as_dict=True)
         assert loaded_report == original_report
+
+
+# ---------------------------------------------------------------------------
+# early semantic filtering (issue #44)
+# ---------------------------------------------------------------------------
+
+
+class TestEarlySemanticFiltering:
+    @pytest.mark.asyncio
+    async def test_early_filter_disabled_by_default(
+        self, sample_data: tuple[pd.DataFrame, list[str]]
+    ) -> None:
+        """Default RRF has no early semantic exclusions."""
+        fake = FakeLLM()
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_early_off",
+            max_samples_as_context=8,
+            max_generated_questions=6,
+            _llm=fake,
+        )
+        X, y = sample_data
+        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.fit(X, y)
+
+        report = rrf.exclusion_report()
+        assert isinstance(report, pd.DataFrame)
+        sem_rows = report[report["exclusion_reason"] == "semantic_similarity"]
+        assert len(sem_rows) == 0
+
+    @pytest.mark.asyncio
+    async def test_early_filter_reduces_questions(
+        self, sample_data: tuple[pd.DataFrame, list[str]]
+    ) -> None:
+        """Low threshold should exclude some questions before answering."""
+        fake = FakeLLM()
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_early_low",
+            max_samples_as_context=8,
+            max_generated_questions=6,
+            semantic_filtering_during_fit=True,
+            semantic_similarity_threshold=0.01,
+            _llm=fake,
+        )
+        X, y = sample_data
+        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.fit(X, y)
+
+        report = rrf.exclusion_report()
+        assert isinstance(report, pd.DataFrame)
+        sem_rows = report[report["exclusion_reason"] == "semantic_similarity"]
+        assert len(sem_rows) > 0
+
+    @pytest.mark.asyncio
+    async def test_early_filter_high_threshold_no_effect(
+        self, sample_data: tuple[pd.DataFrame, list[str]]
+    ) -> None:
+        """Threshold=1.0 should not exclude any questions."""
+        fake = FakeLLM()
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_early_high",
+            max_samples_as_context=8,
+            max_generated_questions=6,
+            semantic_filtering_during_fit=True,
+            semantic_similarity_threshold=1.0,
+            _llm=fake,
+        )
+        X, y = sample_data
+        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.fit(X, y)
+
+        report = rrf.exclusion_report()
+        assert isinstance(report, pd.DataFrame)
+        sem_rows = report[report["exclusion_reason"] == "semantic_similarity"]
+        assert len(sem_rows) == 0
+
+    @pytest.mark.asyncio
+    async def test_early_filter_records_exclusion_log(
+        self, sample_data: tuple[pd.DataFrame, list[str]]
+    ) -> None:
+        """Exclusion report entries have correct fields."""
+        fake = FakeLLM()
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_early_log",
+            max_samples_as_context=8,
+            max_generated_questions=6,
+            semantic_filtering_during_fit=True,
+            semantic_similarity_threshold=0.01,
+            _llm=fake,
+        )
+        X, y = sample_data
+        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.fit(X, y)
+
+        report = rrf.exclusion_report()
+        assert isinstance(report, pd.DataFrame)
+        sem_rows = report[report["exclusion_reason"] == "semantic_similarity"]
+        assert len(sem_rows) > 0
+        for _, row in sem_rows.iterrows():
+            assert row["metric_used"] == "dot_product"
+            assert row["threshold"] == 0.01
+            assert row["reference_question_id"] is not None
+            assert isinstance(row["similarity_score"], float)
+
+    @pytest.mark.asyncio
+    async def test_early_filter_save_load_config(
+        self,
+        sample_data: tuple[pd.DataFrame, list[str]],
+        tmp_path: object,
+    ) -> None:
+        """Save/load preserves early filter config params."""
+        fake = FakeLLM()
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_early_sl",
+            max_samples_as_context=8,
+            max_generated_questions=3,
+            semantic_filtering_during_fit=True,
+            semantic_similarity_threshold=0.85,
+            _llm=fake,
+        )
+        X, y = sample_data
+        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.fit(X, y)
+
+        save_dir = str(tmp_path)
+        rrf.save(save_dir)
+        loaded = RRF.load(save_dir)
+        assert loaded.semantic_filtering_during_fit is True
+        assert loaded.semantic_similarity_threshold == 0.85
+
+    @pytest.mark.asyncio
+    async def test_fit_summary_populated(
+        self, sample_data: tuple[pd.DataFrame, list[str]]
+    ) -> None:
+        """After fit with early filter, _last_fit_summary is populated."""
+        fake = FakeLLM()
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_early_summary",
+            max_samples_as_context=8,
+            max_generated_questions=6,
+            semantic_filtering_during_fit=True,
+            semantic_similarity_threshold=0.01,
+            _llm=fake,
+        )
+        X, y = sample_data
+        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.fit(X, y)
+
+        summary = rrf._last_fit_summary
+        assert "questions_generated" in summary
+        assert "questions_after_early_filter" in summary
+        assert "questions_answered" in summary
+        assert summary["questions_generated"] > 0
+        assert summary["questions_after_early_filter"] is not None
+        assert summary["questions_after_early_filter"] <= summary["questions_generated"]
+
+    @pytest.mark.asyncio
+    async def test_early_filter_reduces_llm_calls(
+        self, sample_data: tuple[pd.DataFrame, list[str]]
+    ) -> None:
+        """Early filtering should result in fewer answering LLM calls."""
+        X, y = sample_data
+
+        # Baseline: no early filtering
+        fake_base = FakeLLM()
+        rrf_base = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_early_calls_base",
+            max_samples_as_context=8,
+            max_generated_questions=6,
+            _llm=fake_base,
+        )
+        await rrf_base.set_tasks(task_description="Classify founders")
+        await rrf_base.fit(X, y)
+        calls_baseline = fake_base._call_count
+
+        # With early filtering (low threshold forces exclusions)
+        fake_early = FakeLLM()
+        rrf_early = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_early_calls_early",
+            max_samples_as_context=8,
+            max_generated_questions=6,
+            semantic_filtering_during_fit=True,
+            semantic_similarity_threshold=0.01,
+            _llm=fake_early,
+        )
+        await rrf_early.set_tasks(task_description="Classify founders")
+        await rrf_early.fit(X, y)
+        calls_early = fake_early._call_count
+
+        # Early filtering must have excluded some questions
+        report = rrf_early.exclusion_report()
+        assert isinstance(report, pd.DataFrame)
+        assert len(report) > 0
+
+        # Fewer total LLM calls because fewer questions were answered
+        assert calls_early < calls_baseline

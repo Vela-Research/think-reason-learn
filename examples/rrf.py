@@ -3,6 +3,7 @@
 A quick walkthrough of the Random Rule Forest (RRF) workflow:
   1. Define a task and generate YES/NO questions via an LLM
   2. Fit questions on labelled data (compute metrics)
+  2b. Early semantic filtering — deduplicate questions *before* answering
   3. Filter redundant questions (prediction similarity + semantic similarity)
   4. Inspect the exclusion report to see *why* questions were dropped
   5. Compare F1 vs F-beta scoring
@@ -133,6 +134,31 @@ async def main() -> None:  # noqa: D103
     rrf = await rrf.fit(X, y, reset=True)
     qdf = rrf.get_questions()
     print(f"Generated {len(qdf)} questions.\n")
+
+    # ------------------------------------------------------------------
+    # 2b. Early semantic filtering (issue #44)
+    # ------------------------------------------------------------------
+    print_section("2b. Early semantic filtering during fit")
+
+    print(
+        "By default, RRF generates questions then answers ALL of\n"
+        "them. With semantic_filtering_during_fit=True, near-\n"
+        "duplicate questions are removed *before* the expensive\n"
+        "answering step, saving LLM calls.\n"
+    )
+    print(
+        "  RRF(\n"
+        "      ...,\n"
+        "      semantic_filtering_during_fit=True,\n"
+        "      semantic_similarity_threshold=0.45,\n"
+        "  )\n"
+    )
+    print(
+        "This uses hashed_bag_of_words embeddings (no API calls)\n"
+        "to deduplicate questions immediately after generation.\n"
+        "The exclusion_report() will show 'semantic_similarity'\n"
+        "entries for any questions removed during this step."
+    )
 
     # ------------------------------------------------------------------
     # 3. Compare F1 vs F-beta scores

@@ -90,6 +90,12 @@ class RRF:
         question_scoring_f_beta: Beta parameter for computing F-beta score on
             questions. Default 1.0 (F1). Use 0.5 to weight precision more, or
             2.0 to weight recall more. Must be > 0.
+        semantic_filtering_during_fit: If True, run semantic deduplication on
+            generated questions *before* the expensive answering step. Uses
+            ``hashed_bag_of_words`` embeddings (no API calls). Default False.
+        semantic_similarity_threshold: Cosine-similarity threshold used for
+            early semantic filtering. Only relevant when
+            ``semantic_filtering_during_fit=True``. Default 0.9.
     """
 
     def __init__(
@@ -110,6 +116,8 @@ class RRF:
         use_cumulative_memory: bool = True,
         qanswer_batch_size: int | None = None,
         question_scoring_f_beta: float = 1.0,
+        semantic_filtering_during_fit: bool = False,
+        semantic_similarity_threshold: float = 0.9,
         _llm: Any = None,
     ):
         locals_dict = deepcopy(locals())
@@ -133,8 +141,11 @@ class RRF:
         self.use_cumulative_memory = use_cumulative_memory
         self.qanswer_batch_size = qanswer_batch_size
         self.question_scoring_f_beta = question_scoring_f_beta
+        self.semantic_filtering_during_fit = semantic_filtering_during_fit
+        self.semantic_similarity_threshold = semantic_similarity_threshold
         self._llm_instance: Any = _llm if _llm is not None else llm
         self._exclusion_log: list[dict[str, Any]] = []
+        self._last_fit_summary: dict[str, Any] = {}
 
         self._token_counter: TokenCounter = TokenCounter()
 
@@ -194,6 +205,12 @@ class RRF:
         val = kwargs["question_scoring_f_beta"]
         if not (isinstance(val, (int, float)) and val > 0):
             raise ValueError("question_scoring_f_beta must be a positive float (> 0)")
+        val = kwargs["semantic_filtering_during_fit"]
+        if not isinstance(val, bool):
+            raise TypeError("semantic_filtering_during_fit must be a bool")
+        val = kwargs["semantic_similarity_threshold"]
+        if not (isinstance(val, (int, float)) and 0 <= val <= 1):
+            raise ValueError("semantic_similarity_threshold must be between 0 and 1")
 
     def _get_name(self, name: str | None) -> str:
         if name is None:
@@ -1283,13 +1300,32 @@ class RRF:
 
         logger.info("Generating questions")
         await self._generate_questions()
-        logger.info(f"Generated {self._questions.shape[0]} questions")
+        n_generated = len(self._questions)
+        logger.info(f"Generated {n_generated} questions")
+
+        n_after_filter = None
+        if self.semantic_filtering_during_fit:
+            logger.info("Running early semantic filtering")
+            await self.filter_questions_on_semantics(
+                threshold=self.semantic_similarity_threshold,
+                emb_model="hashed_bag_of_words",
+            )
+            n_after_filter = int(self._questions["exclusion"].isna().sum())
+            logger.info(
+                f"Early semantic filter: {n_generated} → {n_after_filter} questions"
+            )
 
         logger.info("Answering questions")
         await self._answer_questions()
 
         logger.info("Setting questions metrics")
         self._set_questions_metrics()
+
+        self._last_fit_summary = {
+            "questions_generated": n_generated,
+            "questions_after_early_filter": n_after_filter,
+            "questions_answered": int(self._questions["exclusion"].isna().sum()),
+        }
 
     def _set_data(self, X: pd.DataFrame, y: Sequence[str], copy_data: bool) -> None:
         if not all(isinstance(item, str) for item in y):  # type: ignore
@@ -1615,6 +1651,8 @@ class RRF:
             "random_state": self.random_state,
             "use_cumulative_memory": self.use_cumulative_memory,
             "question_scoring_f_beta": self.question_scoring_f_beta,
+            "semantic_filtering_during_fit": self.semantic_filtering_during_fit,
+            "semantic_similarity_threshold": self.semantic_similarity_threshold,
             "exclusion_log": self._exclusion_log,
         }
         with (base / "rrf.json").open("w", encoding="utf-8") as f:
@@ -1656,6 +1694,12 @@ class RRF:
             name=manifest["name"],
             use_cumulative_memory=manifest.get("use_cumulative_memory", True),
             question_scoring_f_beta=manifest.get("question_scoring_f_beta", 1.0),
+            semantic_filtering_during_fit=manifest.get(
+                "semantic_filtering_during_fit", False
+            ),
+            semantic_similarity_threshold=manifest.get(
+                "semantic_similarity_threshold", 0.9
+            ),
         )
 
         inst._task_description = manifest["task_description"]

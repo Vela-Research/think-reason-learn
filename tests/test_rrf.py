@@ -1121,3 +1121,323 @@ class TestEarlySemanticFiltering:
 
         # Fewer total LLM calls because fewer questions were answered
         assert calls_early < calls_baseline
+
+
+# ---------------------------------------------------------------------------
+# predict concurrency (Step 5)
+# ---------------------------------------------------------------------------
+
+
+class TestPredictConcurrent:
+    @pytest.mark.asyncio
+    async def test_concurrent_matches_sequential(
+        self, sample_data: tuple[pd.DataFrame, list[str]]
+    ) -> None:
+        """Sequential and concurrent predict produce identical results."""
+        X, y = sample_data
+
+        # Sequential
+        fake_seq = FakeLLM()
+        rrf_seq = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_conc_seq",
+            max_samples_as_context=8,
+            max_generated_questions=3,
+            qanswer_batch_size=20,
+            _llm=fake_seq,
+        )
+        await rrf_seq.set_tasks(task_description="Classify founders")
+        await rrf_seq.fit(X, y)
+
+        seq_preds: dict[tuple[int, str], str] = {}
+        async for si, qid, ans, _tc in rrf_seq.predict(X):
+            seq_preds[(int(si), qid)] = ans
+
+        # Concurrent
+        fake_conc = FakeLLM()
+        rrf_conc = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_conc_conc",
+            max_samples_as_context=8,
+            max_generated_questions=3,
+            qanswer_batch_size=20,
+            _llm=fake_conc,
+        )
+        await rrf_conc.set_tasks(task_description="Classify founders")
+        await rrf_conc.fit(X, y)
+
+        conc_preds: dict[tuple[int, str], str] = {}
+        async for si, qid, ans, _tc in rrf_conc.predict(
+            X, max_concurrent=3
+        ):
+            conc_preds[(int(si), qid)] = ans
+
+        assert seq_preds == conc_preds
+
+    @pytest.mark.asyncio
+    async def test_concurrent_ordering_stable(
+        self, sample_data: tuple[pd.DataFrame, list[str]]
+    ) -> None:
+        """Two concurrent predict runs yield results in the same order."""
+        X, y = sample_data
+
+        async def _run() -> list[tuple[int, str, str]]:
+            fake = FakeLLM()
+            rrf = RRF(
+                qgen_llmc=LLM_CHOICE,
+                name="test_conc_order",
+                max_samples_as_context=8,
+                max_generated_questions=3,
+                qanswer_batch_size=20,
+                _llm=fake,
+            )
+            await rrf.set_tasks(task_description="Classify founders")
+            await rrf.fit(X, y)
+            out: list[tuple[int, str, str]] = []
+            async for si, qid, ans, _tc in rrf.predict(
+                X, max_concurrent=2
+            ):
+                out.append((int(si), qid, ans))
+            return out
+
+        run1 = await _run()
+        run2 = await _run()
+        assert run1 == run2
+
+    @pytest.mark.asyncio
+    async def test_concurrent_respects_max_concurrent(
+        self, sample_data: tuple[pd.DataFrame, list[str]]
+    ) -> None:
+        """Peak in-flight questions never exceeds max_concurrent."""
+        import asyncio as _aio
+
+        peak = 0
+        current = 0
+        lock = _aio.Lock()
+
+        class TrackingFakeLLM(FakeLLM):
+            async def respond(self, *args: object, **kwargs: object) -> object:  # type: ignore[override]
+                nonlocal peak, current
+                async with lock:
+                    current += 1
+                    if current > peak:
+                        peak = current
+                # Simulate a small delay so waves actually overlap
+                await _aio.sleep(0.01)
+                result = await super().respond(*args, **kwargs)  # type: ignore[arg-type]
+                async with lock:
+                    current -= 1
+                return result
+
+        X, y = sample_data
+        fake = TrackingFakeLLM()
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_conc_limit",
+            max_samples_as_context=8,
+            max_generated_questions=6,
+            qanswer_batch_size=20,
+            _llm=fake,
+        )
+        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.fit(X, y)
+
+        max_conc = 2
+        # Reset tracking after fit
+        peak = 0
+        current = 0
+
+        preds = []
+        async for pred in rrf.predict(X, max_concurrent=max_conc):
+            preds.append(pred)
+
+        assert len(preds) > 0
+        assert peak <= max_conc
+
+
+# ---------------------------------------------------------------------------
+# predict checkpointing (Step 6)
+# ---------------------------------------------------------------------------
+
+
+class TestPredictCheckpoint:
+    @pytest.mark.asyncio
+    async def test_checkpoint_save_creates_file(
+        self,
+        sample_data: tuple[pd.DataFrame, list[str]],
+        tmp_path: object,
+    ) -> None:
+        """predict with checkpoint_path creates predict_checkpoint.json."""
+        import orjson
+        from pathlib import Path
+
+        X, y = sample_data
+        fake = FakeLLM()
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_ckpt_save",
+            max_samples_as_context=8,
+            max_generated_questions=3,
+            qanswer_batch_size=20,
+            _llm=fake,
+        )
+        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.fit(X, y)
+
+        ckpt_dir = str(tmp_path)
+        async for _ in rrf.predict(X, checkpoint_path=ckpt_dir):
+            pass
+
+        ckpt_file = Path(ckpt_dir) / "predict_checkpoint.json"
+        assert ckpt_file.exists()
+        data = orjson.loads(ckpt_file.read_bytes())
+        assert "completed_qids" in data
+        assert "results" in data
+        assert "token_counter" in data
+
+    @pytest.mark.asyncio
+    async def test_checkpoint_resume_matches_uninterrupted(
+        self,
+        sample_data: tuple[pd.DataFrame, list[str]],
+        tmp_path: object,
+    ) -> None:
+        """Full predict then resumed predict yield identical results."""
+        X, y = sample_data
+
+        # Full run with checkpoint
+        fake_full = FakeLLM()
+        rrf_full = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_ckpt_match",
+            max_samples_as_context=8,
+            max_generated_questions=3,
+            qanswer_batch_size=20,
+            _llm=fake_full,
+        )
+        await rrf_full.set_tasks(task_description="Classify founders")
+        await rrf_full.fit(X, y)
+
+        ckpt_dir = str(tmp_path)
+        full_preds: dict[tuple[int, str], str] = {}
+        async for si, qid, ans, _tc in rrf_full.predict(
+            X, checkpoint_path=ckpt_dir
+        ):
+            full_preds[(int(si), qid)] = ans
+
+        # Resumed run from checkpoint
+        fake_resume = FakeLLM()
+        rrf_resume = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_ckpt_match",
+            max_samples_as_context=8,
+            max_generated_questions=3,
+            qanswer_batch_size=20,
+            _llm=fake_resume,
+        )
+        await rrf_resume.set_tasks(task_description="Classify founders")
+        await rrf_resume.fit(X, y)
+
+        resume_preds: dict[tuple[int, str], str] = {}
+        async for si, qid, ans, _tc in rrf_resume.predict(
+            X, checkpoint_path=ckpt_dir, resume=True
+        ):
+            resume_preds[(int(si), qid)] = ans
+
+        assert full_preds == resume_preds
+
+    @pytest.mark.asyncio
+    async def test_checkpoint_no_resume_without_flag(
+        self,
+        sample_data: tuple[pd.DataFrame, list[str]],
+        tmp_path: object,
+    ) -> None:
+        """resume=False recomputes from scratch even if checkpoint exists."""
+        X, y = sample_data
+
+        fake1 = FakeLLM()
+        rrf1 = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_ckpt_noresume",
+            max_samples_as_context=8,
+            max_generated_questions=3,
+            qanswer_batch_size=20,
+            _llm=fake1,
+        )
+        await rrf1.set_tasks(task_description="Classify founders")
+        await rrf1.fit(X, y)
+
+        ckpt_dir = str(tmp_path)
+        async for _ in rrf1.predict(X, checkpoint_path=ckpt_dir):
+            pass
+        calls_first = fake1._call_count
+
+        # Second run, resume=False (default) — should make same number of
+        # predict-phase LLM calls
+        fake2 = FakeLLM()
+        rrf2 = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_ckpt_noresume",
+            max_samples_as_context=8,
+            max_generated_questions=3,
+            qanswer_batch_size=20,
+            _llm=fake2,
+        )
+        await rrf2.set_tasks(task_description="Classify founders")
+        await rrf2.fit(X, y)
+
+        async for _ in rrf2.predict(X, checkpoint_path=ckpt_dir):
+            pass
+        # Both runs do the same total calls (fit + predict).
+        # Since both RRFs are built identically, fit calls are the same,
+        # so equal totals means predict was NOT skipped.
+        assert fake2._call_count == calls_first
+
+    @pytest.mark.asyncio
+    async def test_resume_skips_completed_questions(
+        self,
+        sample_data: tuple[pd.DataFrame, list[str]],
+        tmp_path: object,
+    ) -> None:
+        """Resumed run makes fewer LLM calls than a full run."""
+        X, y = sample_data
+
+        # Full run with checkpoint
+        fake_full = FakeLLM()
+        rrf_full = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_ckpt_skip",
+            max_samples_as_context=8,
+            max_generated_questions=3,
+            qanswer_batch_size=20,
+            _llm=fake_full,
+        )
+        await rrf_full.set_tasks(task_description="Classify founders")
+        await rrf_full.fit(X, y)
+
+        ckpt_dir = str(tmp_path)
+        async for _ in rrf_full.predict(X, checkpoint_path=ckpt_dir):
+            pass
+        full_total = fake_full._call_count
+
+        # Resumed run — all questions already completed, zero predict calls
+        fake_resume = FakeLLM()
+        rrf_resume = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_ckpt_skip",
+            max_samples_as_context=8,
+            max_generated_questions=3,
+            qanswer_batch_size=20,
+            _llm=fake_resume,
+        )
+        await rrf_resume.set_tasks(task_description="Classify founders")
+        await rrf_resume.fit(X, y)
+        calls_after_fit = fake_resume._call_count
+
+        async for _ in rrf_resume.predict(
+            X, checkpoint_path=ckpt_dir, resume=True
+        ):
+            pass
+
+        predict_calls_resumed = fake_resume._call_count - calls_after_fit
+        assert predict_calls_resumed == 0
+        assert fake_resume._call_count < full_total

@@ -1167,9 +1167,7 @@ class TestPredictConcurrent:
         await rrf_conc.fit(X, y)
 
         conc_preds: dict[tuple[int, str], str] = {}
-        async for si, qid, ans, _tc in rrf_conc.predict(
-            X, max_concurrent=3
-        ):
+        async for si, qid, ans, _tc in rrf_conc.predict(X, max_concurrent=3):
             conc_preds[(int(si), qid)] = ans
 
         assert seq_preds == conc_preds
@@ -1194,9 +1192,7 @@ class TestPredictConcurrent:
             await rrf.set_tasks(task_description="Classify founders")
             await rrf.fit(X, y)
             out: list[tuple[int, str, str]] = []
-            async for si, qid, ans, _tc in rrf.predict(
-                X, max_concurrent=2
-            ):
+            async for si, qid, ans, _tc in rrf.predict(X, max_concurrent=2):
                 out.append((int(si), qid, ans))
             return out
 
@@ -1319,9 +1315,7 @@ class TestPredictCheckpoint:
 
         ckpt_dir = str(tmp_path)
         full_preds: dict[tuple[int, str], str] = {}
-        async for si, qid, ans, _tc in rrf_full.predict(
-            X, checkpoint_path=ckpt_dir
-        ):
+        async for si, qid, ans, _tc in rrf_full.predict(X, checkpoint_path=ckpt_dir):
             full_preds[(int(si), qid)] = ans
 
         # Resumed run from checkpoint
@@ -1433,9 +1427,7 @@ class TestPredictCheckpoint:
         await rrf_resume.fit(X, y)
         calls_after_fit = fake_resume._call_count
 
-        async for _ in rrf_resume.predict(
-            X, checkpoint_path=ckpt_dir, resume=True
-        ):
+        async for _ in rrf_resume.predict(X, checkpoint_path=ckpt_dir, resume=True):
             pass
 
         predict_calls_resumed = fake_resume._call_count - calls_after_fit

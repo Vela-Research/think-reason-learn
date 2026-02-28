@@ -319,9 +319,9 @@ class RRF:
             ValueError: If template missing required tag or generation fails.
             AssertionError: If both parameters are None.
         """
-        assert (
-            instructions_template is not None or task_description is not None
-        ), "Either instructions_template or task_description must be provided"
+        assert instructions_template is not None or task_description is not None, (
+            "Either instructions_template or task_description must be provided"
+        )
 
         if instructions_template:
             if num_questions_tag not in instructions_template:
@@ -458,8 +458,7 @@ class RRF:
 
             if self.use_cumulative_memory:
                 query = (
-                    f"SAMPLES:\n{samples_str}\n\n"
-                    f"CUMULATIVE MEMORY: {cumulative_memory}"
+                    f"SAMPLES:\n{samples_str}\n\nCUMULATIVE MEMORY: {cumulative_memory}"
                 )
             else:
                 query = f"SAMPLES:\n{samples_str}"
@@ -1513,9 +1512,7 @@ class RRF:
             if not isinstance(checkpoint_every, int) or checkpoint_every <= 0:
                 raise ValueError("checkpoint_every must be None or an int > 0")
             if checkpoint_path is None:
-                raise ValueError(
-                    "checkpoint_every requires checkpoint_path to be set"
-                )
+                raise ValueError("checkpoint_every requires checkpoint_path to be set")
         if resume and checkpoint_path is None:
             raise ValueError("resume=True requires checkpoint_path to be set")
 
@@ -1572,9 +1569,7 @@ class RRF:
                         token_counter=token_counter,
                     )
                     for sample_index, _question_id, label in results:
-                        accumulated_results.append(
-                            (int(sample_index), qid, label)
-                        )
+                        accumulated_results.append((int(sample_index), qid, label))
                         yield (
                             sample_index,
                             qid,
@@ -1606,9 +1601,7 @@ class RRF:
             wave_start = 0
             questions_since_checkpoint = 0
             while wave_start < len(active_qids):
-                wave_qids = active_qids[
-                    wave_start : wave_start + max_concurrent
-                ]
+                wave_qids = active_qids[wave_start : wave_start + max_concurrent]
                 # Each task returns (qid, [(sample_index, qid, label), ...])
                 wave_results: dict[str, list[tuple[Any, str, str]]] = {}
 
@@ -1616,9 +1609,7 @@ class RRF:
                     qid: str,
                     _results: dict[str, list[tuple[Any, str, str]]],
                 ) -> None:
-                    question = cast(
-                        str, self._questions.at[qid, "question"]
-                    )
+                    question = cast(str, self._questions.at[qid, "question"])
                     qid_results: list[tuple[Any, str, str]] = []
                     for i in range(0, len(all_samples), batch_size):
                         batch = all_samples[i : i + batch_size]
@@ -1629,23 +1620,17 @@ class RRF:
                             token_counter=token_counter,
                         )
                         for sample_index, _question_id, label in batch_res:
-                            qid_results.append(
-                                (int(sample_index), qid, label)
-                            )
+                            qid_results.append((int(sample_index), qid, label))
                     _results[qid] = qid_results
 
                 async with asyncio.TaskGroup() as tg:
                     for wq in wave_qids:
-                        tg.create_task(
-                            _process_question(wq, wave_results)
-                        )
+                        tg.create_task(_process_question(wq, wave_results))
 
                 # Yield in deterministic (question-ID sorted) order
                 for qid in sorted(wave_results.keys()):
                     for sample_index, q, label in wave_results[qid]:
-                        accumulated_results.append(
-                            (sample_index, q, label)
-                        )
+                        accumulated_results.append((sample_index, q, label))
                         yield (
                             sample_index,
                             q,

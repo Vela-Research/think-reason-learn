@@ -117,6 +117,7 @@ class GeminiLLM(metaclass=SingletonMeta):
         raise_: bool = False,
         **kwargs: Any,
     ) -> LLMResponse[T] | None:
+        logprobs_retried: bool = kwargs.pop("_logprobs_retried", False)
         kwargs = self._process_kwargs(kwargs)
         config = self._build_config(
             response_format=response_format,
@@ -133,7 +134,7 @@ class GeminiLLM(metaclass=SingletonMeta):
             )
             return self._parse_response(response, model, response_format)
         except Exception as e:
-            if not self._logprobs_disabled and "logprobs" in str(e).lower():
+            if "logprobs" in str(e).lower() and not logprobs_retried:
                 logger.info(
                     "Logprobs not supported for %s, disabling and retrying.", model
                 )
@@ -145,6 +146,7 @@ class GeminiLLM(metaclass=SingletonMeta):
                     instructions=instructions,
                     temperature=temperature,
                     raise_=raise_,
+                    _logprobs_retried=True,
                     **kwargs,
                 )
             logger.warning(f"Error responding with Google: {e}", exc_info=True)
@@ -162,6 +164,7 @@ class GeminiLLM(metaclass=SingletonMeta):
         raise_: bool = False,
         **kwargs: Any,
     ) -> LLMResponse[T] | None:
+        logprobs_retried: bool = kwargs.pop("_logprobs_retried", False)
         kwargs = self._process_kwargs(kwargs)
         config = self._build_config(
             response_format=response_format,
@@ -178,7 +181,7 @@ class GeminiLLM(metaclass=SingletonMeta):
             )
             return self._parse_response(response, model, response_format)
         except Exception as e:
-            if not self._logprobs_disabled and "logprobs" in str(e).lower():
+            if "logprobs" in str(e).lower() and not logprobs_retried:
                 logger.info(
                     "Logprobs not supported for %s, disabling and retrying.", model
                 )
@@ -190,6 +193,7 @@ class GeminiLLM(metaclass=SingletonMeta):
                     instructions=instructions,
                     temperature=temperature,
                     raise_=raise_,
+                    _logprobs_retried=True,
                     **kwargs,
                 )
             logger.warning(f"Error responding with Google: {e}", exc_info=True)

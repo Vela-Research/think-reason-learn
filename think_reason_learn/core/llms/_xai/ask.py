@@ -44,7 +44,7 @@ class xAILLM(metaclass=SingletonMeta):
             with contextlib.suppress(IndexError):
                 if query and messages[-1].role != MessageRole.ROLE_USER:
                     messages.append(user(query))
-            if not (m for m in messages if m.role == MessageRole.ROLE_SYSTEM):
+            if not any(m.role == MessageRole.ROLE_SYSTEM for m in messages):
                 if instructions:
                     messages.insert(0, system(instructions))
 
@@ -103,7 +103,7 @@ class xAILLM(metaclass=SingletonMeta):
             with contextlib.suppress(IndexError):
                 if query and messages[-1].role != MessageRole.ROLE_USER:
                     messages.append(user(query))
-            if not (m for m in messages if m.role == MessageRole.ROLE_SYSTEM):
+            if not any(m.role == MessageRole.ROLE_SYSTEM for m in messages):
                 if instructions:
                     messages.insert(0, system(instructions))
 

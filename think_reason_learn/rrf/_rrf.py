@@ -626,9 +626,9 @@ class RRF:
 
         from sentence_transformers import SentenceTransformer  # type: ignore
 
-        encode_fn = cast(Any, SentenceTransformer(emb_model).encode_async)
-        embeddings_np = await encode_fn(
-            text, convert_to_numpy=True, normalize_embeddings=True
+        model = SentenceTransformer(emb_model)
+        embeddings_np = await asyncio.to_thread(
+            model.encode, text, convert_to_numpy=True, normalize_embeddings=True
         )
         embeddings_np = cast(np.ndarray, embeddings_np)
         return embeddings_np.astype(np.float32, copy=False)

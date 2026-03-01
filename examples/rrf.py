@@ -316,10 +316,16 @@ async def main() -> None:  # noqa: D103
     # Compare majority labels
     match = True
     for idx in sorted(sample_votes):
-        yes_orig = sample_votes[idx].count("YES")
-        orig = "YES" if yes_orig >= sample_votes[idx].count("NO") else "NO"
-        yes_load = loaded_votes[idx].count("YES")
-        load = "YES" if yes_load >= loaded_votes[idx].count("NO") else "NO"
+        orig = (
+            "YES"
+            if sample_votes[idx].count("YES") >= sample_votes[idx].count("NO")
+            else "NO"
+        )
+        load = (
+            "YES"
+            if loaded_votes[idx].count("YES") >= loaded_votes[idx].count("NO")
+            else "NO"
+        )
         if orig != load:
             match = False
             print(f"  Mismatch at sample {idx}: original={orig}, loaded={load}")

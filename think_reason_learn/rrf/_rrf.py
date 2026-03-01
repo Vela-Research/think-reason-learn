@@ -30,6 +30,7 @@ from ._prompts import num_questions_tag, CUMULATIVE_MEMORY_INSTRUCTIONS
 from ._prompts import QUESTION_GEN_INSTRUCTIONS, QUESTION_ANSWER_INSTRUCTIONS
 from ._types import EmbeddingModel, AnsSimilarityFunc
 from ._cost_sensitive import CostSensitiveConfig
+from ._prompt_presets import PromptPreset, PROMPT_PRESETS
 import re
 
 
@@ -110,6 +111,9 @@ class RRF:
         cost_sensitive: Enable cost-sensitive mode with screening and early pruning.
         cost_sensitive_config: Configuration for cost-sensitive mode. If None,
             uses default CostSensitiveConfig.
+        prompt_preset: Optional prompt preset (``PromptPreset`` instance or
+            registered name string). When provided, bypasses the meta-prompt
+            step and uses domain-specific prompts for generation and answering.
         _llm: LLM instance for testing (dependency injection). If None, uses global llm.
     """
 
@@ -137,11 +141,13 @@ class RRF:
         aggregation_max_k: int | None = None,
         cost_sensitive: bool = False,
         cost_sensitive_config: CostSensitiveConfig | None = None,
+        prompt_preset: str | PromptPreset | None = None,
         _llm: Any = None,
     ):
         locals_dict = deepcopy(locals())
         del locals_dict["self"]
         locals_dict.pop("_llm", None)
+        locals_dict.pop("prompt_preset", None)
         self._verify_input_data(**locals_dict)
 
         self.qgen_llmc = qgen_llmc
@@ -166,6 +172,18 @@ class RRF:
         self.aggregation_max_k = aggregation_max_k
         self.cost_sensitive = cost_sensitive
         self.cost_sensitive_config = cost_sensitive_config or CostSensitiveConfig()
+
+        # Resolve prompt preset (string name → PromptPreset object).
+        if isinstance(prompt_preset, str):
+            if prompt_preset not in PROMPT_PRESETS:
+                raise ValueError(
+                    f"Unknown prompt preset '{prompt_preset}'. "
+                    f"Available: {list(PROMPT_PRESETS.keys())}"
+                )
+            self._prompt_preset: PromptPreset | None = PROMPT_PRESETS[prompt_preset]
+        else:
+            self._prompt_preset = prompt_preset
+
         self._llm_instance: Any = _llm if _llm is not None else llm
         self._exclusion_log: list[dict[str, Any]] = []
         self._last_fit_summary: dict[str, Any] = {}
@@ -355,6 +373,23 @@ class RRF:
             ValueError: If template missing required tag or generation fails.
             AssertionError: If both parameters are None.
         """
+        if self._prompt_preset is not None and instructions_template is not None:
+            raise ValueError(
+                "Cannot provide both 'prompt_preset' and 'instructions_template'. "
+                "The preset already defines generation prompts."
+            )
+
+        # When a preset is active, build the template from the preset's
+        # user template (which uses {num_questions}) and store it with the
+        # internal <number_of_questions> tag so the rest of the pipeline works.
+        if self._prompt_preset is not None:
+            preset_template = self._prompt_preset.question_gen_user_template.replace(
+                "{num_questions}", num_questions_tag
+            )
+            self._qgen_instructions_template = preset_template
+            self._task_description = task_description
+            return preset_template
+
         assert (
             instructions_template is not None or task_description is not None
         ), "Either instructions_template or task_description must be provided"
@@ -484,6 +519,10 @@ class RRF:
         cumulative_memory = "No cumulative memory yet. This is the first generation."
         all_questions: List[str] = []
 
+        # When a preset is active, the user template becomes the query
+        # (with {samples} filled in) and the system message is the instructions.
+        use_preset = self._prompt_preset is not None
+
         for sample_df in self._sample(self.max_samples_as_context):
             samples_str = ""
             for each_sample in sample_df.to_dict(orient="records"):  # type: ignore
@@ -492,19 +531,24 @@ class RRF:
                 )
                 samples_str += f"\n{sample_str};"
 
-            if self.use_cumulative_memory:
+            if use_preset:
+                query = instructions.replace("{samples}", samples_str)
+                llm_instructions = self._prompt_preset.question_gen_system  # type: ignore[union-attr]
+            elif self.use_cumulative_memory:
                 query = (
                     f"SAMPLES:\n{samples_str}\n\nCUMULATIVE MEMORY: {cumulative_memory}"
                 )
+                llm_instructions = instructions
             else:
                 query = f"SAMPLES:\n{samples_str}"
+                llm_instructions = instructions
 
             async with self._llm_semaphore:
                 response = await self._llm_instance.respond(
                     query=query,
                     llm_priority=self.qgen_llmc,
                     response_format=Questions,
-                    instructions=instructions,
+                    instructions=llm_instructions,
                     temperature=self.qgen_temperature,
                 )
 
@@ -759,11 +803,21 @@ class RRF:
     ) -> Tuple[Any, str, Answer] | None:
         """Returns sample_index, question_id, answer."""
         try:
+            if self._prompt_preset is not None:
+                ans_query = self._prompt_preset.question_answer_user_template.format(
+                    question=question,
+                    sample=sample,
+                )
+                ans_instructions = self._prompt_preset.question_answer_system
+            else:
+                ans_query = f"Query: {question}\n\nSample: {sample}"
+                ans_instructions = QUESTION_ANSWER_INSTRUCTIONS
+
             async with self._llm_semaphore:
                 response = await self._llm_instance.respond(
                     llm_priority=self.qanswer_llmc,
-                    query=f"Query: {question}\n\nSample: {sample}",
-                    instructions=QUESTION_ANSWER_INSTRUCTIONS,
+                    query=ans_query,
+                    instructions=ans_instructions,
                     response_format=Answer,
                     temperature=self.qanswer_temperature,
                 )
@@ -834,12 +888,17 @@ class RRF:
             f"Samples:\n{samples_block}"
         )
 
+        if self._prompt_preset is not None:
+            batch_instructions = self._prompt_preset.question_answer_system
+        else:
+            batch_instructions = QUESTION_ANSWER_INSTRUCTIONS
+
         try:
             async with self._llm_semaphore:
                 response = await self._llm_instance.respond(
                     llm_priority=self.qanswer_llmc,
                     query=query,
-                    instructions=QUESTION_ANSWER_INSTRUCTIONS,
+                    instructions=batch_instructions,
                     response_format=str,
                     temperature=self.qanswer_temperature,
                 )

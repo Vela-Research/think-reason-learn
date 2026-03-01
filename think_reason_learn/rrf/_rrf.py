@@ -96,6 +96,12 @@ class RRF:
         semantic_similarity_threshold: Cosine-similarity threshold used for
             early semantic filtering. Only relevant when
             ``semantic_filtering_during_fit=True``. Default 0.9.
+        aggregation_metric: Metric optimized when tuning (K, T) for
+            founder-level prediction during ``fit()``. One of ``"f1"``,
+            ``"accuracy"``, ``"precision"``, ``"recall"``. Default ``"f1"``.
+        aggregation_max_k: Maximum K (number of top questions) to consider
+            during (K, T) grid search. ``None`` means use all active
+            questions. Default ``None``.
     """
 
     def __init__(
@@ -118,6 +124,8 @@ class RRF:
         question_scoring_f_beta: float = 1.0,
         semantic_filtering_during_fit: bool = False,
         semantic_similarity_threshold: float = 0.9,
+        aggregation_metric: Literal["f1", "accuracy", "precision", "recall"] = "f1",
+        aggregation_max_k: int | None = None,
         _llm: Any = None,
     ):
         locals_dict = deepcopy(locals())
@@ -143,9 +151,13 @@ class RRF:
         self.question_scoring_f_beta = question_scoring_f_beta
         self.semantic_filtering_during_fit = semantic_filtering_during_fit
         self.semantic_similarity_threshold = semantic_similarity_threshold
+        self.aggregation_metric = aggregation_metric
+        self.aggregation_max_k = aggregation_max_k
         self._llm_instance: Any = _llm if _llm is not None else llm
         self._exclusion_log: list[dict[str, Any]] = []
         self._last_fit_summary: dict[str, Any] = {}
+        self._aggregation_k: int | None = None
+        self._aggregation_t: int | None = None
 
         self._token_counter: TokenCounter = TokenCounter()
 
@@ -211,6 +223,14 @@ class RRF:
         val = kwargs["semantic_similarity_threshold"]
         if not (isinstance(val, (int, float)) and 0 <= val <= 1):
             raise ValueError("semantic_similarity_threshold must be between 0 and 1")
+        val = kwargs["aggregation_metric"]
+        if val not in ("f1", "accuracy", "precision", "recall"):
+            raise ValueError(
+                "aggregation_metric must be 'f1', 'accuracy', 'precision', or 'recall'"
+            )
+        val = kwargs["aggregation_max_k"]
+        if val is not None and (not isinstance(val, int) or val < 1):
+            raise ValueError("aggregation_max_k must be None or a positive integer")
 
     def _get_name(self, name: str | None) -> str:
         if name is None:
@@ -458,8 +478,7 @@ class RRF:
 
             if self.use_cumulative_memory:
                 query = (
-                    f"SAMPLES:\n{samples_str}\n\n"
-                    f"CUMULATIVE MEMORY: {cumulative_memory}"
+                    f"SAMPLES:\n{samples_str}\n\nCUMULATIVE MEMORY: {cumulative_memory}"
                 )
             else:
                 query = f"SAMPLES:\n{samples_str}"
@@ -1179,6 +1198,239 @@ class RRF:
             self._questions.at[qid, "f_beta_score"] = f_beta
             self._questions.at[qid, "accuracy"] = accuracy
 
+    # ------------------------------------------------------------------
+    # Founder-level aggregation (issue #47)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _compute_metric(
+        preds: npt.NDArray[np.int_],
+        y_true: npt.NDArray[np.int_],
+        metric: str,
+    ) -> float:
+        """Compute a classification metric from binary arrays.
+
+        Args:
+            preds: Predicted labels (0/1).
+            y_true: True labels (0/1).
+            metric: One of "f1", "accuracy", "precision", "recall".
+
+        Returns:
+            The metric value as a float.
+        """
+        tp = int(((preds == 1) & (y_true == 1)).sum())
+        tn = int(((preds == 0) & (y_true == 0)).sum())
+        fp = int(((preds == 1) & (y_true == 0)).sum())
+        fn = int(((preds == 0) & (y_true == 1)).sum())
+        total = tp + tn + fp + fn
+
+        if metric == "accuracy":
+            return (tp + tn) / total if total else 0.0
+        if metric == "precision":
+            return tp / (tp + fp) if (tp + fp) else 0.0
+        if metric == "recall":
+            return tp / (tp + fn) if (tp + fn) else 0.0
+        if metric == "f1":
+            p = tp / (tp + fp) if (tp + fp) else 0.0
+            r = tp / (tp + fn) if (tp + fn) else 0.0
+            return 2 * p * r / (p + r) if (p + r) else 0.0
+        raise ValueError(f"Unknown metric: {metric}")
+
+    @staticmethod
+    def aggregate_predictions(
+        response_matrix: pd.DataFrame,
+        question_scores: pd.Series,
+        k: int,
+        t: int,
+    ) -> pd.Series:
+        """Aggregate per-question binary responses into founder-level labels.
+
+        Selects the top-K questions by score (descending) and predicts YES
+        for a founder if at least T of those K questions are answered YES.
+
+        Args:
+            response_matrix: Binary DataFrame (n_samples x n_questions)
+                with values 0 (NO) or 1 (YES).
+            question_scores: Float scores indexed by question ID.
+            k: Number of top-scoring questions to use.
+            t: Minimum YES count to predict "YES".
+
+        Returns:
+            Series of "YES"/"NO" predictions indexed by sample.
+
+        Raises:
+            ValueError: If k or t are out of valid range.
+        """
+        n_questions = len(question_scores)
+        if k < 1 or k > n_questions:
+            raise ValueError(f"k must be between 1 and {n_questions}, got {k}")
+        if t < 1 or t > k:
+            raise ValueError(f"t must be between 1 and k={k}, got {t}")
+
+        sorted_qids = question_scores.sort_values(ascending=False).index[:k]
+        top_k = response_matrix[sorted_qids]
+        yes_counts = top_k.sum(axis=1)
+        return pd.Series(
+            np.where(yes_counts >= t, "YES", "NO"),
+            index=response_matrix.index,
+        )
+
+    def _tune_aggregation(self) -> None:
+        """Find best (K, T) on training data via grid search.
+
+        Uses the already-computed ``_answers`` DataFrame and ``_y`` labels.
+        No additional LLM calls are made. Stores results in
+        ``_aggregation_k`` and ``_aggregation_t``.
+        """
+        if self._y is None:
+            return
+
+        active_qids = [
+            cast(str, qid)
+            for qid in self._questions.index
+            if self._questions.at[qid, "exclusion"] is None
+            and qid in self._answers.columns
+        ]
+        if not active_qids:
+            return
+
+        binary = self._answers[active_qids].apply(
+            lambda col: (col == "YES").astype(int)
+        )
+        scores = self._questions.loc[active_qids, "f_beta_score"].astype(float)
+        sorted_qids = scores.sort_values(ascending=False).index
+        sorted_binary = binary[sorted_qids].values  # type: ignore[union-attr]
+        cumsum = np.cumsum(sorted_binary, axis=1)  # type: ignore[arg-type]
+        y_true = np.array([1 if yi == "YES" else 0 for yi in self._y])
+
+        q_count = len(sorted_qids)
+        max_k = (
+            min(self.aggregation_max_k, q_count)
+            if self.aggregation_max_k is not None
+            else q_count
+        )
+
+        best_score, best_k, best_t = -1.0, 1, 1
+        for k in range(1, max_k + 1):
+            yes_at_k = cumsum[:, k - 1]
+            for t_val in range(1, k + 1):
+                preds = (yes_at_k >= t_val).astype(int)
+                score = RRF._compute_metric(preds, y_true, self.aggregation_metric)
+                if score > best_score:
+                    best_score, best_k, best_t = score, k, t_val
+
+        self._aggregation_k = best_k
+        self._aggregation_t = best_t
+        logger.info(
+            "Aggregation tuned: K=%d, T=%d (%s=%.4f)",
+            best_k,
+            best_t,
+            self.aggregation_metric,
+            best_score,
+        )
+
+    async def _build_response_matrix(self, X: pd.DataFrame) -> pd.DataFrame:
+        """Run predict() on X and build a binary response matrix.
+
+        Returns:
+            DataFrame of shape (n_samples, n_active_questions) with int
+            values 1 (YES) or 0 (NO).
+        """
+        active_qids = [
+            cast(str, qid)
+            for qid in self._questions.index
+            if self._questions.at[qid, "exclusion"] is None
+        ]
+
+        matrix = pd.DataFrame(
+            0,
+            index=X.index,
+            columns=active_qids,  # type: ignore[arg-type]
+            dtype=int,
+        )
+
+        async for sample_idx, qid, answer, _tc in self.predict(X):
+            matrix.at[sample_idx, qid] = 1 if answer == "YES" else 0
+
+        return matrix
+
+    async def predict_founder_level(
+        self,
+        X: pd.DataFrame,
+        *,
+        k: int | None = None,
+        t: int | None = None,
+    ) -> pd.DataFrame:
+        """Founder-level binary predictions using top-K / threshold-T.
+
+        Calls ``predict()`` internally to get per-question answers, then
+        aggregates using the top-K questions (ranked by f_beta_score) and
+        a YES-count threshold T.
+
+        K and T are learned during ``fit()`` via grid search on training
+        data. You can override them with explicit arguments.
+
+        Note:
+            K/T are tuned on training data (same data used for question
+            scoring). For stricter separation, pass explicit ``k`` and
+            ``t`` values tuned on a held-out validation set.
+
+        Example::
+
+            # sklearn-style workflow
+            rrf = RRF(qgen_llmc=llm_choices, name="my_rrf")
+            await rrf.set_tasks(task_description="Classify founders")
+            await rrf.fit(X_train, y_train)
+
+            # Predict on new data
+            results = await rrf.predict_founder_level(X_test)
+            print(results[["prediction", "yes_count"]])
+
+        Args:
+            X: Samples to predict (same format as fit input).
+            k: Number of top questions to use. Defaults to the value
+                learned during fit.
+            t: Minimum YES count to predict "YES". Defaults to the
+                value learned during fit.
+
+        Returns:
+            DataFrame with columns:
+                - prediction: "YES" or "NO"
+                - yes_count: number of YES answers among top-K questions
+                - k: the K value used
+                - t: the T value used
+            Index matches X.index.
+
+        Raises:
+            ValueError: If k/t not provided and not learned during fit.
+        """
+        k_val = k if k is not None else self._aggregation_k
+        t_val = t if t is not None else self._aggregation_t
+        if k_val is None or t_val is None:
+            raise ValueError(
+                "k and t must be provided explicitly or learned "
+                "via fit(). Call fit() first or pass k and t."
+            )
+
+        matrix = await self._build_response_matrix(X)
+        active_qids = list(matrix.columns)
+        scores = self._questions.loc[active_qids, "f_beta_score"].astype(float)
+
+        predictions = self.aggregate_predictions(matrix, scores, k_val, t_val)
+
+        sorted_qids = scores.sort_values(ascending=False).index[:k_val]
+        yes_counts = matrix[sorted_qids].sum(axis=1)
+
+        return pd.DataFrame(
+            {
+                "prediction": predictions,
+                "yes_count": yes_counts,
+                "k": k_val,
+                "t": t_val,
+            },
+            index=X.index,
+        )
+
     def _jaccard_similarity(self, col1: pd.Series, col2: pd.Series) -> float:
         set1 = set(col1.index[col1 == "YES"])  # type: ignore
         set2 = set(col2.index[col2 == "YES"])  # type: ignore
@@ -1321,6 +1573,9 @@ class RRF:
         logger.info("Setting questions metrics")
         self._set_questions_metrics()
 
+        logger.info("Tuning founder-level aggregation (K, T)")
+        self._tune_aggregation()
+
         self._last_fit_summary = {
             "questions_generated": n_generated,
             "questions_after_early_filter": n_after_filter,
@@ -1360,6 +1615,15 @@ class RRF:
         reset: bool = False,
     ) -> Self:
         """Fit the RRF to the data.
+
+        Generates questions, answers them on the provided data, computes
+        per-question metrics, and tunes (K, T) for founder-level
+        aggregation via ``predict_founder_level()``.
+
+        Note:
+            (K, T) are tuned on the data passed to ``fit()``. For
+            unbiased evaluation, fit on training data and evaluate on
+            a held-out test set.
 
         Args:
             X: Training features. Required on first run or with reset=True.
@@ -1600,11 +1864,13 @@ class RRF:
             qdf = self._questions.copy()
             if "embedding" in qdf.columns:
                 qdf["embedding"] = qdf["embedding"].apply(  # type: ignore
-                    lambda x: orjson.dumps(  # type: ignore
-                        x.tolist() if isinstance(x, np.ndarray) else x
-                    ).decode()
-                    if x is not None
-                    else None
+                    lambda x: (
+                        orjson.dumps(  # type: ignore
+                            x.tolist() if isinstance(x, np.ndarray) else x
+                        ).decode()
+                        if x is not None
+                        else None
+                    )
                 )
             qdf.to_parquet(base / "questions.parquet")  # type: ignore
 
@@ -1654,6 +1920,10 @@ class RRF:
             "semantic_filtering_during_fit": self.semantic_filtering_during_fit,
             "semantic_similarity_threshold": self.semantic_similarity_threshold,
             "exclusion_log": self._exclusion_log,
+            "aggregation_metric": self.aggregation_metric,
+            "aggregation_max_k": self.aggregation_max_k,
+            "aggregation_k": self._aggregation_k,
+            "aggregation_t": self._aggregation_t,
         }
         with (base / "rrf.json").open("w", encoding="utf-8") as f:
             f.write(orjson.dumps(manifest).decode())
@@ -1700,12 +1970,16 @@ class RRF:
             semantic_similarity_threshold=manifest.get(
                 "semantic_similarity_threshold", 0.9
             ),
+            aggregation_metric=manifest.get("aggregation_metric", "f1"),
+            aggregation_max_k=manifest.get("aggregation_max_k"),
         )
 
         inst._task_description = manifest["task_description"]
         inst._qgen_instructions_template = manifest["qgen_instructions_template"]
         inst._last_emb_model = manifest["last_emb_model"]
         inst._exclusion_log = manifest.get("exclusion_log", [])
+        inst._aggregation_k = manifest.get("aggregation_k")
+        inst._aggregation_t = manifest.get("aggregation_t")
         if tk_dict := manifest["token_counter"]:
             inst._token_counter = TokenCounter.from_dict(tk_dict)
 
@@ -1715,9 +1989,11 @@ class RRF:
         qdf = pd.read_parquet(q_path)  # type: ignore
         if "embedding" in qdf.columns:
             qdf["embedding"] = qdf["embedding"].apply(  # type: ignore
-                lambda x: np.array(orjson.loads(x), dtype=np.float32)  # type: ignore
-                if x is not None
-                else None
+                lambda x: (
+                    np.array(orjson.loads(x), dtype=np.float32)  # type: ignore
+                    if x is not None
+                    else None
+                )
             )
         for col in [
             "excluded_in_semantics",

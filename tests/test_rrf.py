@@ -1826,6 +1826,127 @@ class TestFBetaAggregation:
 
 
 # ---------------------------------------------------------------------------
+# Cross-validation tests
+# ---------------------------------------------------------------------------
+
+from think_reason_learn.rrf._cross_validation import (  # noqa: E402
+    cross_validate_aggregation,
+    CVResult,
+)
+
+
+def _make_answer_matrix(
+    n_samples: int = 30, n_questions: int = 3, pos_rate: float = 0.2
+) -> tuple[pd.DataFrame, list[str]]:
+    """Build a synthetic answer matrix + labels for CV tests."""
+    rng = np.random.default_rng(42)
+    n_pos = int(n_samples * pos_rate)
+    y = ["YES"] * n_pos + ["NO"] * (n_samples - n_pos)
+    # Questions that correlate with the label (imperfectly)
+    data: dict[str, list[str]] = {}
+    for q in range(n_questions):
+        col: list[str] = []
+        for label in y:
+            if label == "YES":
+                col.append("YES" if rng.random() > 0.3 else "NO")
+            else:
+                col.append("NO" if rng.random() > 0.3 else "YES")
+        data[f"q{q}"] = col
+    return pd.DataFrame(data), y
+
+
+class TestCrossValidation:
+    """Tests for cross_validate_aggregation."""
+
+    def test_cv_basic_runs(self) -> None:
+        """Function runs and returns CVResult with correct types."""
+        answers, y = _make_answer_matrix()
+        result = cross_validate_aggregation(
+            answers, y, n_splits=5, n_repeats=2, beta=0.5
+        )
+        assert isinstance(result, CVResult)
+        assert isinstance(result.fold_metrics, pd.DataFrame)
+        assert isinstance(result.per_founder, pd.DataFrame)
+        assert isinstance(result.summary, dict)
+
+    def test_cv_fold_count(self) -> None:
+        """n_splits=5, n_repeats=2 gives 10 fold rows."""
+        answers, y = _make_answer_matrix()
+        result = cross_validate_aggregation(
+            answers, y, n_splits=5, n_repeats=2, beta=0.5
+        )
+        assert len(result.fold_metrics) == 10
+        assert set(result.fold_metrics.columns) >= {
+            "repeat",
+            "fold",
+            "k",
+            "t",
+            "precision",
+            "recall",
+            "f1",
+            "f_beta",
+            "accuracy",
+            "n_train",
+            "n_test",
+        }
+
+    def test_cv_per_founder_coverage(self) -> None:
+        """Each founder appears exactly n_repeats times."""
+        answers, y = _make_answer_matrix(n_samples=30)
+        n_repeats = 3
+        result = cross_validate_aggregation(
+            answers, y, n_splits=5, n_repeats=n_repeats, beta=0.5
+        )
+        counts = result.per_founder.groupby("sample_idx").size()
+        assert len(counts) == 30
+        assert (counts == n_repeats).all()
+
+    def test_cv_summary_keys(self) -> None:
+        """Summary dict has mean and std for each metric."""
+        answers, y = _make_answer_matrix()
+        result = cross_validate_aggregation(
+            answers, y, n_splits=5, n_repeats=1, beta=0.5
+        )
+        for m in ("precision", "recall", "f1", "f_beta", "accuracy"):
+            assert f"{m}_mean" in result.summary
+            assert f"{m}_std" in result.summary
+
+    def test_cv_no_leakage(self) -> None:
+        """Train and test indices never overlap within a fold."""
+        answers, y = _make_answer_matrix(n_samples=30)
+        result = cross_validate_aggregation(
+            answers, y, n_splits=5, n_repeats=2, beta=0.5
+        )
+        # Per repeat, all sample indices appear exactly once
+        for rep in range(2):
+            rep_data = result.per_founder[result.per_founder["repeat"] == rep]
+            assert sorted(rep_data["sample_idx"]) == list(range(30))
+
+    def test_cv_metric_param(self) -> None:
+        """Different metrics can produce different (K, T) selections."""
+        answers, y = _make_answer_matrix(n_samples=30, n_questions=5)
+        r1 = cross_validate_aggregation(
+            answers,
+            y,
+            n_splits=5,
+            n_repeats=1,
+            metric="f_beta",
+            beta=0.5,
+        )
+        r2 = cross_validate_aggregation(
+            answers,
+            y,
+            n_splits=5,
+            n_repeats=1,
+            metric="precision",
+            beta=0.5,
+        )
+        # Both should succeed; K/T selections may differ
+        assert len(r1.fold_metrics) == 5
+        assert len(r2.fold_metrics) == 5
+
+
+# ---------------------------------------------------------------------------
 # Prompt preset tests
 # ---------------------------------------------------------------------------
 

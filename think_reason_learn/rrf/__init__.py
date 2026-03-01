@@ -8,6 +8,7 @@ from ._rrf import RRF, QuestionExclusion
 from ._types import EmbeddingModel, AnsSimilarityFunc
 from ._cost_sensitive import CostSensitiveConfig
 from ._prompt_presets import PromptPreset, PROMPT_PRESETS, VC_FOUNDER_PRESET
+from ._cross_validation import cross_validate_aggregation, CVResult
 
 __all__ = [
     "RRF",
@@ -18,4 +19,6 @@ __all__ = [
     "PromptPreset",
     "PROMPT_PRESETS",
     "VC_FOUNDER_PRESET",
+    "cross_validate_aggregation",
+    "CVResult",
 ]

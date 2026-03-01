@@ -181,10 +181,10 @@ class LLM(metaclass=SingletonMeta):
         llmps = [f"{llmp.provider}: {llmp.model}" for llmp in llm_priority_models]
         raise ValueError(
             f"Failed to respond with any of {llmps}\n"
-            "Query: {query}\n"
-            "Instructions: {instructions}\n"
-            "Temperature: {temperature}\n"
-            "**kwargs: {kwargs}"
+            f"Query: {query}\n"
+            f"Instructions: {instructions}\n"
+            f"Temperature: {temperature}\n"
+            f"**kwargs: {kwargs}"
         )
 
     async def respond(

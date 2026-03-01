@@ -1698,6 +1698,9 @@ class RRF:
         else:
             await self._build_rrf_standard()
 
+        logger.info("Tuning founder-level aggregation (K, T)")
+        self._tune_aggregation()
+
         self._last_fit_summary = {
             "questions_generated": n_generated,
             "questions_after_early_filter": n_after_filter,

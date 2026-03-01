@@ -50,6 +50,11 @@ class FakeLLM:
         self._call_count = 0
         self.calls: List[Dict[str, Any]] = []
 
+    @property
+    def call_count(self) -> int:
+        """Alias for ``_call_count`` (used by cost-sensitive tests)."""
+        return self._call_count
+
     def _get_answer(self, index: int = 0) -> Literal["YES", "NO"]:
         if self.default_answer == "ALTERNATE":
             return "YES" if index % 2 == 0 else "NO"
@@ -137,3 +142,8 @@ class FakeLLM:
             total_tokens=20 * max(len(indices), 1),
             provider_model=_FAKE_PROVIDER,
         )
+
+    def reset(self) -> None:
+        """Reset call tracking."""
+        self._call_count = 0
+        self.calls = []

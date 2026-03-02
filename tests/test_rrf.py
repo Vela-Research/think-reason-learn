@@ -469,6 +469,10 @@ class TestValidation:
         with pytest.raises(ValueError):
             RRF(qgen_llmc=LLM_CHOICE, answer_similarity_func="cosine")
 
+    def test_correlation_similarity_func_accepted(self) -> None:
+        rrf = RRF(qgen_llmc=LLM_CHOICE, answer_similarity_func="correlation")
+        assert rrf.answer_similarity_func == "correlation"
+
     @pytest.mark.asyncio
     async def test_mismatched_xy_raises(self) -> None:
         fake = FakeLLM()
@@ -786,6 +790,52 @@ class TestExclusionReport:
             assert isinstance(row["similarity_score"], float)
             assert row["threshold"] == 0.9
             assert row["metric_used"] == "hamming"
+
+    @pytest.mark.asyncio
+    async def test_pred_similarity_correlation(
+        self, sample_data: tuple[pd.DataFrame, list[str]]
+    ) -> None:
+        fake = FakeLLM(default_answer="YES")
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_corr",
+            max_samples_as_context=8,
+            max_generated_questions=6,
+            answer_similarity_func="correlation",
+            _llm=fake,
+        )
+        X, y = sample_data
+        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.fit(X, y)
+        rrf.filter_questions_on_pred_similarity(threshold=0.9)
+        qdf = rrf.get_questions()
+        excluded = qdf[qdf["exclusion"].notna()]
+        # All-YES answers → constant columns → correlation=0 → none excluded
+        assert len(excluded) == 0
+
+    @pytest.mark.asyncio
+    async def test_correlation_exclusion_report_metric(
+        self, sample_data: tuple[pd.DataFrame, list[str]]
+    ) -> None:
+        fake = FakeLLM()
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_corr_report",
+            max_samples_as_context=8,
+            max_generated_questions=6,
+            answer_similarity_func="correlation",
+            _llm=fake,
+        )
+        X, y = sample_data
+        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.fit(X, y)
+        rrf.filter_questions_on_pred_similarity(threshold=0.5)
+
+        report = rrf.exclusion_report()
+        assert isinstance(report, pd.DataFrame)
+        if len(report) > 0:
+            for _, row in report.iterrows():
+                assert row["metric_used"] == "correlation"
 
     @pytest.mark.asyncio
     async def test_semantic_similarity_exclusion_report(

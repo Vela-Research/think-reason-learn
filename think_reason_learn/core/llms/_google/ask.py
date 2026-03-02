@@ -145,6 +145,7 @@ class GeminiLLM(metaclass=SingletonMeta):
                     instructions=instructions,
                     temperature=temperature,
                     raise_=raise_,
+                    _logprobs_retried=True,
                     **kwargs,
                 )
             logger.warning(f"Error responding with Google: {e}", exc_info=True)
@@ -162,6 +163,7 @@ class GeminiLLM(metaclass=SingletonMeta):
         raise_: bool = False,
         **kwargs: Any,
     ) -> LLMResponse[T] | None:
+        logprobs_retried: bool = kwargs.pop("_logprobs_retried", False)
         kwargs = self._process_kwargs(kwargs)
         config = self._build_config(
             response_format=response_format,
@@ -190,6 +192,7 @@ class GeminiLLM(metaclass=SingletonMeta):
                     instructions=instructions,
                     temperature=temperature,
                     raise_=raise_,
+                    _logprobs_retried=True,
                     **kwargs,
                 )
             logger.warning(f"Error responding with Google: {e}", exc_info=True)

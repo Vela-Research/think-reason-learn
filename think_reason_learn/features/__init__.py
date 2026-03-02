@@ -7,9 +7,17 @@ a binary feature matrix — at zero marginal cost per evaluation.
 
 from ._evaluator import FeatureEvaluator
 from ._generator import FeatureGenerator
-from ._types import DataSchema, GeneratedRule, GeneratedRules, HelperFunction, Rule
+from ._types import (
+    CognitiveMode,
+    DataSchema,
+    GeneratedRule,
+    GeneratedRules,
+    HelperFunction,
+    Rule,
+)
 
 __all__ = [
+    "CognitiveMode",
     "DataSchema",
     "FeatureEvaluator",
     "FeatureGenerator",

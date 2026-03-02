@@ -16,6 +16,7 @@ from think_reason_learn.core.llms._schemas import (
     T,
 )
 from think_reason_learn.features import (
+    CognitiveMode,
     DataSchema,
     FeatureEvaluator,
     FeatureGenerator,
@@ -25,6 +26,7 @@ from think_reason_learn.features import (
     Rule,
 )
 from think_reason_learn.features._prompts import (
+    build_cognitive_section,
     build_system_prompt,
     build_user_prompt,
     format_samples,
@@ -621,3 +623,93 @@ class TestEndToEnd:
         # Founder 1: MBA, no exits
         assert df.iloc[1]["has_phd"] == 0
         assert df.iloc[1]["prior_exit"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Cognitive prompt tests
+# ---------------------------------------------------------------------------
+
+
+class TestCognitiveMode:
+    """Tests for CognitiveMode enum and cognitive prompt sections."""
+
+    def test_cognitive_mode_values(self) -> None:
+        assert CognitiveMode.BACKWARD_CHAINING == "backward_chaining"
+        assert CognitiveMode.SUBGOAL_DECOMPOSITION == "subgoal_decomposition"
+        assert CognitiveMode.VERIFICATION == "verification"
+        assert CognitiveMode.BACKTRACKING == "backtracking"
+        assert len(CognitiveMode) == 4
+
+    def test_build_cognitive_section_empty(self) -> None:
+        assert build_cognitive_section(set()) == ""
+
+    def test_build_cognitive_section_single_mode(self) -> None:
+        section = build_cognitive_section({CognitiveMode.BACKWARD_CHAINING})
+        assert "BACKWARD CHAINING" in section
+        assert "causal hypothesis" in section
+        assert "SUBGOAL" not in section
+        assert "VERIFICATION" not in section
+        assert "BACKTRACKING" not in section
+
+    def test_build_cognitive_section_all_modes(self) -> None:
+        section = build_cognitive_section(set(CognitiveMode))
+        assert "BACKWARD CHAINING" in section
+        assert "SUBGOAL DECOMPOSITION" in section
+        assert "VERIFICATION" in section
+        assert "BACKTRACKING" in section
+        assert "COGNITIVE REASONING" in section
+
+    def test_build_cognitive_section_stable_ordering(self) -> None:
+        """Sections appear in enum definition order regardless of set ordering."""
+        section = build_cognitive_section(
+            {CognitiveMode.BACKTRACKING, CognitiveMode.BACKWARD_CHAINING}
+        )
+        bc_pos = section.index("BACKWARD CHAINING")
+        bt_pos = section.index("BACKTRACKING")
+        assert bc_pos < bt_pos
+
+    def test_system_prompt_without_cognitive_modes(self) -> None:
+        prompt_default = build_system_prompt(SAMPLE_SCHEMA, [], 30)
+        prompt_none = build_system_prompt(SAMPLE_SCHEMA, [], 30, cognitive_modes=None)
+        prompt_empty = build_system_prompt(SAMPLE_SCHEMA, [], 30, cognitive_modes=set())
+        assert "COGNITIVE REASONING" not in prompt_default
+        assert prompt_default == prompt_none == prompt_empty
+
+    def test_system_prompt_with_cognitive_modes(self) -> None:
+        prompt = build_system_prompt(
+            SAMPLE_SCHEMA,
+            [],
+            30,
+            cognitive_modes={CognitiveMode.VERIFICATION},
+        )
+        assert "VERIFICATION" in prompt
+        # Existing sections still present
+        assert "DATA STRUCTURE" in prompt
+        assert "IMPORTANT" in prompt
+        assert "has_phd" in prompt
+
+    @pytest.mark.asyncio
+    async def test_generator_passes_cognitive_modes(self) -> None:
+        fake = FakeFeatureLLM()
+        gen = FeatureGenerator(
+            schema=SAMPLE_SCHEMA,
+            helpers=[HELPER_PARSE_QS],
+            llm_priority=LLM_CHOICE,
+            cognitive_modes={CognitiveMode.BACKWARD_CHAINING},
+        )
+        import think_reason_learn.features._generator as gen_mod
+
+        original_llm = gen_mod.llm
+        gen_mod.llm = fake  # type: ignore[assignment]
+        try:
+            rules = await gen.generate(
+                samples=_sample_founders(),
+                labels=SAMPLE_LABELS,
+                n_rules=10,
+            )
+        finally:
+            gen_mod.llm = original_llm
+
+        assert len(rules) == 2
+        # The fake LLM was called and should have received the cognitive prompt
+        assert len(fake.calls) == 1

@@ -3,9 +3,29 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Any, Callable, List
 
 from pydantic import BaseModel, Field
+
+
+# ---------------------------------------------------------------------------
+# Cognitive reasoning modes (CoFEE-inspired)
+# ---------------------------------------------------------------------------
+
+
+class CognitiveMode(StrEnum):
+    """Cognitive reasoning behaviours that can be toggled in the generation prompt.
+
+    Based on the CoFEE framework (Westermann, 2025), which enforces structured
+    cognitive behaviours during LLM-based feature discovery.  Each mode injects
+    a corresponding section into the system prompt.
+    """
+
+    BACKWARD_CHAINING = "backward_chaining"
+    SUBGOAL_DECOMPOSITION = "subgoal_decomposition"
+    VERIFICATION = "verification"
+    BACKTRACKING = "backtracking"
 
 
 # ---------------------------------------------------------------------------

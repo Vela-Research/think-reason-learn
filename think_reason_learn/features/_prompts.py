@@ -6,23 +6,107 @@ import json
 import random
 from typing import Any, Sequence
 
-from ._types import DataSchema, HelperFunction, Rule
+from ._types import CognitiveMode, DataSchema, HelperFunction, Rule
+
+# ---------------------------------------------------------------------------
+# Cognitive reasoning prompt sections (CoFEE-inspired)
+# ---------------------------------------------------------------------------
+
+_COGNITIVE_SECTIONS: dict[CognitiveMode, str] = {
+    CognitiveMode.BACKWARD_CHAINING: (
+        "## BACKWARD CHAINING\n\n"
+        "Reason backward from the target outcome to observable signals.\n\n"
+        "For each rule you propose:\n"
+        "- State the causal hypothesis explicitly\n"
+        "- Explain why this signal would exist *before* the outcome\n"
+        "- Map the hypothesis to a measurable quantity in the data\n\n"
+        "The final lambda MUST capture something observable pre-outcome "
+        "and expressible as a Python lambda.\n"
+        "If a hypothesis cannot be mapped to an observable feature, "
+        "abandon it."
+    ),
+    CognitiveMode.SUBGOAL_DECOMPOSITION: (
+        "## SUBGOAL DECOMPOSITION\n\n"
+        "Organise your feature exploration into NO MORE THAN 4 high-level "
+        "subgoals, such as:\n"
+        "- Capability formation\n"
+        "- Team coordination and complementarity\n"
+        "- Market structure and constraints\n"
+        "- Early execution dynamics\n\n"
+        "For each subgoal:\n"
+        "- List candidate mechanisms\n"
+        "- Maintain the hierarchy: system behaviour -> mechanism -> "
+        "lambda rule\n\n"
+        "If a subgoal collapses into a proxy, fails observability, or has "
+        "ambiguous causal direction, explicitly ABANDON or REVISE it and "
+        "explain why."
+    ),
+    CognitiveMode.VERIFICATION: (
+        "## VERIFICATION\n\n"
+        "For each rule you propose, verify:\n"
+        "- It captures a signal observable before the outcome\n"
+        "- It encodes a plausible causal mechanism\n"
+        "- It is not a prestige-based, descriptive, or post-outcome proxy\n\n"
+        "For each rule, list:\n"
+        "- Potential bias sources\n"
+        "- Uncertainty or ambiguity\n\n"
+        "If verification fails, reject the rule and propose a replacement."
+    ),
+    CognitiveMode.BACKTRACKING: (
+        "## BACKTRACKING\n\n"
+        "Explicitly record every abandoned reasoning path.\n\n"
+        "For each abandoned path, record:\n"
+        "- Why it initially seemed promising\n"
+        "- Which constraint caused rejection (proxy risk, leakage, "
+        "observability failure, causal ambiguity)\n\n"
+        "Use these abandoned paths to avoid similar dead ends in "
+        "subsequent rules."
+    ),
+}
+
+
+def build_cognitive_section(
+    modes: set[CognitiveMode],
+) -> str:
+    """Build the cognitive reasoning section of the system prompt.
+
+    Returns the concatenated prompt text for all enabled cognitive modes,
+    or an empty string if *modes* is empty.
+    """
+    if not modes:
+        return ""
+
+    parts = [
+        "## COGNITIVE REASONING\n\n"
+        "You are performing Cognitive Feature Reasoning.  You must "
+        "explicitly apply the following cognitive behaviours.  You must "
+        "produce structured outputs and make explicit decisions.\n"
+    ]
+    # Maintain stable ordering by iterating over the enum definition order
+    for mode in CognitiveMode:
+        if mode in modes:
+            parts.append(_COGNITIVE_SECTIONS[mode])
+
+    return "\n\n".join(parts)
 
 
 def build_system_prompt(
     schema: DataSchema,
     helpers: Sequence[HelperFunction],
     n_rules: int,
+    cognitive_modes: set[CognitiveMode] | None = None,
 ) -> str:
     """Build the system prompt from a data schema and helper functions.
 
-    The prompt has five sections:
+    The prompt has up to seven sections:
 
     1. Task description (generate *n_rules* binary rules as lambdas)
     2. Data schema (from ``schema.schema_text``)
     3. Available helper functions (signature + docstring for each)
     4. Lambda writing guidelines
-    5. Example rules (from ``schema.example_rules``)
+    5. **Cognitive reasoning constraints** (optional, from *cognitive_modes*)
+    6. Example rules (from ``schema.example_rules``)
+    7. Final instructions
     """
     param = schema.param_name
 
@@ -88,6 +172,9 @@ def build_system_prompt(
         f"- The lambda parameter name must be `{param}`"
     )
 
+    # -- Section 5: cognitive reasoning (optional) ----------------------------
+    cognitive_section = build_cognitive_section(cognitive_modes or set())
+
     sections = [
         s
         for s in [
@@ -95,6 +182,7 @@ def build_system_prompt(
             data_section,
             helpers_section,
             guidelines,
+            cognitive_section,
             examples_section,
             final,
         ]

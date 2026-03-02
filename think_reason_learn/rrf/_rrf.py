@@ -2008,8 +2008,65 @@ class RRF:
 
             yield sample_index, qid, answer.answer
 
+    # ------------------------------------------------------------------
+    # predict checkpoint helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _save_predict_checkpoint(
+        path: str | PathLike[str],
+        completed_qids: list[str],
+        results: list[tuple[Any, str, str]],
+        token_counter: TokenCounter,
+    ) -> None:
+        """Atomically write a predict checkpoint to *path*.
+
+        Writes to a ``.tmp`` sibling first, then ``os.replace()`` to the
+        final location so readers never see a half-written file.
+        """
+        checkpoint = {
+            "completed_qids": completed_qids,
+            "results": [
+                {"sample_index": si, "qid": qid, "answer": ans}
+                for si, qid, ans in results
+            ],
+            "token_counter": token_counter.to_dict(),
+        }
+        final = Path(path) / "predict_checkpoint.json"
+        tmp = final.with_suffix(".json.tmp")
+        final.parent.mkdir(parents=True, exist_ok=True)
+        tmp.write_bytes(orjson.dumps(checkpoint))
+        os.replace(tmp, final)
+
+    @staticmethod
+    def _load_predict_checkpoint(
+        path: str | PathLike[str],
+    ) -> tuple[list[str], list[tuple[Any, str, str]], TokenCounter] | None:
+        """Load a predict checkpoint written by ``_save_predict_checkpoint``.
+
+        Returns:
+            ``(completed_qids, results, token_counter)`` if the checkpoint
+            file exists, otherwise ``None``.
+        """
+        final = Path(path) / "predict_checkpoint.json"
+        if not final.exists():
+            return None
+        data = orjson.loads(final.read_bytes())
+        completed_qids: list[str] = data["completed_qids"]
+        results: list[tuple[Any, str, str]] = [
+            (r["sample_index"], r["qid"], r["answer"]) for r in data["results"]
+        ]
+        token_counter = TokenCounter.from_dict(data["token_counter"])
+        return completed_qids, results, token_counter
+
     async def predict(
-        self, samples: pd.DataFrame
+        self,
+        samples: pd.DataFrame,
+        *,
+        max_concurrent: int | None = None,
+        checkpoint_path: str | PathLike[str] | None = None,
+        checkpoint_every: int | None = None,
+        resume: bool = False,
     ) -> AsyncGenerator[Tuple[Any, str, Literal["YES", "NO"], TokenCounter], None]:
         """Predict labels for samples.
 
@@ -2019,6 +2076,14 @@ class RRF:
 
         Args:
             samples: Samples to predict.
+            max_concurrent: Maximum number of questions to process
+                concurrently. ``None`` (default) uses a sequential loop.
+            checkpoint_path: Directory where ``predict_checkpoint.json``
+                is written. ``None`` disables checkpointing.
+            checkpoint_every: Save a checkpoint every *N* completed
+                questions. Requires *checkpoint_path* to be set.
+            resume: If ``True``, load an existing checkpoint from
+                *checkpoint_path* and skip already-completed questions.
 
         Returns:
             Generator of predictions[sample_index, question, answer, token_counter]
@@ -2026,6 +2091,20 @@ class RRF:
         Raises:
             ValueError: If samples is empty or does not have the correct column.
         """
+        # --- parameter validation (Step 2) --------------------------------
+        if max_concurrent is not None and (
+            not isinstance(max_concurrent, int) or max_concurrent <= 0
+        ):
+            raise ValueError("max_concurrent must be None or an int > 0")
+        if checkpoint_every is not None:
+            if not isinstance(checkpoint_every, int) or checkpoint_every <= 0:
+                raise ValueError("checkpoint_every must be None or an int > 0")
+            if checkpoint_path is None:
+                raise ValueError("checkpoint_every requires checkpoint_path to be set")
+        if resume and checkpoint_path is None:
+            raise ValueError("resume=True requires checkpoint_path to be set")
+
+        # --- common setup -------------------------------------------------
         token_counter = TokenCounter()
         batch_size = self.qanswer_batch_size if self.qanswer_batch_size else 20
 
@@ -2042,25 +2121,129 @@ class RRF:
             if self._questions.at[qid, "exclusion"] is None
         ]
 
-        for qid in active_qids:
-            question = cast(str, self._questions.at[qid, "question"])
+        # --- resume from checkpoint ---------------------------------------
+        completed_qids: list[str] = []
+        accumulated_results: list[tuple[Any, str, str]] = []
 
-            # Process samples in batches for this question
-            for i in range(0, len(all_samples), batch_size):
-                batch = all_samples[i : i + batch_size]
-                results = await self._answer_questions_batch(
-                    question_id=qid,
-                    question=question,
-                    samples=batch,
-                    token_counter=token_counter,
-                )
-                for sample_index, _question_id, label in results:
+        if resume and checkpoint_path is not None:
+            loaded = self._load_predict_checkpoint(checkpoint_path)
+            if loaded is not None:
+                completed_qids, accumulated_results, token_counter = loaded
+                # Yield cached results
+                for si, qid, ans in accumulated_results:
                     yield (
-                        sample_index,
+                        si,
                         qid,
-                        cast(Literal["YES", "NO"], label),
+                        cast(Literal["YES", "NO"], ans),
                         token_counter,
                     )
+                # Filter to remaining questions
+                completed_set = set(completed_qids)
+                active_qids = [q for q in active_qids if q not in completed_set]
+
+        # --- sequential path (max_concurrent is None) ---------------------
+        if max_concurrent is None:
+            questions_since_checkpoint = 0
+            for qid_idx, qid in enumerate(active_qids):
+                question = cast(str, self._questions.at[qid, "question"])
+
+                # Process samples in batches for this question
+                for i in range(0, len(all_samples), batch_size):
+                    batch = all_samples[i : i + batch_size]
+                    results = await self._answer_questions_batch(
+                        question_id=qid,
+                        question=question,
+                        samples=batch,
+                        token_counter=token_counter,
+                    )
+                    for sample_index, _question_id, label in results:
+                        accumulated_results.append((int(sample_index), qid, label))
+                        yield (
+                            sample_index,
+                            qid,
+                            cast(Literal["YES", "NO"], label),
+                            token_counter,
+                        )
+
+                completed_qids.append(qid)
+                questions_since_checkpoint += 1
+                is_last = qid_idx == len(active_qids) - 1
+
+                # Checkpoint: on last question always, or every N questions
+                if checkpoint_path is not None:
+                    should_save = is_last or (
+                        checkpoint_every is not None
+                        and questions_since_checkpoint >= checkpoint_every
+                    )
+                    if should_save:
+                        self._save_predict_checkpoint(
+                            checkpoint_path,
+                            completed_qids,
+                            accumulated_results,
+                            token_counter,
+                        )
+                        questions_since_checkpoint = 0
+
+        # --- concurrent path (wave-based) ---------------------------------
+        else:
+            wave_start = 0
+            questions_since_checkpoint = 0
+            while wave_start < len(active_qids):
+                wave_qids = active_qids[wave_start : wave_start + max_concurrent]
+                # Each task returns (qid, [(sample_index, qid, label), ...])
+                wave_results: dict[str, list[tuple[Any, str, str]]] = {}
+
+                async def _process_question(
+                    qid: str,
+                    _results: dict[str, list[tuple[Any, str, str]]],
+                ) -> None:
+                    question = cast(str, self._questions.at[qid, "question"])
+                    qid_results: list[tuple[Any, str, str]] = []
+                    for i in range(0, len(all_samples), batch_size):
+                        batch = all_samples[i : i + batch_size]
+                        batch_res = await self._answer_questions_batch(
+                            question_id=qid,
+                            question=question,
+                            samples=batch,
+                            token_counter=token_counter,
+                        )
+                        for sample_index, _question_id, label in batch_res:
+                            qid_results.append((int(sample_index), qid, label))
+                    _results[qid] = qid_results
+
+                async with asyncio.TaskGroup() as tg:
+                    for wq in wave_qids:
+                        tg.create_task(_process_question(wq, wave_results))
+
+                # Yield in deterministic (question-ID sorted) order
+                for qid in sorted(wave_results.keys()):
+                    for sample_index, q, label in wave_results[qid]:
+                        accumulated_results.append((sample_index, q, label))
+                        yield (
+                            sample_index,
+                            q,
+                            cast(Literal["YES", "NO"], label),
+                            token_counter,
+                        )
+
+                completed_qids.extend(sorted(wave_results.keys()))
+                questions_since_checkpoint += len(wave_qids)
+                wave_start += max_concurrent
+                is_last_wave = wave_start >= len(active_qids)
+
+                if checkpoint_path is not None:
+                    should_save = is_last_wave or (
+                        checkpoint_every is not None
+                        and questions_since_checkpoint >= checkpoint_every
+                    )
+                    if should_save:
+                        self._save_predict_checkpoint(
+                            checkpoint_path,
+                            completed_qids,
+                            accumulated_results,
+                            token_counter,
+                        )
+                        questions_since_checkpoint = 0
 
     async def update_question_exclusion(
         self,

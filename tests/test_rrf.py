@@ -1303,18 +1303,6 @@ class TestPredictConcurrent:
         assert peak <= max_conc
 
 
-# ---------------------------------------------------------------------------
-# predict checkpointing (Step 6)
-# ---------------------------------------------------------------------------
-
-
-class TestPredictCheckpoint:
-    @pytest.mark.asyncio
-    async def test_checkpoint_save_creates_file(
-# founder-level prediction (issue #47)
-# ---------------------------------------------------------------------------
-
-
 class TestFounderPredictions:
     """Tests for founder-level aggregation: aggregate_predictions,
     _tune_aggregation (inside fit), and predict_founder_level."""

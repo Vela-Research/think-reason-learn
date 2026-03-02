@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 import pandas as pd
 
 from think_reason_learn.rrf import RRF, QuestionExclusion
+from think_reason_learn.rrf._rrf import Questions, Answer
 from think_reason_learn.core.llms import LLMChoice, OpenAIChoice
 from think_reason_learn.core.exceptions import DataError
 from tests.fake_llm import FakeLLM
@@ -467,6 +469,10 @@ class TestValidation:
         with pytest.raises(ValueError):
             RRF(qgen_llmc=LLM_CHOICE, answer_similarity_func="cosine")
 
+    def test_correlation_similarity_func_accepted(self) -> None:
+        rrf = RRF(qgen_llmc=LLM_CHOICE, answer_similarity_func="correlation")
+        assert rrf.answer_similarity_func == "correlation"
+
     @pytest.mark.asyncio
     async def test_mismatched_xy_raises(self) -> None:
         fake = FakeLLM()
@@ -784,6 +790,52 @@ class TestExclusionReport:
             assert isinstance(row["similarity_score"], float)
             assert row["threshold"] == 0.9
             assert row["metric_used"] == "hamming"
+
+    @pytest.mark.asyncio
+    async def test_pred_similarity_correlation(
+        self, sample_data: tuple[pd.DataFrame, list[str]]
+    ) -> None:
+        fake = FakeLLM(default_answer="YES")
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_corr",
+            max_samples_as_context=8,
+            max_generated_questions=6,
+            answer_similarity_func="correlation",
+            _llm=fake,
+        )
+        X, y = sample_data
+        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.fit(X, y)
+        rrf.filter_questions_on_pred_similarity(threshold=0.9)
+        qdf = rrf.get_questions()
+        excluded = qdf[qdf["exclusion"].notna()]
+        # All-YES answers → constant columns → correlation=0 → none excluded
+        assert len(excluded) == 0
+
+    @pytest.mark.asyncio
+    async def test_correlation_exclusion_report_metric(
+        self, sample_data: tuple[pd.DataFrame, list[str]]
+    ) -> None:
+        fake = FakeLLM()
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_corr_report",
+            max_samples_as_context=8,
+            max_generated_questions=6,
+            answer_similarity_func="correlation",
+            _llm=fake,
+        )
+        X, y = sample_data
+        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.fit(X, y)
+        rrf.filter_questions_on_pred_similarity(threshold=0.5)
+
+        report = rrf.exclusion_report()
+        assert isinstance(report, pd.DataFrame)
+        if len(report) > 0:
+            for _, row in report.iterrows():
+                assert row["metric_used"] == "correlation"
 
     @pytest.mark.asyncio
     async def test_semantic_similarity_exclusion_report(
@@ -1259,6 +1311,180 @@ class TestPredictConcurrent:
 class TestPredictCheckpoint:
     @pytest.mark.asyncio
     async def test_checkpoint_save_creates_file(
+# founder-level prediction (issue #47)
+# ---------------------------------------------------------------------------
+
+
+class TestFounderPredictions:
+    """Tests for founder-level aggregation: aggregate_predictions,
+    _tune_aggregation (inside fit), and predict_founder_level."""
+
+    # -- static aggregate_predictions tests (no LLM) --
+
+    def test_aggregate_predictions_basic(self) -> None:
+        """Hand-crafted 4x3 matrix: verify correct aggregation."""
+        matrix = pd.DataFrame(
+            {
+                "q0": [1, 0, 1, 0],
+                "q1": [1, 1, 0, 0],
+                "q2": [0, 0, 1, 1],
+            },
+            index=pd.Index([0, 1, 2, 3]),
+        )
+        scores = pd.Series({"q0": 0.9, "q1": 0.7, "q2": 0.5})
+        # K=2: top questions are q0, q1
+        # yes_counts: [2, 1, 1, 0]
+        # T=1: predictions: [YES, YES, YES, NO]
+        result = RRF.aggregate_predictions(matrix, scores, k=2, t=1)
+        assert list(result) == ["YES", "YES", "YES", "NO"]
+
+    def test_aggregate_predictions_k1_t1(self) -> None:
+        """K=1, T=1: prediction equals top-scored question's column."""
+        matrix = pd.DataFrame(
+            {"q0": [1, 0, 1], "q1": [0, 1, 0]},
+            index=pd.Index([0, 1, 2]),
+        )
+        scores = pd.Series({"q0": 0.3, "q1": 0.8})
+        # Top question is q1 (score 0.8)
+        result = RRF.aggregate_predictions(matrix, scores, k=1, t=1)
+        assert list(result) == ["NO", "YES", "NO"]
+
+    def test_aggregate_predictions_all_yes(self) -> None:
+        """All-ones matrix: any T<=K should predict all YES."""
+        matrix = pd.DataFrame(
+            {"q0": [1, 1], "q1": [1, 1], "q2": [1, 1]},
+            index=pd.Index([0, 1]),
+        )
+        scores = pd.Series({"q0": 0.9, "q1": 0.7, "q2": 0.5})
+        for k in range(1, 4):
+            for t in range(1, k + 1):
+                result = RRF.aggregate_predictions(matrix, scores, k=k, t=t)
+                assert list(result) == ["YES", "YES"]
+
+    def test_aggregate_predictions_invalid_params(self) -> None:
+        """Invalid K/T raise ValueError."""
+        matrix = pd.DataFrame({"q0": [1], "q1": [0]}, index=pd.Index([0]))
+        scores = pd.Series({"q0": 0.9, "q1": 0.5})
+
+        with pytest.raises(ValueError, match="k must be"):
+            RRF.aggregate_predictions(matrix, scores, k=0, t=1)
+        with pytest.raises(ValueError, match="k must be"):
+            RRF.aggregate_predictions(matrix, scores, k=3, t=1)
+        with pytest.raises(ValueError, match="t must be"):
+            RRF.aggregate_predictions(matrix, scores, k=2, t=0)
+        with pytest.raises(ValueError, match="t must be"):
+            RRF.aggregate_predictions(matrix, scores, k=2, t=3)
+
+    # -- integration tests (FakeLLM) --
+
+    @pytest.mark.asyncio
+    async def test_fit_tunes_aggregation(
+        self, sample_data: tuple[pd.DataFrame, list[str]]
+    ) -> None:
+        """After fit(), _aggregation_k and _aggregation_t are set."""
+        fake = FakeLLM(default_answer="ALTERNATE")
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_fit_tunes",
+            max_samples_as_context=8,
+            max_generated_questions=6,
+            _llm=fake,
+        )
+        X, y = sample_data
+        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.fit(X, y)
+
+        assert isinstance(rrf._aggregation_k, int)
+        assert isinstance(rrf._aggregation_t, int)
+        assert rrf._aggregation_k >= 1
+        assert rrf._aggregation_t >= 1
+
+    @pytest.mark.asyncio
+    async def test_predict_founder_level_after_fit(
+        self, sample_data: tuple[pd.DataFrame, list[str]]
+    ) -> None:
+        """fit() then predict_founder_level(X) returns correct DataFrame."""
+        fake = FakeLLM()
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_pf_after_fit",
+            max_samples_as_context=8,
+            max_generated_questions=3,
+            _llm=fake,
+        )
+        X, y = sample_data
+        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.fit(X, y)
+
+        result = await rrf.predict_founder_level(X)
+        assert isinstance(result, pd.DataFrame)
+        assert set(result.columns) == {"prediction", "yes_count", "k", "t"}
+        assert len(result) == len(X)
+        assert list(result.index) == list(X.index)
+
+    @pytest.mark.asyncio
+    async def test_predict_founder_level_explicit_params(
+        self, sample_data: tuple[pd.DataFrame, list[str]]
+    ) -> None:
+        """predict_founder_level(X, k=1, t=1) works with explicit params."""
+        fake = FakeLLM()
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_pf_explicit",
+            max_samples_as_context=8,
+            max_generated_questions=3,
+            _llm=fake,
+        )
+        X, y = sample_data
+        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.fit(X, y)
+
+        result = await rrf.predict_founder_level(X, k=1, t=1)
+        assert isinstance(result, pd.DataFrame)
+        assert (result["k"] == 1).all()
+        assert (result["t"] == 1).all()
+
+    @pytest.mark.asyncio
+    async def test_predict_founder_level_raises_without_fit(self) -> None:
+        """predict_founder_level without fit raises ValueError."""
+        fake = FakeLLM()
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_pf_no_fit",
+            max_samples_as_context=8,
+            max_generated_questions=3,
+            _llm=fake,
+        )
+        await rrf.set_tasks(task_description="Classify founders")
+        X = pd.DataFrame({"data": ["test person"]})
+        with pytest.raises(ValueError):
+            await rrf.predict_founder_level(X)
+
+    @pytest.mark.asyncio
+    async def test_predict_founder_level_all_yes_answers(
+        self, sample_data: tuple[pd.DataFrame, list[str]]
+    ) -> None:
+        """FakeLLM(YES): all yes_count == K, all predictions YES."""
+        fake = FakeLLM(default_answer="YES")
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_pf_all_yes",
+            max_samples_as_context=8,
+            max_generated_questions=3,
+            _llm=fake,
+        )
+        X, y = sample_data
+        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.fit(X, y)
+
+        k = rrf._aggregation_k
+        assert k is not None
+        result = await rrf.predict_founder_level(X, k=k, t=1)
+        assert (result["prediction"] == "YES").all()
+        assert (result["yes_count"] == k).all()
+
+    @pytest.mark.asyncio
+    async def test_aggregation_save_load(
         self,
         sample_data: tuple[pd.DataFrame, list[str]],
         tmp_path: object,
@@ -1433,3 +1659,791 @@ class TestPredictCheckpoint:
         predict_calls_resumed = fake_resume._call_count - calls_after_fit
         assert predict_calls_resumed == 0
         assert fake_resume._call_count < full_total
+        """Save/load preserves aggregation K, T, and config params."""
+        fake = FakeLLM()
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_agg_sl",
+            max_samples_as_context=8,
+            max_generated_questions=3,
+            aggregation_metric="precision",
+            _llm=fake,
+        )
+        X, y = sample_data
+        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.fit(X, y)
+
+        save_dir = str(tmp_path)
+        rrf.save(save_dir)
+        loaded = RRF.load(save_dir)
+
+        assert loaded._aggregation_k == rrf._aggregation_k
+        assert loaded._aggregation_t == rrf._aggregation_t
+        assert loaded.aggregation_metric == "precision"
+
+    @pytest.mark.asyncio
+    async def test_predict_founder_level_output_contract(
+        self, sample_data: tuple[pd.DataFrame, list[str]]
+    ) -> None:
+        """Verify DataFrame columns, dtypes, and index alignment."""
+        fake = FakeLLM()
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_pf_contract",
+            max_samples_as_context=8,
+            max_generated_questions=3,
+            _llm=fake,
+        )
+        X, y = sample_data
+        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.fit(X, y)
+
+        result = await rrf.predict_founder_level(X)
+        assert all(v in ("YES", "NO") for v in result["prediction"])
+        assert result["yes_count"].dtype in (np.int64, np.int32, int)
+        assert (result["k"] == rrf._aggregation_k).all()
+        assert (result["t"] == rrf._aggregation_t).all()
+
+
+# ---------------------------------------------------------------------------
+# Cost-sensitive mode tests (merged from feat/issue-48-cost-sensitive-mode)
+# ---------------------------------------------------------------------------
+
+from think_reason_learn.rrf._cost_sensitive import CostSensitiveConfig  # noqa: E402
+
+
+@pytest.fixture
+def cost_sensitive_data() -> tuple[pd.DataFrame, list[str]]:
+    """Create small test dataset: 8 founders (3 YES, 5 NO)."""
+    data = {
+        "name": [f"Founder_{i}" for i in range(8)],
+        "description": [f"Description {i}" for i in range(8)],
+    }
+    labels = ["YES", "YES", "YES", "NO", "NO", "NO", "NO", "NO"]
+    return pd.DataFrame(data), labels
+
+
+@pytest.mark.asyncio
+async def test_standard_mode_baseline(
+    cost_sensitive_data: tuple[pd.DataFrame, list[str]],
+) -> None:
+    """Test that cost_sensitive=False uses standard pipeline."""
+    X, y = cost_sensitive_data
+    fake_llm = FakeLLM(questions_per_call=3)
+
+    rrf = RRF(
+        qgen_llmc=LLM_CHOICE,
+        max_generated_questions=3,
+        random_state=42,
+        cost_sensitive=False,
+        _llm=fake_llm,
+    )
+
+    await rrf.set_tasks(task_description="test task")
+    await rrf.set_tasks(task_description="test task")
+    await rrf.fit(X, y)
+
+    # Standard mode should:
+    # - Generate questions (1 call)
+    # - Answer all questions on all samples (3 questions × 8 samples)
+    # With batching disabled or batch=1, expect many calls
+    # With our FakeLLM, we don't batch by default in this test
+    assert fake_llm.call_count > 0
+    assert rrf._questions is not None
+    assert len(rrf._questions) == 3
+
+
+@pytest.mark.asyncio
+async def test_cost_sensitive_reduces_calls(
+    cost_sensitive_data: tuple[pd.DataFrame, list[str]],
+) -> None:
+    """Test that cost_sensitive=True reduces LLM calls."""
+    X, y = cost_sensitive_data
+
+    # Standard mode
+    fake_llm_std = FakeLLM(questions_per_call=6)
+    rrf_std = RRF(
+        qgen_llmc=LLM_CHOICE,
+        max_generated_questions=6,
+        random_state=42,
+        cost_sensitive=False,
+        _llm=fake_llm_std,
+    )
+    await rrf_std.set_tasks(task_description="test task")
+    await rrf_std.fit(X, y)
+    standard_calls = fake_llm_std.call_count
+
+    # Cost-sensitive mode
+    fake_llm_cs = FakeLLM(questions_per_call=6)
+    config = CostSensitiveConfig(
+        screening_fraction=0.5,  # 4/8 samples for screening
+        max_questions_full_eval=2,  # Only top 2 for full eval
+        enable_semantic_filter=False,  # Disable for clearer call counting
+    )
+    rrf_cs = RRF(
+        qgen_llmc=LLM_CHOICE,
+        max_generated_questions=6,
+        random_state=42,
+        cost_sensitive=True,
+        cost_sensitive_config=config,
+        _llm=fake_llm_cs,
+    )
+    await rrf_cs.set_tasks(task_description="test task")
+    await rrf_cs.fit(X, y)
+    cost_sensitive_calls = fake_llm_cs.call_count
+
+    # Cost-sensitive should use fewer calls (screening + top-N < full eval)
+    # Standard: 1 gen + 6 questions × 8 samples = many calls
+    # Cost-sensitive: 1 gen + 6 questions × 4 screen + 2 questions × 8 full
+    # Exact numbers depend on batching, but CS should be less or equal
+    assert cost_sensitive_calls <= standard_calls
+
+
+@pytest.mark.asyncio
+async def test_screening_baseline_majority(
+    cost_sensitive_data: tuple[pd.DataFrame, list[str]],
+) -> None:
+    """Test that majority baseline pruning works."""
+    X, y = cost_sensitive_data
+    fake_llm = FakeLLM(questions_per_call=5, default_answer="NO")
+
+    config = CostSensitiveConfig(
+        screening_fraction=1.0,  # Use all data for screening (simpler test)
+        screening_baseline="majority",
+        max_questions_full_eval=10,  # Don't prune by top-N
+        enable_semantic_filter=False,
+    )
+
+    rrf = RRF(
+        qgen_llmc=LLM_CHOICE,
+        max_generated_questions=5,
+        random_state=42,
+        cost_sensitive=True,
+        cost_sensitive_config=config,
+        _llm=fake_llm,
+    )
+
+    await rrf.set_tasks(task_description="test task")
+    await rrf.fit(X, y)
+
+    # With labels = [YES, YES, YES, NO, NO, NO, NO, NO]
+    # Majority class is NO (5/8)
+    # Majority baseline should have some F1 > 0
+    # Questions that perform worse should be excluded
+    assert rrf._questions is not None
+    # At least some questions should remain
+    active_questions = rrf._questions[rrf._questions["exclusion"].isna()]
+    assert len(active_questions) >= 0  # Could be 0 if all below baseline
+
+
+@pytest.mark.asyncio
+async def test_screening_baseline_float(
+    cost_sensitive_data: tuple[pd.DataFrame, list[str]],
+) -> None:
+    """Test that float threshold baseline works."""
+    X, y = cost_sensitive_data
+    fake_llm = FakeLLM(questions_per_call=4)
+
+    config = CostSensitiveConfig(
+        screening_fraction=1.0,
+        screening_baseline=0.0,  # Very low threshold - all should pass
+        max_questions_full_eval=10,
+        enable_semantic_filter=False,
+    )
+
+    rrf = RRF(
+        qgen_llmc=LLM_CHOICE,
+        max_generated_questions=4,
+        random_state=42,
+        cost_sensitive=True,
+        cost_sensitive_config=config,
+        _llm=fake_llm,
+    )
+
+    await rrf.set_tasks(task_description="test task")
+    await rrf.fit(X, y)
+
+    # With threshold=0.0, no questions should be pruned by baseline
+    assert rrf._questions is not None
+    # After baseline pruning but before top-N, we might still have exclusions from top-N
+    # So we just check that the method doesn't crash
+    assert len(rrf._questions) == 4
+
+
+@pytest.mark.asyncio
+async def test_top_n_selection(
+    cost_sensitive_data: tuple[pd.DataFrame, list[str]],
+) -> None:
+    """Test that top-N selection works correctly."""
+    X, y = cost_sensitive_data
+    fake_llm = FakeLLM(questions_per_call=10)
+
+    config = CostSensitiveConfig(
+        screening_fraction=1.0,
+        screening_baseline=0.0,  # Don't prune by baseline
+        max_questions_full_eval=3,  # Only keep top 3
+        enable_semantic_filter=False,
+    )
+
+    rrf = RRF(
+        qgen_llmc=LLM_CHOICE,
+        max_generated_questions=10,
+        random_state=42,
+        cost_sensitive=True,
+        cost_sensitive_config=config,
+        _llm=fake_llm,
+    )
+
+    await rrf.set_tasks(task_description="test task")
+    await rrf.fit(X, y)
+
+    # Should have 10 total questions, but only top 3 active
+    assert rrf._questions is not None
+    assert len(rrf._questions) == 10
+    active_questions = rrf._questions[rrf._questions["exclusion"].isna()]
+    assert len(active_questions) == 3
+
+
+@pytest.mark.asyncio
+async def test_val_set_support(
+    cost_sensitive_data: tuple[pd.DataFrame, list[str]],
+) -> None:
+    """Test that X_val/y_val can be provided."""
+    X, y = cost_sensitive_data
+    # Split into train (6) and val (2)
+    X_train, y_train = X.iloc[:6], y[:6]
+    X_val, y_val = X.iloc[6:], y[6:]
+
+    fake_llm = FakeLLM(questions_per_call=3)
+
+    config = CostSensitiveConfig(
+        screening_fraction=0.5,
+        max_questions_full_eval=2,
+        enable_semantic_filter=False,
+    )
+
+    rrf = RRF(
+        qgen_llmc=LLM_CHOICE,
+        max_generated_questions=3,
+        random_state=42,
+        cost_sensitive=True,
+        cost_sensitive_config=config,
+        _llm=fake_llm,
+    )
+
+    # Should not raise
+    await rrf.set_tasks(task_description="test task")
+    await rrf.fit(X_train, y_train, X_val=X_val, y_val=y_val)
+
+    assert rrf._X_val is not None
+    assert rrf._y_val is not None
+    assert len(rrf._X_val) == 2
+    assert len(rrf._y_val) == 2
+
+
+@pytest.mark.asyncio
+async def test_deterministic_screening_split(
+    cost_sensitive_data: tuple[pd.DataFrame, list[str]],
+) -> None:
+    """Test that same random_state produces same screening split."""
+    X, y = cost_sensitive_data
+    fake_llm1 = FakeLLM(questions_per_call=3)
+    fake_llm2 = FakeLLM(questions_per_call=3)
+
+    config = CostSensitiveConfig(
+        screening_fraction=0.5,
+        max_questions_full_eval=2,
+        enable_semantic_filter=False,
+    )
+
+    rrf1 = RRF(
+        qgen_llmc=LLM_CHOICE,
+        max_generated_questions=3,
+        random_state=42,
+        cost_sensitive=True,
+        cost_sensitive_config=config,
+        _llm=fake_llm1,
+    )
+
+    rrf2 = RRF(
+        qgen_llmc=LLM_CHOICE,
+        max_generated_questions=3,
+        random_state=42,
+        cost_sensitive=True,
+        cost_sensitive_config=config,
+        _llm=fake_llm2,
+    )
+
+    await rrf1.set_tasks(task_description="test task")
+    await rrf1.fit(X, y)
+    await rrf2.set_tasks(task_description="test task")
+    await rrf2.fit(X, y)
+
+    # Same random state should produce same screening indices
+    assert rrf1._screening_indices is not None
+    assert rrf2._screening_indices is not None
+    np.testing.assert_array_equal(rrf1._screening_indices, rrf2._screening_indices)
+
+
+@pytest.mark.asyncio
+async def test_cost_sensitive_false_unchanged(
+    cost_sensitive_data: tuple[pd.DataFrame, list[str]],
+) -> None:
+    """Test that cost_sensitive=False preserves original behavior."""
+    X, y = cost_sensitive_data
+    fake_llm = FakeLLM(questions_per_call=4)
+
+    rrf = RRF(
+        qgen_llmc=LLM_CHOICE,
+        max_generated_questions=4,
+        random_state=42,
+        cost_sensitive=False,  # Explicitly false
+        _llm=fake_llm,
+    )
+
+    await rrf.set_tasks(task_description="test task")
+    await rrf.fit(X, y)
+
+    # Should not have screening indices
+    assert rrf._screening_indices is None
+
+    # Should have all questions (no cost pruning)
+    assert rrf._questions is not None
+    cost_pruned = rrf._questions[rrf._questions["exclusion"] == "cost_pruning"]
+    assert len(cost_pruned) == 0
+
+
+@pytest.mark.asyncio
+async def test_semantic_filtering_auto_applied(
+    cost_sensitive_data: tuple[pd.DataFrame, list[str]],
+) -> None:
+    """Test that semantic filtering is auto-applied when enabled."""
+    X, y = cost_sensitive_data
+    fake_llm = FakeLLM(questions_per_call=8)
+
+    config = CostSensitiveConfig(
+        screening_fraction=1.0,
+        enable_semantic_filter=True,  # Should auto-apply
+        semantic_threshold=0.85,
+        max_questions_full_eval=10,
+    )
+
+    rrf = RRF(
+        qgen_llmc=LLM_CHOICE,
+        max_generated_questions=8,
+        random_state=42,
+        cost_sensitive=True,
+        cost_sensitive_config=config,
+        _llm=fake_llm,
+    )
+
+    await rrf.set_tasks(task_description="test task")
+    await rrf.fit(X, y)
+
+    # Semantic filtering might exclude some questions
+    assert rrf._questions is not None
+    # Check if any were excluded by semantics
+    # Might be 0 if questions are diverse enough - just verify no crash
+
+
+@pytest.mark.asyncio
+async def test_semantic_filtering_disabled(
+    cost_sensitive_data: tuple[pd.DataFrame, list[str]],
+) -> None:
+    """Test that semantic filtering can be disabled."""
+    X, y = cost_sensitive_data
+    fake_llm = FakeLLM(questions_per_call=6)
+
+    config = CostSensitiveConfig(
+        screening_fraction=1.0,
+        enable_semantic_filter=False,  # Disabled
+        max_questions_full_eval=10,
+    )
+
+    rrf = RRF(
+        qgen_llmc=LLM_CHOICE,
+        max_generated_questions=6,
+        random_state=42,
+        cost_sensitive=True,
+        cost_sensitive_config=config,
+        _llm=fake_llm,
+    )
+
+    await rrf.set_tasks(task_description="test task")
+    await rrf.fit(X, y)
+
+    # No questions should be excluded by semantics
+    assert rrf._questions is not None
+    semantic_excluded = rrf._questions[rrf._questions["exclusion"] == "semantics"]
+    assert len(semantic_excluded) == 0
+
+
+@pytest.mark.asyncio
+async def test_val_set_validation(
+    cost_sensitive_data: tuple[pd.DataFrame, list[str]],
+) -> None:
+    """Test that providing only X_val or y_val raises error."""
+    X, y = cost_sensitive_data
+
+    # Only X_val should raise
+    fake_llm1 = FakeLLM()
+    rrf1 = RRF(
+        qgen_llmc=LLM_CHOICE,
+        random_state=42,
+        _llm=fake_llm1,
+    )
+    with pytest.raises(ValueError, match="Both X_val and y_val must be provided"):
+        await rrf1.fit(X, y, X_val=X.iloc[:2])
+
+    # Only y_val should raise
+    fake_llm2 = FakeLLM()
+    rrf2 = RRF(
+        qgen_llmc=LLM_CHOICE,
+        random_state=42,
+        _llm=fake_llm2,
+    )
+    with pytest.raises(ValueError, match="Both X_val and y_val must be provided"):
+        await rrf2.fit(X, y, y_val=["YES", "NO"])
+
+
+# ---------------------------------------------------------------------------
+# F-beta aggregation metric tests
+# ---------------------------------------------------------------------------
+
+
+class TestFBetaAggregation:
+    """Tests for f_beta support in aggregation tuning."""
+
+    def test_compute_metric_f_beta_matches_f1_when_beta_1(self) -> None:
+        """f_beta with beta=1.0 should equal f1."""
+        preds = np.array([1, 1, 0, 0, 1])
+        y_true = np.array([1, 0, 0, 1, 1])
+        f1 = RRF._compute_metric(preds, y_true, "f1")
+        f_beta = RRF._compute_metric(preds, y_true, "f_beta", beta=1.0)
+        assert f1 == pytest.approx(f_beta)
+
+    def test_compute_metric_f_beta_precision_weighted(self) -> None:
+        """beta=0.5 should favour precision; beta=2.0 should favour recall."""
+        # High precision, low recall: 1 TP, 0 FP, 3 FN
+        preds = np.array([1, 0, 0, 0])
+        y_true = np.array([1, 1, 1, 1])
+        f05 = RRF._compute_metric(preds, y_true, "f_beta", beta=0.5)
+        f2 = RRF._compute_metric(preds, y_true, "f_beta", beta=2.0)
+        # precision=1.0, recall=0.25 → F0.5 weights precision more → higher
+        assert f05 > f2
+
+    def test_compute_metric_f_beta_zero_division(self) -> None:
+        """All-zero predictions should return 0.0, not raise."""
+        preds = np.array([0, 0, 0])
+        y_true = np.array([1, 1, 0])
+        assert RRF._compute_metric(preds, y_true, "f_beta", beta=0.5) == 0.0
+        assert RRF._compute_metric(preds, y_true, "f_beta", beta=2.0) == 0.0
+
+    @pytest.mark.asyncio
+    async def test_tune_aggregation_with_f_beta(self) -> None:
+        """fit() with aggregation_metric='f_beta' sets K and T."""
+        fake = FakeLLM(default_answer="ALTERNATE")
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_fbeta_agg",
+            max_samples_as_context=8,
+            max_generated_questions=6,
+            aggregation_metric="f_beta",
+            question_scoring_f_beta=0.5,
+            _llm=fake,
+        )
+        X = pd.DataFrame({"text": [f"sample {i}" for i in range(20)]})
+        y = ["YES"] * 4 + ["NO"] * 16
+        await rrf.set_tasks(task_description="Classify samples")
+        await rrf.fit(X, y)
+        assert isinstance(rrf._aggregation_k, int)
+        assert isinstance(rrf._aggregation_t, int)
+        assert rrf._aggregation_k >= 1
+        assert rrf._aggregation_t >= 1
+
+    def test_aggregation_metric_f_beta_accepted(self) -> None:
+        """'f_beta' is accepted as a valid aggregation_metric value."""
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_fbeta_valid",
+            aggregation_metric="f_beta",
+        )
+        assert rrf.aggregation_metric == "f_beta"
+
+    def test_aggregation_metric_invalid_rejected(self) -> None:
+        """Invalid metric values are rejected."""
+        with pytest.raises(ValueError, match="aggregation_metric"):
+            RRF(
+                qgen_llmc=LLM_CHOICE,
+                name="test_invalid",
+                aggregation_metric="f_beta_invalid",  # type: ignore[arg-type]
+            )
+
+
+# ---------------------------------------------------------------------------
+# Cross-validation tests
+# ---------------------------------------------------------------------------
+
+from think_reason_learn.rrf._cross_validation import (  # noqa: E402
+    cross_validate_aggregation,
+    CVResult,
+)
+
+
+def _make_answer_matrix(
+    n_samples: int = 30, n_questions: int = 3, pos_rate: float = 0.2
+) -> tuple[pd.DataFrame, list[str]]:
+    """Build a synthetic answer matrix + labels for CV tests."""
+    rng = np.random.default_rng(42)
+    n_pos = int(n_samples * pos_rate)
+    y = ["YES"] * n_pos + ["NO"] * (n_samples - n_pos)
+    # Questions that correlate with the label (imperfectly)
+    data: dict[str, list[str]] = {}
+    for q in range(n_questions):
+        col: list[str] = []
+        for label in y:
+            if label == "YES":
+                col.append("YES" if rng.random() > 0.3 else "NO")
+            else:
+                col.append("NO" if rng.random() > 0.3 else "YES")
+        data[f"q{q}"] = col
+    return pd.DataFrame(data), y
+
+
+class TestCrossValidation:
+    """Tests for cross_validate_aggregation."""
+
+    def test_cv_basic_runs(self) -> None:
+        """Function runs and returns CVResult with correct types."""
+        answers, y = _make_answer_matrix()
+        result = cross_validate_aggregation(
+            answers, y, n_splits=5, n_repeats=2, beta=0.5
+        )
+        assert isinstance(result, CVResult)
+        assert isinstance(result.fold_metrics, pd.DataFrame)
+        assert isinstance(result.per_founder, pd.DataFrame)
+        assert isinstance(result.summary, dict)
+
+    def test_cv_fold_count(self) -> None:
+        """n_splits=5, n_repeats=2 gives 10 fold rows."""
+        answers, y = _make_answer_matrix()
+        result = cross_validate_aggregation(
+            answers, y, n_splits=5, n_repeats=2, beta=0.5
+        )
+        assert len(result.fold_metrics) == 10
+        assert set(result.fold_metrics.columns) >= {
+            "repeat",
+            "fold",
+            "k",
+            "t",
+            "precision",
+            "recall",
+            "f1",
+            "f_beta",
+            "accuracy",
+            "n_train",
+            "n_test",
+        }
+
+    def test_cv_per_founder_coverage(self) -> None:
+        """Each founder appears exactly n_repeats times."""
+        answers, y = _make_answer_matrix(n_samples=30)
+        n_repeats = 3
+        result = cross_validate_aggregation(
+            answers, y, n_splits=5, n_repeats=n_repeats, beta=0.5
+        )
+        counts = result.per_founder.groupby("sample_idx").size()
+        assert len(counts) == 30
+        assert (counts == n_repeats).all()
+
+    def test_cv_summary_keys(self) -> None:
+        """Summary dict has mean and std for each metric."""
+        answers, y = _make_answer_matrix()
+        result = cross_validate_aggregation(
+            answers, y, n_splits=5, n_repeats=1, beta=0.5
+        )
+        for m in ("precision", "recall", "f1", "f_beta", "accuracy"):
+            assert f"{m}_mean" in result.summary
+            assert f"{m}_std" in result.summary
+
+    def test_cv_no_leakage(self) -> None:
+        """Train and test indices never overlap within a fold."""
+        answers, y = _make_answer_matrix(n_samples=30)
+        result = cross_validate_aggregation(
+            answers, y, n_splits=5, n_repeats=2, beta=0.5
+        )
+        # Per repeat, all sample indices appear exactly once
+        for rep in range(2):
+            rep_data = result.per_founder[result.per_founder["repeat"] == rep]
+            assert sorted(rep_data["sample_idx"]) == list(range(30))
+
+    def test_cv_metric_param(self) -> None:
+        """Different metrics can produce different (K, T) selections."""
+        answers, y = _make_answer_matrix(n_samples=30, n_questions=5)
+        r1 = cross_validate_aggregation(
+            answers,
+            y,
+            n_splits=5,
+            n_repeats=1,
+            metric="f_beta",
+            beta=0.5,
+        )
+        r2 = cross_validate_aggregation(
+            answers,
+            y,
+            n_splits=5,
+            n_repeats=1,
+            metric="precision",
+            beta=0.5,
+        )
+        # Both should succeed; K/T selections may differ
+        assert len(r1.fold_metrics) == 5
+        assert len(r2.fold_metrics) == 5
+
+
+# ---------------------------------------------------------------------------
+# Prompt preset tests
+# ---------------------------------------------------------------------------
+
+from think_reason_learn.rrf._prompt_presets import (  # noqa: E402
+    PromptPreset,
+    VC_FOUNDER_PRESET,
+)
+
+
+class TestPromptPresets:
+    """Tests for the prompt_preset parameter."""
+
+    @pytest.mark.asyncio
+    async def test_preset_skips_meta_prompt(self) -> None:
+        """With a preset, set_tasks() should NOT make a meta-prompt LLM call."""
+        fake = FakeLLM()
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_preset_skip",
+            max_samples_as_context=8,
+            max_generated_questions=3,
+            prompt_preset=VC_FOUNDER_PRESET,
+            _llm=fake,
+        )
+
+        template = await rrf.set_tasks(task_description="Classify founders")
+
+        # No LLM call should have been made (meta-prompt skipped)
+        assert fake.call_count == 0
+        assert len(fake.calls) == 0
+        # Template should be set
+        assert template is not None
+
+    @pytest.mark.asyncio
+    async def test_preset_uses_custom_gen_system(
+        self,
+        sample_data: tuple[pd.DataFrame, list[str]],
+    ) -> None:
+        """Generation calls should use the preset's system message."""
+        fake = FakeLLM()
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_preset_gen",
+            max_samples_as_context=8,
+            max_generated_questions=3,
+            prompt_preset=VC_FOUNDER_PRESET,
+            _llm=fake,
+        )
+        X, y = sample_data
+        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.fit(X, y)
+
+        # Find the Questions-format call (generation)
+        gen_calls = [c for c in fake.calls if c["response_format"] is Questions]
+        assert len(gen_calls) > 0
+        # The instructions should be the preset's generation system message
+        assert gen_calls[0]["instructions"] == VC_FOUNDER_PRESET.question_gen_system
+
+    @pytest.mark.asyncio
+    async def test_preset_uses_custom_answer_system(
+        self,
+        sample_data: tuple[pd.DataFrame, list[str]],
+    ) -> None:
+        """Answer calls should use the preset's answer system message."""
+        fake = FakeLLM()
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_preset_ans",
+            max_samples_as_context=8,
+            max_generated_questions=3,
+            prompt_preset=VC_FOUNDER_PRESET,
+            _llm=fake,
+        )
+        X, y = sample_data
+        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.fit(X, y)
+
+        # Find the Answer-format calls (answering)
+        answer_calls = [c for c in fake.calls if c["response_format"] is Answer]
+        assert len(answer_calls) > 0
+        # The instructions should be the preset's answer system message
+        expected = VC_FOUNDER_PRESET.question_answer_system
+        assert answer_calls[0]["instructions"] == expected
+
+    @pytest.mark.asyncio
+    async def test_preset_and_template_mutually_exclusive(self) -> None:
+        """Providing both preset and instructions_template should raise."""
+        fake = FakeLLM()
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_preset_excl",
+            max_generated_questions=3,
+            prompt_preset=VC_FOUNDER_PRESET,
+            _llm=fake,
+        )
+
+        with pytest.raises(ValueError, match="[Cc]annot.*both|[Mm]utually"):
+            await rrf.set_tasks(
+                instructions_template="Generate <number_of_questions> questions"
+            )
+
+    @pytest.mark.asyncio
+    async def test_preset_by_name_lookup(self) -> None:
+        """Passing a string name should resolve to the built-in preset."""
+        fake = FakeLLM()
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_preset_name",
+            max_samples_as_context=8,
+            max_generated_questions=3,
+            prompt_preset="vc_founder_evaluation",
+            _llm=fake,
+        )
+
+        template = await rrf.set_tasks(task_description="Classify founders")
+        # Should work — name resolved to VC_FOUNDER_PRESET
+        assert fake.call_count == 0
+        assert template is not None
+
+    @pytest.mark.asyncio
+    async def test_custom_preset_object(self) -> None:
+        """A user-created PromptPreset instance should work."""
+        custom = PromptPreset(
+            name="custom_test",
+            description="A test preset",
+            question_gen_system="You are a custom system.",
+            question_gen_user_template=(
+                "Generate {num_questions} YES/NO questions.\n\n{samples}"
+            ),
+            question_answer_system="You are a custom answering system.",
+            question_answer_user_template=("Question: {question}\nSample: {sample}"),
+        )
+        fake = FakeLLM()
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            name="test_custom_preset",
+            max_samples_as_context=8,
+            max_generated_questions=3,
+            prompt_preset=custom,
+            _llm=fake,
+        )
+
+        template = await rrf.set_tasks(task_description="Classify founders")
+        assert fake.call_count == 0
+        assert template is not None

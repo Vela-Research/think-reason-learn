@@ -151,7 +151,7 @@ class PolicyInduction:
     def threshold(self) -> float:
         if self._threshold is None:
             raise ValueError(
-                "No threshold. " "Model has not been trained yet. Call fit() first."
+                "No threshold. Model has not been trained yet. Call fit() first."
             )
         return self._threshold
 
@@ -176,9 +176,7 @@ class PolicyInduction:
     @property
     def lr(self) -> LogisticRegression:
         if self._lr is None:
-            raise ValueError(
-                "No lr." "Model has not been trained yet. Call fit() first."
-            )
+            raise ValueError("No lr.Model has not been trained yet. Call fit() first.")
         return self._lr
 
     @property
@@ -745,7 +743,7 @@ class PolicyInduction:
         missing = required - set(pm.columns)
         if missing:
             raise ValueError(
-                f"Invalid _policy_memory: " f"missing columns {sorted(missing)}"
+                f"Invalid _policy_memory: missing columns {sorted(missing)}"
             )
 
         pm = pm.copy()
@@ -775,9 +773,9 @@ class PolicyInduction:
         for idx, row in pm.iterrows():
             preds = row["predictions"]
             mapped = preds.map(  # type: ignore
-                lambda v: 1
-                if str(v).strip().lower() in {"1", "true", "yes", "y", "t"}
-                else 0
+                lambda v: (
+                    1 if str(v).strip().lower() in {"1", "true", "yes", "y", "t"} else 0
+                )
             )
             col_name = str(idx)
             X_df[col_name] = mapped.reindex(sample_index).astype(np.float32)
@@ -785,9 +783,9 @@ class PolicyInduction:
 
         y_series: pd.Series = pd.Series(self._y, index=sample_index)
         y_num = y_series.map(
-            lambda v: 1
-            if str(v).strip().lower() in {"1", "true", "yes", "y", "t"}
-            else 0
+            lambda v: (
+                1 if str(v).strip().lower() in {"1", "true", "yes", "y", "t"} else 0
+            )
         )
 
         X_df = X_df.fillna(0.0).astype(np.float32)
@@ -937,9 +935,7 @@ class PolicyInduction:
                 self._set_data(X, y, copy_data)
 
         if self._X is None or self._y is None:
-            raise ValueError(
-                "No data found. Provide X and y " "(or reset=True with X,y)"
-            )
+            raise ValueError("No data found. Provide X and y (or reset=True with X,y)")
 
         await self._build_policyinduction()
         logger.info("PolicyInduction settled successfully")
@@ -950,7 +946,7 @@ class PolicyInduction:
             getattr(self, "_lr", None) is None
             or getattr(self, "threshold", None) is None
         ):
-            raise RuntimeError("Model not fitted. " "Call fit() before predict().")
+            raise RuntimeError("Model not fitted. Call fit() before predict().")
         vec = np.asarray(raw, dtype=float).reshape(1, -1)
         if vec.shape[1] != getattr(self, "_n_features_", vec.shape[1]):
             raise RuntimeError(
@@ -1005,9 +1001,7 @@ class PolicyInduction:
                     raise LLMError("No response from LLM")
 
                 if response.average_confidence is not None:
-                    logger.debug(
-                        f"Confidence: {response.average_confidence} " f"pos={pos}"
-                    )
+                    logger.debug(f"Confidence: {response.average_confidence} pos={pos}")
 
                 txt = str(response.response.answer).strip().upper()
                 txt = txt.strip().strip('".,;:')
@@ -1021,7 +1015,7 @@ class PolicyInduction:
                         results[pos] = 0.0
                     else:
                         logger.warning(
-                            "Unexpected model output at pos " "%s: %r", pos, response
+                            "Unexpected model output at pos %s: %r", pos, response
                         )
                         results[pos] = 0.0
 

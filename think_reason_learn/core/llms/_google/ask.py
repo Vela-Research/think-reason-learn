@@ -2,7 +2,6 @@ from typing import Type, Any, Dict
 import logging
 from typing import cast
 
-
 from pydantic import BaseModel, ValidationError
 from google import genai
 from google.genai import types as gtypes
@@ -17,6 +16,7 @@ logger = logging.getLogger(__name__)
 class GeminiLLM(metaclass=SingletonMeta):
     def __init__(self, api_key: str) -> None:
         self.client = genai.Client(api_key=api_key)
+        self._models_without_logprobs: set[str] = set()
 
     def _process_kwargs(
         self,
@@ -31,6 +31,7 @@ class GeminiLLM(metaclass=SingletonMeta):
 
     def _build_config(
         self,
+        model: GoogleChatModel,
         response_format: Type[T],
         instructions: str | None,
         temperature: float | None,
@@ -41,12 +42,14 @@ class GeminiLLM(metaclass=SingletonMeta):
         else:
             response_schema, response_mime_type = response_format, "application/json"
 
+        enable_logprobs = model not in self._models_without_logprobs
+
         return gtypes.GenerateContentConfig(
             temperature=temperature,
             system_instruction=instructions,
             response_schema=response_schema,
             response_mime_type=response_mime_type,
-            response_logprobs=True,
+            response_logprobs=enable_logprobs,
             **kwargs,
         )
 
@@ -116,8 +119,10 @@ class GeminiLLM(metaclass=SingletonMeta):
         raise_: bool = False,
         **kwargs: Any,
     ) -> LLMResponse[T] | None:
+        logprobs_retried: bool = kwargs.pop("_logprobs_retried", False)
         kwargs = self._process_kwargs(kwargs)
         config = self._build_config(
+            model=model,
             response_format=response_format,
             instructions=instructions,
             temperature=temperature,
@@ -132,6 +137,20 @@ class GeminiLLM(metaclass=SingletonMeta):
             )
             return self._parse_response(response, model, response_format)
         except Exception as e:
+            if not logprobs_retried and "logprobs" in str(e).lower():
+                logger.info(
+                    "Logprobs not supported for %s, disabling and retrying.", model
+                )
+                self._models_without_logprobs.add(model)
+                return self.respond_sync(
+                    query=query,
+                    model=model,
+                    response_format=response_format,
+                    instructions=instructions,
+                    temperature=temperature,
+                    raise_=raise_,
+                    _logprobs_retried=True,
+                )
             logger.warning(f"Error responding with Google: {e}", exc_info=True)
             if raise_:
                 raise e
@@ -147,8 +166,10 @@ class GeminiLLM(metaclass=SingletonMeta):
         raise_: bool = False,
         **kwargs: Any,
     ) -> LLMResponse[T] | None:
+        logprobs_retried: bool = kwargs.pop("_logprobs_retried", False)
         kwargs = self._process_kwargs(kwargs)
         config = self._build_config(
+            model=model,
             response_format=response_format,
             instructions=instructions,
             temperature=temperature,
@@ -163,6 +184,20 @@ class GeminiLLM(metaclass=SingletonMeta):
             )
             return self._parse_response(response, model, response_format)
         except Exception as e:
+            if not logprobs_retried and "logprobs" in str(e).lower():
+                logger.info(
+                    "Logprobs not supported for %s, disabling and retrying.", model
+                )
+                self._models_without_logprobs.add(model)
+                return await self.respond(
+                    query=query,
+                    model=model,
+                    response_format=response_format,
+                    instructions=instructions,
+                    temperature=temperature,
+                    raise_=raise_,
+                    _logprobs_retried=True,
+                )
             logger.warning(f"Error responding with Google: {e}", exc_info=True)
             if raise_:
                 raise e

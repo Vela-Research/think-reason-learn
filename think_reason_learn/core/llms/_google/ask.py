@@ -117,7 +117,6 @@ class GeminiLLM(metaclass=SingletonMeta):
         raise_: bool = False,
         **kwargs: Any,
     ) -> LLMResponse[T] | None:
-        logprobs_retried: bool = kwargs.pop("_logprobs_retried", False)
         kwargs = self._process_kwargs(kwargs)
         config = self._build_config(
             response_format=response_format,

@@ -39,6 +39,8 @@ from pydantic import BaseModel, Field
 from think_reason_learn.core.exceptions import CorruptionError, DataError, LLMError
 from think_reason_learn.core.llms import LLMChoice, TokenCounter, llm
 
+from ._cost_sensitive import CostSensitiveConfig
+from ._prompt_presets import PromptPreset, PROMPT_PRESETS
 from ._prompts import (
     CUMULATIVE_MEMORY_INSTRUCTIONS,
     QUESTION_ANSWER_INSTRUCTIONS,
@@ -69,6 +71,10 @@ class QuestionExclusion(StrEnum):
         "Excluded due to high prediction similarity with other questions",
     )
     EXPERT = ("expert", "Excluded manually by expert")
+    COST_PRUNING = (
+        "cost_pruning",
+        "Excluded by cost-sensitive screening (below baseline or outside top-N)",
+    )
 
     def __new__(cls, value: str, description: str) -> QuestionExclusion:
         obj = str.__new__(cls, value)
@@ -97,6 +103,35 @@ class RRF:
         save_path: Directory to save checkpoints/models.
         name: Name of the forest instance.
         random_state: Random seed.
+        use_cumulative_memory: Whether to use cumulative memory when generating
+            questions across multiple LLM calls.
+        qanswer_batch_size: Maximum number of samples to answer in a single LLM call.
+            If None or 1, batching is disabled and the original per-sample behaviour
+            is used (one LLM call per sample). Set >1 to enable true batched answering.
+        question_scoring_f_beta: Beta parameter for computing F-beta score on
+            questions. Default 1.0 (F1). Use 0.5 to weight precision more, or
+            2.0 to weight recall more. Must be > 0.
+        semantic_filtering_during_fit: If True, run semantic deduplication on
+            generated questions *before* the expensive answering step. Uses
+            ``hashed_bag_of_words`` embeddings (no API calls). Default False.
+        semantic_similarity_threshold: Cosine-similarity threshold used for
+            early semantic filtering. Only relevant when
+            ``semantic_filtering_during_fit=True``. Default 0.9.
+        aggregation_metric: Metric optimized when tuning (K, T) for
+            founder-level prediction during ``fit()``. One of ``"f1"``,
+            ``"f_beta"``, ``"accuracy"``, ``"precision"``, ``"recall"``.
+            When ``"f_beta"`` is selected, uses ``question_scoring_f_beta``
+            as the beta parameter. Default ``"f1"``.
+        aggregation_max_k: Maximum K (number of top questions) to consider
+            during (K, T) grid search. ``None`` means use all active
+            questions. Default ``None``.
+        cost_sensitive: Enable cost-sensitive mode with screening and early pruning.
+        cost_sensitive_config: Configuration for cost-sensitive mode. If None,
+            uses default CostSensitiveConfig.
+        prompt_preset: Optional prompt preset (``PromptPreset`` instance or
+            registered name string). When provided, bypasses the meta-prompt
+            step and uses domain-specific prompts for generation and answering.
+        _llm: LLM instance for testing (dependency injection). If None, uses global llm.
     """
 
     def __init__(
@@ -114,9 +149,24 @@ class RRF:
         save_path: str | PathLike[str] | None = None,
         name: str | None = None,
         random_state: int = 42,
+        use_cumulative_memory: bool = True,
+        qanswer_batch_size: int | None = None,
+        question_scoring_f_beta: float = 1.0,
+        semantic_filtering_during_fit: bool = False,
+        semantic_similarity_threshold: float = 0.9,
+        aggregation_metric: Literal[
+            "f1", "f_beta", "accuracy", "precision", "recall"
+        ] = "f1",
+        aggregation_max_k: int | None = None,
+        cost_sensitive: bool = False,
+        cost_sensitive_config: CostSensitiveConfig | None = None,
+        prompt_preset: str | PromptPreset | None = None,
+        _llm: Any = None,
     ):
         locals_dict = deepcopy(locals())
         del locals_dict["self"]
+        locals_dict.pop("_llm", None)
+        locals_dict.pop("prompt_preset", None)
         self._verify_input_data(**locals_dict)
 
         self.qgen_llmc = qgen_llmc
@@ -132,6 +182,32 @@ class RRF:
         self.save_path: Path = self._set_save_path(save_path)
         self.q_answer_update_interval = q_answer_update_interval
         self.random_state = random_state
+        self.use_cumulative_memory = use_cumulative_memory
+        self.qanswer_batch_size = qanswer_batch_size
+        self.question_scoring_f_beta = question_scoring_f_beta
+        self.semantic_filtering_during_fit = semantic_filtering_during_fit
+        self.semantic_similarity_threshold = semantic_similarity_threshold
+        self.aggregation_metric = aggregation_metric
+        self.aggregation_max_k = aggregation_max_k
+        self.cost_sensitive = cost_sensitive
+        self.cost_sensitive_config = cost_sensitive_config or CostSensitiveConfig()
+
+        # Resolve prompt preset (string name → PromptPreset object).
+        if isinstance(prompt_preset, str):
+            if prompt_preset not in PROMPT_PRESETS:
+                raise ValueError(
+                    f"Unknown prompt preset '{prompt_preset}'. "
+                    f"Available: {list(PROMPT_PRESETS.keys())}"
+                )
+            self._prompt_preset: PromptPreset | None = PROMPT_PRESETS[prompt_preset]
+        else:
+            self._prompt_preset = prompt_preset
+
+        self._llm_instance: Any = _llm if _llm is not None else llm
+        self._exclusion_log: list[dict[str, Any]] = []
+        self._last_fit_summary: dict[str, Any] = {}
+        self._aggregation_k: int | None = None
+        self._aggregation_t: int | None = None
 
         self._token_counter: TokenCounter = TokenCounter()
 
@@ -144,6 +220,9 @@ class RRF:
         self._questions: pd.DataFrame = self._get_initial_questions_df()
         self._answers: pd.DataFrame = self._create_answers_df(index=None)
         self._last_emb_model: EmbeddingModel | None = None
+        self._X_val: pd.DataFrame | None = None
+        self._y_val: npt.NDArray[np.str_] | None = None
+        self._screening_indices: npt.NDArray[np.int_] | None = None
 
     @property
     def llm_semaphore_limit(self) -> int:
@@ -183,8 +262,31 @@ class RRF:
         if not (0 <= val <= 2):
             raise ValueError("qanswer_temperature must be >= 0 and <= 2")
         val = kwargs["answer_similarity_func"]
-        if val not in ["hamming", "jaccard"]:
-            raise ValueError("answer_similarity_func must be 'hamming' or 'jaccard'")
+        if val not in ["hamming", "jaccard", "correlation"]:
+            raise ValueError(
+                "answer_similarity_func must be 'hamming', 'jaccard', or 'correlation'"
+            )
+        val = kwargs["qanswer_batch_size"]
+        if not (val is None or (isinstance(val, int) and val > 0)):
+            raise ValueError("qanswer_batch_size must be None or a positive integer")
+        val = kwargs["question_scoring_f_beta"]
+        if not (isinstance(val, (int, float)) and val > 0):
+            raise ValueError("question_scoring_f_beta must be a positive float (> 0)")
+        val = kwargs["semantic_filtering_during_fit"]
+        if not isinstance(val, bool):
+            raise TypeError("semantic_filtering_during_fit must be a bool")
+        val = kwargs["semantic_similarity_threshold"]
+        if not (isinstance(val, (int, float)) and 0 <= val <= 1):
+            raise ValueError("semantic_similarity_threshold must be between 0 and 1")
+        val = kwargs["aggregation_metric"]
+        if val not in ("f1", "f_beta", "accuracy", "precision", "recall"):
+            raise ValueError(
+                "aggregation_metric must be 'f1', 'f_beta', 'accuracy',"
+                " 'precision', or 'recall'"
+            )
+        val = kwargs["aggregation_max_k"]
+        if val is not None and (not isinstance(val, int) or val < 1):
+            raise ValueError("aggregation_max_k must be None or a positive integer")
 
     def _get_name(self, name: str | None) -> str:
         if name is None:
@@ -219,6 +321,7 @@ class RRF:
                 "precision": pd.Series([], dtype=float),
                 "recall": pd.Series([], dtype=float),
                 "f1_score": pd.Series([], dtype=float),
+                "f_beta_score": pd.Series([], dtype=float),
                 "accuracy": pd.Series([], dtype=float),
             },
             index=pd.Index([], dtype=str, name="id"),
@@ -235,6 +338,8 @@ class RRF:
                 - precision: Precision for each question
                 - recall: Recall for each question
                 - f1_score: F1 score for each question
+                - f_beta_score: F-beta score for each question (configurable via
+                    question_scoring_f_beta; defaults to F1 when beta=1.0)
                 - accuracy: Accuracy for each question
         """
         return self._questions
@@ -290,6 +395,23 @@ class RRF:
             ValueError: If template missing required tag or generation fails.
             AssertionError: If both parameters are None.
         """
+        if self._prompt_preset is not None and instructions_template is not None:
+            raise ValueError(
+                "Cannot provide both 'prompt_preset' and 'instructions_template'. "
+                "The preset already defines generation prompts."
+            )
+
+        # When a preset is active, build the template from the preset's
+        # user template (which uses {num_questions}) and store it with the
+        # internal <number_of_questions> tag so the rest of the pipeline works.
+        if self._prompt_preset is not None:
+            preset_template = self._prompt_preset.question_gen_user_template.replace(
+                "{num_questions}", num_questions_tag
+            )
+            self._qgen_instructions_template = preset_template
+            self._task_description = task_description
+            return preset_template
+
         assert (
             instructions_template is not None or task_description is not None
         ), "Either instructions_template or task_description must be provided"
@@ -305,7 +427,7 @@ class RRF:
                 return instructions_template
 
         async with self._llm_semaphore:
-            response = await llm.respond(
+            response = await self._llm_instance.respond(
                 query=f"Generate YES/NO questions for:\n{task_description}",
                 llm_priority=self.qgen_llmc,
                 response_format=str,
@@ -419,6 +541,10 @@ class RRF:
         cumulative_memory = "No cumulative memory yet. This is the first generation."
         all_questions: List[str] = []
 
+        # When a preset is active, the user template becomes the query
+        # (with {samples} filled in) and the system message is the instructions.
+        use_preset = self._prompt_preset is not None
+
         for sample_df in self._sample(self.max_samples_as_context):
             samples_str = ""
             for each_sample in sample_df.to_dict(orient="records"):  # type: ignore
@@ -427,14 +553,24 @@ class RRF:
                 )
                 samples_str += f"\n{sample_str};"
 
-            query = f"SAMPLES:\n{samples_str}\n\nCUMULATIVE MEMORY: {cumulative_memory}"
+            if use_preset:
+                query = instructions.replace("{samples}", samples_str)
+                llm_instructions = self._prompt_preset.question_gen_system  # type: ignore[union-attr]
+            elif self.use_cumulative_memory:
+                query = (
+                    f"SAMPLES:\n{samples_str}\n\nCUMULATIVE MEMORY: {cumulative_memory}"
+                )
+                llm_instructions = instructions
+            else:
+                query = f"SAMPLES:\n{samples_str}"
+                llm_instructions = instructions
 
             async with self._llm_semaphore:
-                response = await llm.respond(
+                response = await self._llm_instance.respond(
                     query=query,
                     llm_priority=self.qgen_llmc,
                     response_format=Questions,
-                    instructions=instructions,
+                    instructions=llm_instructions,
                     temperature=self.qgen_temperature,
                 )
 
@@ -454,8 +590,9 @@ class RRF:
                     f"\n\nInstructions: {instructions[:200]}..."
                 )
             all_questions.extend(questions.questions)
-            cumulative_memory = questions.cumulative_memory
-            logger.info(f"Cumulative memory: {cumulative_memory}")
+            if self.use_cumulative_memory:
+                cumulative_memory = questions.cumulative_memory
+                logger.info(f"Cumulative memory: {cumulative_memory}")
             logger.info(f"Generated questions: {len(questions.questions)}")
 
         qlen = len(all_questions)
@@ -470,6 +607,7 @@ class RRF:
                 "precision": [None] * qlen,
                 "recall": [None] * qlen,
                 "f1_score": [None] * qlen,
+                "f_beta_score": [None] * qlen,
                 "accuracy": [None] * qlen,
             },
             index=index,  # type: ignore
@@ -505,9 +643,9 @@ class RRF:
 
         from sentence_transformers import SentenceTransformer  # type: ignore
 
-        encode_fn = cast(Any, SentenceTransformer(emb_model).encode_async)
-        embeddings_np = await encode_fn(
-            text, convert_to_numpy=True, normalize_embeddings=True
+        model = SentenceTransformer(emb_model)
+        embeddings_np = await asyncio.to_thread(
+            model.encode, text, convert_to_numpy=True, normalize_embeddings=True
         )
         embeddings_np = cast(np.ndarray, embeddings_np)
         return embeddings_np.astype(np.float32, copy=False)
@@ -580,6 +718,11 @@ class RRF:
                 self._questions["exclusion"] == QuestionExclusion.SEMANTICS.value,
                 "exclusion",
             ] = None
+            self._exclusion_log = [
+                e
+                for e in self._exclusion_log
+                if e["exclusion_reason"] != "semantic_similarity"
+            ]
             return
 
         await self._set_questions_semantics(emb_model)
@@ -587,6 +730,11 @@ class RRF:
             self._questions["exclusion"] == QuestionExclusion.SEMANTICS.value,
             "exclusion",
         ] = None
+        self._exclusion_log = [
+            e
+            for e in self._exclusion_log
+            if e["exclusion_reason"] != "semantic_similarity"
+        ]
 
         qdf = self._questions
         embeddings_list: List[npt.NDArray[np.float32]] = []
@@ -642,7 +790,21 @@ class RRF:
                     return _safe_f1(qid)
 
                 best = max(group, key=f1_for_row)
+                best_qid = cast(str, self._questions.index[indices[best]])
                 for r in group:
+                    if r != best:
+                        loser_qid = cast(str, self._questions.index[indices[r]])
+                        sim_score = float(emb_matrix[r] @ emb_matrix[best])
+                        self._exclusion_log.append(
+                            {
+                                "excluded_question_id": loser_qid,
+                                "exclusion_reason": "semantic_similarity",
+                                "reference_question_id": best_qid,
+                                "similarity_score": sim_score,
+                                "threshold": threshold,
+                                "metric_used": "dot_product",
+                            }
+                        )
                     keep_flags[r] = False
                 keep_flags[best] = True
 
@@ -663,11 +825,21 @@ class RRF:
     ) -> Tuple[Any, str, Answer] | None:
         """Returns sample_index, question_id, answer."""
         try:
+            if self._prompt_preset is not None:
+                ans_query = self._prompt_preset.question_answer_user_template.format(
+                    question=question,
+                    sample=sample,
+                )
+                ans_instructions = self._prompt_preset.question_answer_system
+            else:
+                ans_query = f"Query: {question}\n\nSample: {sample}"
+                ans_instructions = QUESTION_ANSWER_INSTRUCTIONS
+
             async with self._llm_semaphore:
-                response = await llm.respond(
+                response = await self._llm_instance.respond(
                     llm_priority=self.qanswer_llmc,
-                    query=f"Query: {question}\n\nSample: {sample}",
-                    instructions=QUESTION_ANSWER_INSTRUCTIONS,
+                    query=ans_query,
+                    instructions=ans_instructions,
                     response_format=Answer,
                     temperature=self.qanswer_temperature,
                 )
@@ -698,6 +870,145 @@ class RRF:
                 exc_info=True,
             )
 
+    async def _answer_questions_batch(
+        self,
+        question_id: str,
+        question: str,
+        samples: list[tuple[Any, str]],
+        token_counter: TokenCounter,
+    ) -> list[tuple[Any, str, str]]:
+        """Answer the same question for multiple samples with a single LLM call.
+
+        Args:
+            question_id: The ID of the question being answered.
+            question: The question text.
+            samples: A list of (sample_index, sample_str) pairs.
+            token_counter: Token counter to update with this LLM call.
+
+        Returns:
+            A list of (sample_index, question_id, label) tuples, where label is
+            'YES' or 'NO' for each successfully answered sample.
+        """
+        if not samples:
+            return []
+
+        # Build a batched prompt: one question, multiple samples with indices 0..N-1.
+        samples_text_parts: list[str] = []
+        for idx, (_sample_index, sample_str) in enumerate(samples):
+            samples_text_parts.append(f"Sample {idx}:\n{sample_str}")
+        samples_block = "\n\n".join(samples_text_parts)
+
+        query = (
+            "You are a VC analyst evaluating multiple founders.\n"
+            "You will be given a binary yes/no question and several samples.\n"
+            "For each sample, decide whether the question applies to that sample.\n\n"
+            "Return ONLY a JSON list. Each element must be of the form:\n"
+            '{"sample_index": <int>, "answer": "YES" or "NO"}.\n'
+            "Use 0-based sample_index corresponding to the 'Sample <index>' labels.\n"
+            "Do not include any extra keys or any prose outside the JSON.\n\n"
+            f"Question:\n{question}\n\n"
+            f"Samples:\n{samples_block}"
+        )
+
+        if self._prompt_preset is not None:
+            batch_instructions = self._prompt_preset.question_answer_system
+        else:
+            batch_instructions = QUESTION_ANSWER_INSTRUCTIONS
+
+        try:
+            async with self._llm_semaphore:
+                response = await self._llm_instance.respond(
+                    llm_priority=self.qanswer_llmc,
+                    query=query,
+                    instructions=batch_instructions,
+                    response_format=str,
+                    temperature=self.qanswer_temperature,
+                )
+
+            await token_counter.append(
+                provider=response.provider_model.provider,
+                model=response.provider_model.model,
+                value=response.total_tokens,
+                caller="RRF._answer_questions_batch",
+            )
+
+            raw = response.response
+            if raw is None:
+                raise LLMError("No response from LLM in batched mode")
+
+            # Strip possible markdown fences
+            cleaned = raw.strip()
+            if cleaned.startswith("```"):
+                # e.g. ```json\n...\n```
+                cleaned = cleaned.strip("`")
+                # After stripping backticks, sometimes a leading 'json' remains
+                cleaned = cleaned.lstrip("json").strip()
+
+            try:
+                parsed = orjson.loads(cleaned)
+            except Exception:
+                logger.warning(
+                    "Failed to parse batched JSON response for question '%s': %r",
+                    question_id,
+                    raw,
+                    exc_info=True,
+                )
+                return []
+
+            if not isinstance(parsed, list):
+                logger.warning(
+                    "Batched JSON response for question '%s' is not a list: %r",
+                    question_id,
+                    parsed,
+                )
+                return []
+
+            idx_to_label: dict[int, str] = {}
+            for item in parsed:
+                if not isinstance(item, dict):
+                    continue
+                idx = item.get("sample_index")
+                ans = item.get("answer") or item.get("Answer")
+                if not isinstance(idx, int) or not isinstance(ans, str):
+                    continue
+                token = ans.strip().split()[0].strip(".,;:! ").upper()
+                if token in ("YES", "NO"):
+                    idx_to_label[idx] = token
+
+            results: list[tuple[Any, str, str]] = []
+            for idx, (sample_index, _sample_str) in enumerate(samples):
+                label = idx_to_label.get(idx)
+                if label is None:
+                    continue
+                results.append((sample_index, question_id, label))
+
+            if len(results) != len(samples):
+                logger.warning(
+                    "Batched answer coverage mismatch for question '%s': "
+                    "expected %d samples, got labels for %d",
+                    question_id,
+                    len(samples),
+                    len(results),
+                )
+
+            logger.debug(
+                "Answered question '%s' for %d/%d samples in a single batch call.",
+                question_id,
+                len(results),
+                len(samples),
+            )
+
+            return results
+
+        except Exception:
+            logger.warning(
+                "Error answering batched question '%s' for %d samples",
+                question_id,
+                len(samples),
+                exc_info=True,
+            )
+            return []
+
     def _update_answers_df_columns(self) -> None:
         """Ensure all non excluded questions are in the answers dataframe."""
         not_excluded_df = cast(
@@ -724,80 +1035,229 @@ class RRF:
             answers_any: Any = self._answers
             self._answers = cast(pd.DataFrame, answers_any.astype(coerce_map))
 
-    async def _answer_questions(self) -> None:
+    async def _answer_questions(self, use_screening: bool = False) -> None:
         if self._X is None or self._y is None:
             raise ValueError("X and y must be set")
 
         self._update_answers_df_columns()
 
         mask = self._answers.isna().stack()
-        not_answered = cast(Iterable[Tuple[int, str]], mask[mask].index)  # type: ignore
-        num_not_answered = not_answered.size  # type: ignore
+        not_answered_all_idx = mask[mask].index  # type: ignore[reportAttributeAccessIssue]
+        not_answered_all = cast(
+            Iterable[Tuple[int, str]], not_answered_all_idx
+        )  # Type hint for MultiIndex
+
+        # Filter to screening indices if requested
+        if use_screening:
+            if self._screening_indices is None:
+                raise ValueError("Screening indices not set")
+            screening_set = set(self._screening_indices)
+            # Filter the MultiIndex to only include screening samples
+            not_answered = [
+                (sidx, qid) for sidx, qid in not_answered_all if sidx in screening_set
+            ]
+            not_answered = pd.MultiIndex.from_tuples(
+                not_answered
+            )  # Convert back to MultiIndex
+        else:
+            not_answered = not_answered_all_idx
+
+        not_answered = cast(Iterable[Tuple[int, str]], not_answered)
 
         # Buffered updates: per-question updates applied in batches
+        # (for both single-sample and batched modes)
         answers_buffer: Dict[str, Dict[Any, str]] = {}
 
-        completion_queue: asyncio.Queue[None] = asyncio.Queue()
-
-        async def worker(sample_index: Any, question_id: str) -> None:
-            try:
-                qdf = self._questions
-                xdf = self._X
-                question = cast(str, qdf.at[question_id, "question"])  # type: ignore
-                sample = cast(str, xdf.iloc[sample_index])  # type: ignore
-                sample_str = "\n".join(
-                    [f"{col}: {val}" for col, val in sample.items()]  # type: ignore
-                )
-                result = await self._answer_single_question(
-                    sample_index=sample_index,
-                    sample=sample_str,
-                    question_id=question_id,
-                    question=question,
-                    token_counter=self._token_counter,
-                )
-                if result is not None:
-                    sidx, qid, answer = result
-                    bucket = answers_buffer.get(qid)
-                    if bucket is None:
-                        bucket = {}
-                        answers_buffer[qid] = bucket
-                    bucket[sidx] = answer.answer.upper()
-            except asyncio.CancelledError:
-                pass
-            except Exception:
-                logger.warning("Error in RRF worker answering question", exc_info=True)
-            finally:
-                completion_queue.put_nowait(None)
-
-        not_answered_iter = iter(not_answered)
-        in_flight = 0
-        completions = 0
-
         try:
-            async with asyncio.TaskGroup() as tg:
-                for _ in range(self.llm_semaphore_limit):
-                    try:
-                        sidx, qid = next(not_answered_iter)
-                    except StopIteration:
-                        break
-                    tg.create_task(worker(sidx, qid))
-                    in_flight += 1
+            # ------------------------------------------------------------------
+            # 1) Backwards-compatible path: no batching (or batch_size == 1)
+            #    -> behaves exactly like the original implementation.
+            # ------------------------------------------------------------------
+            if self.qanswer_batch_size is None or self.qanswer_batch_size == 1:
+                num_not_answered = not_answered.size  # type: ignore
+                single_completion_queue: asyncio.Queue[None] = asyncio.Queue()
 
-                while in_flight > 0:
-                    await completion_queue.get()
-                    in_flight -= 1
-                    completions += 1
-                    if completions % self.q_answer_update_interval == 0:
-                        logger.info(
-                            f"Answered {completions} questions out "
-                            f"of {num_not_answered}"
-                        )
+                async def worker_single(sample_index: Any, question_id: str) -> None:
                     try:
-                        sidx, qid = next(not_answered_iter)
-                    except StopIteration:
-                        continue
-                    tg.create_task(worker(sidx, qid))
-                    in_flight += 1
+                        qdf = self._questions
+                        xdf = self._X
+                        question = cast(str, qdf.at[question_id, "question"])  # type: ignore
+                        sample = cast(str, xdf.iloc[sample_index])  # type: ignore
+                        sample_str = "\n".join(
+                            [f"{col}: {val}" for col, val in sample.items()]  # type: ignore
+                        )
+                        result = await self._answer_single_question(
+                            sample_index=sample_index,
+                            sample=sample_str,
+                            question_id=question_id,
+                            question=question,
+                            token_counter=self._token_counter,
+                        )
+                        if result is not None:
+                            sidx, qid, answer = result
+                            bucket = answers_buffer.get(qid)
+                            if bucket is None:
+                                bucket = {}
+                                answers_buffer[qid] = bucket
+                            bucket[sidx] = answer.answer.upper()
+                    except asyncio.CancelledError:
+                        pass
+                    except Exception:
+                        logger.warning(
+                            "Error in RRF worker answering question",
+                            exc_info=True,
+                        )
+                    finally:
+                        single_completion_queue.put_nowait(None)
+
+                not_answered_iter = iter(not_answered)
+                in_flight = 0
+                completions = 0
+
+                async with asyncio.TaskGroup() as tg:
+                    # Kick off up to llm_semaphore_limit initial tasks
+                    for _ in range(self.llm_semaphore_limit):
+                        try:
+                            sidx, qid = next(not_answered_iter)
+                        except StopIteration:
+                            break
+                        tg.create_task(worker_single(sidx, qid))
+                        in_flight += 1
+
+                    while in_flight > 0:
+                        await single_completion_queue.get()
+                        in_flight -= 1
+                        completions += 1
+
+                        if completions % self.q_answer_update_interval == 0:
+                            logger.info(
+                                "Answered %d questions out of %d",
+                                completions,
+                                num_not_answered,
+                            )
+
+                        try:
+                            sidx, qid = next(not_answered_iter)
+                        except StopIteration:
+                            continue
+                        tg.create_task(worker_single(sidx, qid))
+                        in_flight += 1
+
+            # ------------------------------------------------------------------
+            # 2) Batched path: qanswer_batch_size > 1
+            #    -> group by question and answer samples in batches per question.
+            # ------------------------------------------------------------------
+            else:
+                logger.info(
+                    "[BATCH] Using batched answering (batch_size=%s)",
+                    self.qanswer_batch_size,
+                )
+                batch_size = cast(int, self.qanswer_batch_size)
+
+                # Group unanswered pairs by question, so we can batch per question
+                pending_by_question: Dict[str, List[int]] = {}
+                for sidx, qid in not_answered:
+                    pending_by_question.setdefault(qid, []).append(sidx)
+
+                # Total number of unanswered (sample, question) pairs for logging
+                num_not_answered = sum(
+                    len(sidxs) for sidxs in pending_by_question.values()
+                )
+
+                # Count how many (sample, question) pairs each worker answers
+                batch_completion_queue: asyncio.Queue[int] = asyncio.Queue()
+
+                async def worker_batch(
+                    question_id: str, sample_indices: List[int]
+                ) -> None:
+                    """Answer one question for a batch of samples."""
+                    results_count = 0
+                    try:
+                        qdf = self._questions
+                        xdf = self._X
+
+                        question = cast(str, qdf.at[question_id, "question"])  # type: ignore
+
+                        # Build (sample_index, sample_str) list for this batch
+                        samples_for_batch: list[tuple[Any, str]] = []
+                        for sidx in sample_indices:
+                            sample = cast(str, xdf.iloc[sidx])  # type: ignore
+                            sample_str = "\n".join(
+                                [f"{col}: {val}" for col, val in sample.items()]  # type: ignore
+                            )
+                            samples_for_batch.append((sidx, sample_str))
+
+                        # Use the batched LLM call (one call per question+batch)
+                        results = await self._answer_questions_batch(
+                            question_id=question_id,
+                            question=question,
+                            samples=samples_for_batch,
+                            token_counter=self._token_counter,
+                        )
+
+                        results_count = len(results)
+
+                        # Buffer results as before (label string)
+                        for sidx, qid, label in results:
+                            bucket = answers_buffer.get(qid)
+                            if bucket is None:
+                                bucket = {}
+                                answers_buffer[qid] = bucket
+                            bucket[sidx] = label.upper()
+
+                    except asyncio.CancelledError:
+                        pass
+                    except Exception:
+                        logger.warning(
+                            "Error in RRF worker answering question batch",
+                            exc_info=True,
+                        )
+                    finally:
+                        # Tell the outer loop how many pairs we just answered
+                        batch_completion_queue.put_nowait(results_count)
+
+                # Build a flat list of (question_id, [sample_indices]) batches
+                batches: list[tuple[str, List[int]]] = []
+                for qid, sidxs in pending_by_question.items():
+                    for i in range(0, len(sidxs), batch_size):
+                        batches.append((qid, sidxs[i : i + batch_size]))
+
+                in_flight = 0
+                completions = 0  # number of (sample, question) pairs answered so far
+
+                async with asyncio.TaskGroup() as tg:
+                    batches_iter = iter(batches)
+
+                    # Kick off up to llm_semaphore_limit initial batch tasks
+                    for _ in range(self.llm_semaphore_limit):
+                        try:
+                            qid, batch_sidxs = next(batches_iter)
+                        except StopIteration:
+                            break
+                        tg.create_task(worker_batch(qid, batch_sidxs))
+                        in_flight += 1
+
+                    while in_flight > 0:
+                        # Each worker tells us how many pairs it answered
+                        answered_in_batch = await batch_completion_queue.get()
+                        in_flight -= 1
+                        completions += answered_in_batch
+
+                        if completions % self.q_answer_update_interval == 0:
+                            logger.info(
+                                "Answered %d questions out of %d",
+                                min(completions, num_not_answered),
+                                num_not_answered,
+                            )
+
+                        # Start a new batch task if available
+                        try:
+                            qid, batch_sidxs = next(batches_iter)
+                        except StopIteration:
+                            continue
+                        tg.create_task(worker_batch(qid, batch_sidxs))
+                        in_flight += 1
+
         finally:
             ansdf = self._answers
             for qid, mapping in answers_buffer.items():
@@ -810,20 +1270,29 @@ class RRF:
                 index_update = cast(pd.Index, series_update.index)
                 ansdf.loc[index_update, qid] = series_update
 
-    def _set_questions_metrics(self) -> None:
+    def _set_questions_metrics(self, use_screening: bool = False) -> None:
         if self._y is None:
             return
 
-        y_series = pd.Series(self._y, index=self._answers.index)
+        # Filter to screening subset if requested
+        if use_screening:
+            if self._screening_indices is None:
+                raise ValueError("Screening indices not set")
+            y_subset = self._y[self._screening_indices]
+            answers_subset = self._answers.loc[self._screening_indices]
+            y_series = pd.Series(y_subset, index=answers_subset.index)
+        else:
+            y_series = pd.Series(self._y, index=self._answers.index)
+            answers_subset = self._answers
 
         true_yes = set(y_series.index[y_series == "YES"])  # type: ignore
         true_no = set(y_series.index[y_series == "NO"])  # type: ignore
 
         for qid in cast(List[str], self._questions.index):
-            if qid not in self._answers.columns:
+            if qid not in answers_subset.columns:
                 continue
 
-            col = cast(pd.Series, self._answers[qid])
+            col = cast(pd.Series, answers_subset[qid])
             pred_yes = set(col.index[col == "YES"])  # type: ignore
             pred_no = set(col.index[col == "NO"])  # type: ignore
 
@@ -841,10 +1310,269 @@ class RRF:
                 else 0.0
             )
 
+            beta = self.question_scoring_f_beta
+            beta_sq = beta * beta
+            f_beta = (
+                ((1 + beta_sq) * precision * recall / (beta_sq * precision + recall))
+                if (beta_sq * precision + recall)
+                else 0.0
+            )
+
             self._questions.at[qid, "precision"] = precision
             self._questions.at[qid, "recall"] = recall
             self._questions.at[qid, "f1_score"] = f1
+            self._questions.at[qid, "f_beta_score"] = f_beta
             self._questions.at[qid, "accuracy"] = accuracy
+
+    # ------------------------------------------------------------------
+    # Founder-level aggregation (issue #47)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _compute_metric(
+        preds: npt.NDArray[np.int_],
+        y_true: npt.NDArray[np.int_],
+        metric: str,
+        *,
+        beta: float = 1.0,
+    ) -> float:
+        """Compute a classification metric from binary arrays.
+
+        Args:
+            preds: Predicted labels (0/1).
+            y_true: True labels (0/1).
+            metric: One of ``"f1"``, ``"accuracy"``, ``"precision"``,
+                ``"recall"``, ``"f_beta"``.
+            beta: Beta parameter for ``"f_beta"`` metric. Ignored for
+                other metrics. Default 1.0.
+
+        Returns:
+            The metric value as a float.
+        """
+        tp = int(((preds == 1) & (y_true == 1)).sum())
+        tn = int(((preds == 0) & (y_true == 0)).sum())
+        fp = int(((preds == 1) & (y_true == 0)).sum())
+        fn = int(((preds == 0) & (y_true == 1)).sum())
+        total = tp + tn + fp + fn
+
+        if metric == "accuracy":
+            return (tp + tn) / total if total else 0.0
+        if metric == "precision":
+            return tp / (tp + fp) if (tp + fp) else 0.0
+        if metric == "recall":
+            return tp / (tp + fn) if (tp + fn) else 0.0
+        if metric == "f1":
+            p = tp / (tp + fp) if (tp + fp) else 0.0
+            r = tp / (tp + fn) if (tp + fn) else 0.0
+            return 2 * p * r / (p + r) if (p + r) else 0.0
+        if metric == "f_beta":
+            p = tp / (tp + fp) if (tp + fp) else 0.0
+            r = tp / (tp + fn) if (tp + fn) else 0.0
+            beta_sq = beta * beta
+            return (
+                (1 + beta_sq) * p * r / (beta_sq * p + r) if (beta_sq * p + r) else 0.0
+            )
+        raise ValueError(f"Unknown metric: {metric}")
+
+    @staticmethod
+    def aggregate_predictions(
+        response_matrix: pd.DataFrame,
+        question_scores: pd.Series,
+        k: int,
+        t: int,
+    ) -> pd.Series:
+        """Aggregate per-question binary responses into founder-level labels.
+
+        Selects the top-K questions by score (descending) and predicts YES
+        for a founder if at least T of those K questions are answered YES.
+
+        Args:
+            response_matrix: Binary DataFrame (n_samples x n_questions)
+                with values 0 (NO) or 1 (YES).
+            question_scores: Float scores indexed by question ID.
+            k: Number of top-scoring questions to use.
+            t: Minimum YES count to predict "YES".
+
+        Returns:
+            Series of "YES"/"NO" predictions indexed by sample.
+
+        Raises:
+            ValueError: If k or t are out of valid range.
+        """
+        n_questions = len(question_scores)
+        if k < 1 or k > n_questions:
+            raise ValueError(f"k must be between 1 and {n_questions}, got {k}")
+        if t < 1 or t > k:
+            raise ValueError(f"t must be between 1 and k={k}, got {t}")
+
+        sorted_qids = question_scores.sort_values(ascending=False).index[:k]
+        top_k = response_matrix[sorted_qids]
+        yes_counts = top_k.sum(axis=1)
+        return pd.Series(
+            np.where(yes_counts >= t, "YES", "NO"),
+            index=response_matrix.index,
+        )
+
+    def _tune_aggregation(self) -> None:
+        """Find best (K, T) on training data via grid search.
+
+        Uses the already-computed ``_answers`` DataFrame and ``_y`` labels.
+        No additional LLM calls are made. Stores results in
+        ``_aggregation_k`` and ``_aggregation_t``.
+        """
+        if self._y is None:
+            return
+
+        active_qids = [
+            cast(str, qid)
+            for qid in self._questions.index
+            if self._questions.at[qid, "exclusion"] is None
+            and qid in self._answers.columns
+        ]
+        if not active_qids:
+            return
+
+        binary = self._answers[active_qids].apply(
+            lambda col: (col == "YES").astype(int)
+        )
+        scores = self._questions.loc[active_qids, "f_beta_score"].astype(float)
+        sorted_qids = scores.sort_values(ascending=False).index
+        sorted_binary = binary[sorted_qids].values  # type: ignore[union-attr]
+        cumsum = np.cumsum(sorted_binary, axis=1)  # type: ignore[arg-type]
+        y_true = np.array([1 if yi == "YES" else 0 for yi in self._y])
+
+        q_count = len(sorted_qids)
+        max_k = (
+            min(self.aggregation_max_k, q_count)
+            if self.aggregation_max_k is not None
+            else q_count
+        )
+
+        best_score, best_k, best_t = -1.0, 1, 1
+        for k in range(1, max_k + 1):
+            yes_at_k = cumsum[:, k - 1]
+            for t_val in range(1, k + 1):
+                preds = (yes_at_k >= t_val).astype(int)
+                score = RRF._compute_metric(
+                    preds,
+                    y_true,
+                    self.aggregation_metric,
+                    beta=self.question_scoring_f_beta,
+                )
+                if score > best_score:
+                    best_score, best_k, best_t = score, k, t_val
+
+        self._aggregation_k = best_k
+        self._aggregation_t = best_t
+        logger.info(
+            "Aggregation tuned: K=%d, T=%d (%s=%.4f)",
+            best_k,
+            best_t,
+            self.aggregation_metric,
+            best_score,
+        )
+
+    async def _build_response_matrix(self, X: pd.DataFrame) -> pd.DataFrame:
+        """Run predict() on X and build a binary response matrix.
+
+        Returns:
+            DataFrame of shape (n_samples, n_active_questions) with int
+            values 1 (YES) or 0 (NO).
+        """
+        active_qids = [
+            cast(str, qid)
+            for qid in self._questions.index
+            if self._questions.at[qid, "exclusion"] is None
+        ]
+
+        matrix = pd.DataFrame(
+            0,
+            index=X.index,
+            columns=active_qids,  # type: ignore[arg-type]
+            dtype=int,
+        )
+
+        async for sample_idx, qid, answer, _tc in self.predict(X):
+            matrix.at[sample_idx, qid] = 1 if answer == "YES" else 0
+
+        return matrix
+
+    async def predict_founder_level(
+        self,
+        X: pd.DataFrame,
+        *,
+        k: int | None = None,
+        t: int | None = None,
+    ) -> pd.DataFrame:
+        """Founder-level binary predictions using top-K / threshold-T.
+
+        Calls ``predict()`` internally to get per-question answers, then
+        aggregates using the top-K questions (ranked by f_beta_score) and
+        a YES-count threshold T.
+
+        K and T are learned during ``fit()`` via grid search on training
+        data. You can override them with explicit arguments.
+
+        Note:
+            K/T are tuned on training data (same data used for question
+            scoring). For stricter separation, pass explicit ``k`` and
+            ``t`` values tuned on a held-out validation set.
+
+        Example::
+
+            # sklearn-style workflow
+            rrf = RRF(qgen_llmc=llm_choices, name="my_rrf")
+            await rrf.set_tasks(task_description="Classify founders")
+            await rrf.fit(X_train, y_train)
+
+            # Predict on new data
+            results = await rrf.predict_founder_level(X_test)
+            print(results[["prediction", "yes_count"]])
+
+        Args:
+            X: Samples to predict (same format as fit input).
+            k: Number of top questions to use. Defaults to the value
+                learned during fit.
+            t: Minimum YES count to predict "YES". Defaults to the
+                value learned during fit.
+
+        Returns:
+            DataFrame with columns:
+                - prediction: "YES" or "NO"
+                - yes_count: number of YES answers among top-K questions
+                - k: the K value used
+                - t: the T value used
+            Index matches X.index.
+
+        Raises:
+            ValueError: If k/t not provided and not learned during fit.
+        """
+        k_val = k if k is not None else self._aggregation_k
+        t_val = t if t is not None else self._aggregation_t
+        if k_val is None or t_val is None:
+            raise ValueError(
+                "k and t must be provided explicitly or learned "
+                "via fit(). Call fit() first or pass k and t."
+            )
+
+        matrix = await self._build_response_matrix(X)
+        active_qids = list(matrix.columns)
+        scores = self._questions.loc[active_qids, "f_beta_score"].astype(float)
+
+        predictions = self.aggregate_predictions(matrix, scores, k_val, t_val)
+
+        sorted_qids = scores.sort_values(ascending=False).index[:k_val]
+        yes_counts = matrix[sorted_qids].sum(axis=1)
+
+        return pd.DataFrame(
+            {
+                "prediction": predictions,
+                "yes_count": yes_counts,
+                "k": k_val,
+                "t": t_val,
+            },
+            index=X.index,
+        )
 
     def _jaccard_similarity(self, col1: pd.Series, col2: pd.Series) -> float:
         set1 = set(col1.index[col1 == "YES"])  # type: ignore
@@ -860,12 +1588,22 @@ class RRF:
             return 0.0
         return float((col1[mask] == col2[mask]).mean())  # type: ignore
 
+    def _correlation_similarity(self, col1: pd.Series, col2: pd.Series) -> float:
+        mask = col1.notna() & col2.notna()
+        if not mask.any():
+            return 0.0
+        binary1 = (col1[mask] == "YES").astype(float)
+        binary2 = (col2[mask] == "YES").astype(float)
+        if binary1.std() == 0 or binary2.std() == 0:
+            return 0.0
+        return float(binary1.corr(binary2))
+
     def _similarity(self, col1: pd.Series, col2: pd.Series) -> float:
-        return (
-            self._jaccard_similarity(col1, col2)
-            if self.answer_similarity_func == "jaccard"
-            else self._hamming_similarity(col1, col2)
-        )
+        if self.answer_similarity_func == "jaccard":
+            return self._jaccard_similarity(col1, col2)
+        if self.answer_similarity_func == "correlation":
+            return self._correlation_similarity(col1, col2)
+        return self._hamming_similarity(col1, col2)
 
     def filter_questions_on_pred_similarity(self, threshold: float | None) -> None:
         """Filter questions on prediction similarity.
@@ -889,6 +1627,11 @@ class RRF:
             == QuestionExclusion.PREDICTION_SIMILARITY.value,
             "exclusion",
         ] = None
+        self._exclusion_log = [
+            e
+            for e in self._exclusion_log
+            if e["exclusion_reason"] != "prediction_similarity"
+        ]
         if threshold is None:
             return
 
@@ -923,9 +1666,29 @@ class RRF:
                     f1_j = _safe_f1(qids[j])
                     if f1_i < f1_j:
                         keep[i] = False
+                        self._exclusion_log.append(
+                            {
+                                "excluded_question_id": qids[i],
+                                "exclusion_reason": "prediction_similarity",
+                                "reference_question_id": qids[j],
+                                "similarity_score": sim,
+                                "threshold": threshold,
+                                "metric_used": self.answer_similarity_func,
+                            }
+                        )
                         break
                     else:
                         keep[j] = False
+                        self._exclusion_log.append(
+                            {
+                                "excluded_question_id": qids[j],
+                                "exclusion_reason": "prediction_similarity",
+                                "reference_question_id": qids[i],
+                                "similarity_score": sim,
+                                "threshold": threshold,
+                                "metric_used": self.answer_similarity_func,
+                            }
+                        )
 
         to_remove = [qids[k] for k in range(num_questions) if not keep[k]]
         if to_remove:
@@ -942,13 +1705,167 @@ class RRF:
 
         logger.info("Generating questions")
         await self._generate_questions()
-        logger.info(f"Generated {self._questions.shape[0]} questions")
+        n_generated = len(self._questions)
+        logger.info(f"Generated {n_generated} questions")
 
+        n_after_filter = None
+        if self.semantic_filtering_during_fit:
+            logger.info("Running early semantic filtering")
+            await self.filter_questions_on_semantics(
+                threshold=self.semantic_similarity_threshold,
+                emb_model="hashed_bag_of_words",
+            )
+            n_after_filter = int(self._questions["exclusion"].isna().sum())
+            logger.info(
+                f"Early semantic filter: {n_generated} → {n_after_filter} questions"
+            )
+
+        if self.cost_sensitive:
+            await self._build_rrf_cost_sensitive()
+        else:
+            await self._build_rrf_standard()
+
+        logger.info("Tuning founder-level aggregation (K, T)")
+        self._tune_aggregation()
+
+        self._last_fit_summary = {
+            "questions_generated": n_generated,
+            "questions_after_early_filter": n_after_filter,
+            "questions_answered": int(self._questions["exclusion"].isna().sum()),
+        }
+
+    async def _build_rrf_standard(self) -> None:
+        """Standard pipeline: answer all questions on all samples."""
         logger.info("Answering questions")
         await self._answer_questions()
 
         logger.info("Setting questions metrics")
         self._set_questions_metrics()
+
+        logger.info("Tuning founder-level aggregation (K, T)")
+        self._tune_aggregation()
+
+    async def _build_rrf_cost_sensitive(self) -> None:
+        """Cost-sensitive pipeline with screening and early pruning."""
+        cfg = self.cost_sensitive_config
+
+        # 1. Auto semantic filtering
+        if cfg.enable_semantic_filter:
+            logger.info("Auto-applying semantic filtering")
+            await self.filter_questions_on_semantics(
+                threshold=cfg.semantic_threshold,
+                emb_model=cfg.semantic_emb_model,
+            )
+            active_after_semantic = len(
+                self._questions[self._questions["exclusion"].isna()]
+            )
+            logger.info(f"Questions after semantic filtering: {active_after_semantic}")
+
+        # 2. Create screening split
+        self._create_screening_split()
+        logger.info(f"Screening on {len(self._screening_indices)} samples")  # type: ignore
+
+        # 3. Screening evaluation
+        logger.info("Answering questions on screening subset")
+        await self._answer_questions(use_screening=True)
+        self._set_questions_metrics(use_screening=True)
+
+        # 4. Prune low performers
+        pruned_count = self._prune_low_performers()
+        logger.info(f"Pruned {pruned_count} questions below baseline")
+
+        # 5. Select top N
+        active_after_baseline = len(
+            self._questions[self._questions["exclusion"].isna()]
+        )
+        kept_count = self._select_top_questions(cfg.max_questions_full_eval)
+        logger.info(
+            f"Selected top {kept_count} questions for full evaluation "
+            f"(from {active_after_baseline})"
+        )
+
+        # 6. Full evaluation
+        logger.info("Answering top questions on full training set")
+        await self._answer_questions(use_screening=False)
+        self._set_questions_metrics(use_screening=False)
+
+        # 7. Optional val evaluation (future: could add validation reporting here)
+        if self._X_val is not None:
+            logger.info("Validation set provided (not used for question selection)")
+            # Future: could evaluate on val set for reporting
+
+    def _create_screening_split(self) -> None:
+        """Sample screening subset from training data."""
+        cfg = self.cost_sensitive_config
+        n_train = len(self._X)  # type: ignore
+        n_screen = int(n_train * cfg.screening_fraction)
+        if cfg.max_screening_samples:
+            n_screen = min(n_screen, cfg.max_screening_samples)
+        n_screen = max(1, n_screen)
+
+        rng = np.random.RandomState(self.random_state)
+        self._screening_indices = rng.choice(n_train, size=n_screen, replace=False)
+
+    def _prune_low_performers(self) -> int:
+        """Exclude questions below baseline performance."""
+        cfg = self.cost_sensitive_config
+        metric_col = f"{cfg.screening_metric}_score"
+
+        if cfg.screening_baseline == "majority":
+            baseline = self._compute_majority_baseline()
+        elif cfg.screening_baseline == "random":
+            baseline = self._compute_random_baseline()
+        else:
+            baseline = float(cfg.screening_baseline)
+
+        active = self._questions[self._questions["exclusion"].isna()]
+        below = active[active[metric_col] <= baseline]
+
+        for qid in below.index:  # type: ignore
+            self._questions.at[qid, "exclusion"] = QuestionExclusion.COST_PRUNING
+
+        return len(below)
+
+    def _select_top_questions(self, max_questions: int) -> int:
+        """Keep only top N questions by screening metric."""
+        cfg = self.cost_sensitive_config
+        metric_col = f"{cfg.screening_metric}_score"
+
+        active = self._questions[self._questions["exclusion"].isna()]
+        if len(active) <= max_questions:
+            return len(active)
+
+        sorted_q = active.sort_values(by=metric_col, ascending=False)  # type: ignore
+        for qid in sorted_q.index[max_questions:]:  # type: ignore
+            self._questions.at[qid, "exclusion"] = QuestionExclusion.COST_PRUNING
+
+        return max_questions
+
+    def _compute_majority_baseline(self) -> float:
+        """Compute F1 score of majority-class baseline on screening set."""
+        y_screen = self._y[self._screening_indices]  # type: ignore
+        majority = "YES" if (y_screen == "YES").sum() > len(y_screen) / 2 else "NO"
+        preds = np.array([majority] * len(y_screen))
+
+        tp = ((y_screen == "YES") & (preds == "YES")).sum()
+        fp = ((y_screen == "NO") & (preds == "YES")).sum()
+        fn = ((y_screen == "YES") & (preds == "NO")).sum()
+
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        f1 = (
+            2 * precision * recall / (precision + recall)
+            if (precision + recall) > 0
+            else 0.0
+        )
+        return f1
+
+    def _compute_random_baseline(self) -> float:
+        """Compute expected F1 of random classifier on screening set."""
+        y_screen = self._y[self._screening_indices]  # type: ignore
+        prevalence = (y_screen == "YES").sum() / len(y_screen)
+        # Expected F1 for random classifier: 2 * p * (1-p)
+        return 2 * prevalence * (1 - prevalence)
 
     def _set_data(self, X: pd.DataFrame, y: Sequence[str], copy_data: bool) -> None:
         if not all(isinstance(item, str) for item in y):  # type: ignore
@@ -976,19 +1893,58 @@ class RRF:
         self._questions = self._get_initial_questions_df()
         self._answers = self._create_answers_df(index=X.index)
 
+    def _set_val_data(
+        self, X_val: pd.DataFrame, y_val: Sequence[str], copy_data: bool
+    ) -> None:
+        """Set validation data for cost-sensitive mode."""
+        if not all(isinstance(item, str) for item in y_val):  # type: ignore
+            raise DataError("y_val must be a sequence of strings")
+
+        if len(y_val) != X_val.shape[0]:
+            raise DataError("y_val and X_val must have the same number of rows")
+
+        unique_vals = set(np.unique(y_val))
+        if not unique_vals.issubset({"YES", "NO"}):
+            raise DataError(
+                "y_val must be a sequence of only 'YES' or 'NO' values "
+                "(case insensitive)"
+            )
+
+        y_val_array = np.array([yi.upper() for yi in y_val], dtype=np.str_)
+
+        if copy_data:
+            self._X_val = deepcopy(X_val).reset_index(drop=True)  # type: ignore
+            self._y_val = deepcopy(y_val_array)
+        else:
+            self._X_val = X_val.reset_index(drop=True)  # type: ignore
+            self._y_val = y_val_array
+
     async def fit(
         self,
         X: pd.DataFrame | None = None,
         y: Sequence[str] | None = None,
         *,
+        X_val: pd.DataFrame | None = None,
+        y_val: Sequence[str] | None = None,
         copy_data: bool = True,
         reset: bool = False,
     ) -> Self:
         """Fit the RRF to the data.
 
+        Generates questions, answers them on the provided data, computes
+        per-question metrics, and tunes (K, T) for founder-level
+        aggregation via ``predict_founder_level()``.
+
+        Note:
+            (K, T) are tuned on the data passed to ``fit()``. For
+            unbiased evaluation, fit on training data and evaluate on
+            a held-out test set.
+
         Args:
             X: Training features. Required on first run or with reset=True.
             y: Training labels. Required on first run or with reset=True.
+            X_val: Optional validation features for cost-sensitive mode.
+            y_val: Optional validation labels for cost-sensitive mode.
             copy_data: Whether to copy input data.
             reset: Clear existing state and restart forest generation.
 
@@ -1017,6 +1973,12 @@ class RRF:
             raise ValueError(
                 "No data found on forest. Provide X and y (or reset=True with X,y)"
             )
+
+        # Handle validation set
+        if X_val is not None or y_val is not None:
+            if X_val is None or y_val is None:
+                raise ValueError("Both X_val and y_val must be provided together")
+            self._set_val_data(X_val, y_val, copy_data)
 
         await self._build_rrf()
         logger.info("RRF built successfully")
@@ -1051,6 +2013,10 @@ class RRF:
     ) -> AsyncGenerator[Tuple[Any, str, Literal["YES", "NO"], TokenCounter], None]:
         """Predict labels for samples.
 
+        Uses batched LLM answering to reduce API calls. Each batch groups
+        multiple samples into a single LLM call per question. The batch size
+        is controlled by ``qanswer_batch_size`` (default 20 when not set).
+
         Args:
             samples: Samples to predict.
 
@@ -1060,44 +2026,41 @@ class RRF:
         Raises:
             ValueError: If samples is empty or does not have the correct column.
         """
-        queue: asyncio.Queue[
-            Literal["DONE"] | Tuple[Any, str, Literal["YES", "NO"]]
-        ] = asyncio.Queue()
-
         token_counter = TokenCounter()
+        batch_size = self.qanswer_batch_size if self.qanswer_batch_size else 20
 
-        async def worker(sample_index: Any, sample: str) -> None:
-            try:
-                async for record in self._predict_single(
-                    sample_index=sample_index,
-                    sample=sample,
+        # Build list of (sample_index, sample_str) pairs
+        all_samples: list[tuple[Any, str]] = []
+        for sample_index, row in samples.iterrows():
+            sample_str = "\n".join([f"{col}: {val}" for col, val in row.items()])
+            all_samples.append((sample_index, sample_str))
+
+        # Get active (non-excluded) question IDs
+        active_qids: list[str] = [
+            cast(str, qid)
+            for qid in self._questions.index
+            if self._questions.at[qid, "exclusion"] is None
+        ]
+
+        for qid in active_qids:
+            question = cast(str, self._questions.at[qid, "question"])
+
+            # Process samples in batches for this question
+            for i in range(0, len(all_samples), batch_size):
+                batch = all_samples[i : i + batch_size]
+                results = await self._answer_questions_batch(
+                    question_id=qid,
+                    question=question,
+                    samples=batch,
                     token_counter=token_counter,
-                ):
-                    await queue.put(record)
-            finally:
-                await queue.put("DONE")
-
-        tasks: List[asyncio.Task[None]] = []
-        try:
-            for sample_index, row in samples.iterrows():
-                sample_str = "\n".join([f"{col}: {val}" for col, val in row.items()])
-                tasks.append(asyncio.create_task(worker(sample_index, sample_str)))
-
-            remaining = len(tasks)
-            while remaining > 0:
-                item = await queue.get()
-                if item == "DONE":
-                    remaining -= 1
-                    continue
-                else:
-                    yield item + (token_counter,)
-            return
-        except asyncio.CancelledError:
-            pass
-        finally:
-            for task in tasks:
-                if not task.done():
-                    task.cancel()
+                )
+                for sample_index, _question_id, label in results:
+                    yield (
+                        sample_index,
+                        qid,
+                        cast(Literal["YES", "NO"], label),
+                        token_counter,
+                    )
 
     async def update_question_exclusion(
         self,
@@ -1122,10 +2085,59 @@ class RRF:
             exclusion.value if exclusion else None
         )
 
+        if exclusion is not None:
+            self._exclusion_log.append(
+                {
+                    "excluded_question_id": question_id,
+                    "exclusion_reason": "expert",
+                    "reference_question_id": None,
+                    "similarity_score": None,
+                    "threshold": None,
+                    "metric_used": None,
+                }
+            )
+        else:
+            self._exclusion_log = [
+                e
+                for e in self._exclusion_log
+                if e["excluded_question_id"] != question_id
+            ]
+
         return (
             f"Updated exclusion of '{self._questions.at[question_id, 'question']}'"
             f" to {exclusion.value if exclusion else 'Not Excluded'}"
         )
+
+    def exclusion_report(
+        self, as_dict: bool = False
+    ) -> pd.DataFrame | list[dict[str, Any]]:
+        """Return a structured summary of excluded questions and why they were dropped.
+
+        Args:
+            as_dict: If True, return a list of dicts (JSON-serialisable).
+                If False (default), return a pandas DataFrame.
+
+        Returns:
+            A DataFrame or list of dicts with columns: excluded_question_id,
+            exclusion_reason, reference_question_id, similarity_score,
+            threshold, metric_used.
+        """
+        if as_dict:
+            return [dict(e) for e in self._exclusion_log]
+        if not self._exclusion_log:
+            return pd.DataFrame(
+                columns=pd.Index(
+                    [
+                        "excluded_question_id",
+                        "exclusion_reason",
+                        "reference_question_id",
+                        "similarity_score",
+                        "threshold",
+                        "metric_used",
+                    ]
+                )
+            )
+        return pd.DataFrame(self._exclusion_log)
 
     async def add_question(self, question: str) -> Literal[True]:
         """Add a question to the RRF.
@@ -1175,11 +2187,13 @@ class RRF:
             qdf = self._questions.copy()
             if "embedding" in qdf.columns:
                 qdf["embedding"] = qdf["embedding"].apply(  # type: ignore
-                    lambda x: orjson.dumps(  # type: ignore
-                        x.tolist() if isinstance(x, np.ndarray) else x
-                    ).decode()
-                    if x is not None
-                    else None
+                    lambda x: (
+                        orjson.dumps(  # type: ignore
+                            x.tolist() if isinstance(x, np.ndarray) else x
+                        ).decode()
+                        if x is not None
+                        else None
+                    )
                 )
             qdf.to_parquet(base / "questions.parquet")  # type: ignore
 
@@ -1224,6 +2238,15 @@ class RRF:
             if not for_production
             else None,
             "random_state": self.random_state,
+            "use_cumulative_memory": self.use_cumulative_memory,
+            "question_scoring_f_beta": self.question_scoring_f_beta,
+            "semantic_filtering_during_fit": self.semantic_filtering_during_fit,
+            "semantic_similarity_threshold": self.semantic_similarity_threshold,
+            "exclusion_log": self._exclusion_log,
+            "aggregation_metric": self.aggregation_metric,
+            "aggregation_max_k": self.aggregation_max_k,
+            "aggregation_k": self._aggregation_k,
+            "aggregation_t": self._aggregation_t,
         }
         with (base / "rrf.json").open("w", encoding="utf-8") as f:
             f.write(orjson.dumps(manifest).decode())
@@ -1262,11 +2285,24 @@ class RRF:
             random_state=manifest["random_state"],
             save_path=str(base.parent),
             name=manifest["name"],
+            use_cumulative_memory=manifest.get("use_cumulative_memory", True),
+            question_scoring_f_beta=manifest.get("question_scoring_f_beta", 1.0),
+            semantic_filtering_during_fit=manifest.get(
+                "semantic_filtering_during_fit", False
+            ),
+            semantic_similarity_threshold=manifest.get(
+                "semantic_similarity_threshold", 0.9
+            ),
+            aggregation_metric=manifest.get("aggregation_metric", "f1"),
+            aggregation_max_k=manifest.get("aggregation_max_k"),
         )
 
         inst._task_description = manifest["task_description"]
         inst._qgen_instructions_template = manifest["qgen_instructions_template"]
         inst._last_emb_model = manifest["last_emb_model"]
+        inst._exclusion_log = manifest.get("exclusion_log", [])
+        inst._aggregation_k = manifest.get("aggregation_k")
+        inst._aggregation_t = manifest.get("aggregation_t")
         if tk_dict := manifest["token_counter"]:
             inst._token_counter = TokenCounter.from_dict(tk_dict)
 
@@ -1276,9 +2312,11 @@ class RRF:
         qdf = pd.read_parquet(q_path)  # type: ignore
         if "embedding" in qdf.columns:
             qdf["embedding"] = qdf["embedding"].apply(  # type: ignore
-                lambda x: np.array(orjson.loads(x), dtype=np.float32)  # type: ignore
-                if x is not None
-                else None
+                lambda x: (
+                    np.array(orjson.loads(x), dtype=np.float32)  # type: ignore
+                    if x is not None
+                    else None
+                )
             )
         for col in [
             "excluded_in_semantics",

@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 from os import PathLike
 import asyncio
+import time
 from typing import List, Dict, Literal, Sequence, cast, Type, Tuple
 from typing import Set, Any, AsyncGenerator
 import logging
@@ -30,11 +31,46 @@ from ._types import QuestionType, Criterion
 from ._prompts import INSTRUCTIONS_FOR_GENERATING_QUESTION_GEN_INSTRUCTIONS
 from ._prompts import num_questions_tag, QUESTION_ANSWER_INSTRUCTIONS
 from ._prompts import CUMULATIVE_MEMORY_INSTRUCTIONS
+from ._cache import AnswerCache
 
 
 logger = logging.getLogger(__name__)
 
 IndexArray = npt.NDArray[np.intp]
+
+
+@dataclass
+class TimingStats:
+    """Accumulates wall-clock timing for GPTree operations."""
+
+    generate_questions_total_s: float = 0.0
+    generate_questions_count: int = 0
+    answer_question_total_s: float = 0.0
+    answer_question_count: int = 0
+    answer_question_for_row_total_s: float = 0.0
+    answer_question_for_row_count: int = 0
+
+    def _record(self, method: str, elapsed: float) -> None:
+        setattr(self, f"{method}_total_s", getattr(self, f"{method}_total_s") + elapsed)
+        setattr(self, f"{method}_count", getattr(self, f"{method}_count") + 1)
+
+    def summary(self) -> Dict[str, Dict[str, float]]:
+        """Return timing summary as a dict of {method: {total_s, count, avg_s}}."""
+        result: Dict[str, Dict[str, float]] = {}
+        _methods = (
+            "generate_questions",
+            "answer_question",
+            "answer_question_for_row",
+        )
+        for method in _methods:
+            total = getattr(self, f"{method}_total_s")
+            count = getattr(self, f"{method}_count")
+            result[method] = {
+                "total_s": total,
+                "count": count,
+                "avg_s": total / count if count > 0 else 0.0,
+            }
+        return result
 
 
 @dataclass(slots=True)
@@ -234,12 +270,16 @@ class GPTree:
         class_weight: Dict[str, float] | Literal["balanced"] | None = None,
         decision_threshold: float | None = None,
         use_critic: bool = False,
+        use_answer_cache: bool = False,
         save_path: str | PathLike[str] | None = None,
         name: str | None = None,
         random_state: int | None = None,
+        _llm: Any = None,
     ):
         locals_dict = deepcopy(locals())
         del locals_dict["self"]
+        locals_dict.pop("_llm", None)
+        locals_dict.pop("use_answer_cache", None)
         self._verify_input_data(**locals_dict)
 
         self.name: str = self._get_name(name)
@@ -269,6 +309,7 @@ class GPTree:
         self.random_state = random_state
 
         self._token_counter: TokenCounter = TokenCounter()
+        self._timing: TimingStats = TimingStats()
         self._class_weights: Dict[str, float] | None = None
 
         self._classes: List[str] | None = None
@@ -284,7 +325,15 @@ class GPTree:
 
         self._frontier: List[BuildTask] = []  # Frontier for resumable training
 
+        self._llm_instance: Any = _llm if _llm is not None else llm
         self._llm_semaphore = asyncio.Semaphore(llm_semaphore_limit)
+
+        # Persistent answer cache (opt-in)
+        self.use_answer_cache = use_answer_cache
+        self._answer_cache: AnswerCache | None = None
+        if use_answer_cache:
+            cache_path = self.save_path / self.name / "answer_cache.db"
+            self._answer_cache = AnswerCache(cache_path)
 
     def _verify_input_data(self, **kwargs: Any) -> None:
         """Verify the input data."""
@@ -454,6 +503,11 @@ class GPTree:
     def token_usage(self) -> TokenCounter:
         """Get the token counter for the GPTree."""
         return self._token_counter
+
+    @property
+    def timing(self) -> TimingStats:
+        """Get the timing stats for GPTree operations."""
+        return self._timing
 
     @property
     def question_gen_instructions_template(self) -> str | None:
@@ -734,7 +788,7 @@ class GPTree:
                 return instructions_template
 
         async with self._llm_semaphore:
-            response = await llm.respond(
+            response = await self._llm_instance.respond(
                 query=f"Build a decision tree for:\n{task_description}",
                 llm_priority=self.qgen_llmc,
                 response_format=str,
@@ -796,6 +850,7 @@ class GPTree:
         cumulative_memory: str | None,
         node_depth: int,
     ) -> Questions:
+        _t0 = time.perf_counter()
         if self._X is None or self._y is None:
             raise ValueError("X and y must be set")
         if sample_indices.shape[0] == 0:
@@ -863,7 +918,7 @@ class GPTree:
         query += f"Cumulative advice from previous nodes: {cumulative_memory}"
 
         async with self._llm_semaphore:
-            response = await llm.respond(
+            response = await self._llm_instance.respond(
                 query=query,
                 llm_priority=self.qgen_llmc,
                 response_format=Questions,
@@ -890,6 +945,7 @@ class GPTree:
             # TODO: Implement critic
             pass
 
+        self._timing._record("generate_questions", time.perf_counter() - _t0)
         return questions
 
     def _make_answer_model(self, choices: List[str]) -> Type[Answer]:
@@ -904,11 +960,32 @@ class GPTree:
         question: NodeQuestion,
         token_counter: TokenCounter,
     ) -> Tuple[Any, Answer] | None:
+        _t0 = time.perf_counter()
         AnswerModel = self._make_answer_model(question.choices)
+
+        # Check persistent cache first
+        if self._answer_cache is not None:
+            first_llmc = self.qanswer_llmc[0] if self.qanswer_llmc else None
+            model_name = (
+                getattr(first_llmc, "model", "unknown")
+                if first_llmc is not None
+                else "unknown"
+            )
+            cached = self._answer_cache.get(
+                question=question.value,
+                sample=sample,
+                temperature=self.qanswer_temperature,
+                model=str(model_name),
+            )
+            if cached is not None:
+                self._timing._record(
+                    "answer_question_for_row", time.perf_counter() - _t0
+                )
+                return idx, AnswerModel(answer=cached)
 
         try:
             async with self._llm_semaphore:
-                response = await llm.respond(
+                response = await self._llm_instance.respond(
                     llm_priority=self.qanswer_llmc,
                     query=f"Query: {question.value}\n\nSample: {sample}",
                     instructions=QUESTION_ANSWER_INSTRUCTIONS,
@@ -933,6 +1010,24 @@ class GPTree:
                     "Could not track confidence of answer. "
                     f"Answered question: '{question.value}' for sample: {sample}"
                 )
+
+            # Write to persistent cache
+            if self._answer_cache is not None:
+                first_llmc = self.qanswer_llmc[0] if self.qanswer_llmc else None
+                model_name = (
+                    getattr(first_llmc, "model", "unknown")
+                    if first_llmc is not None
+                    else "unknown"
+                )
+                self._answer_cache.put(
+                    question=question.value,
+                    sample=sample,
+                    temperature=self.qanswer_temperature,
+                    model=str(model_name),
+                    answer=response.response.answer,
+                )
+
+            self._timing._record("answer_question_for_row", time.perf_counter() - _t0)
             return idx, response.response
 
         except Exception as _:
@@ -947,6 +1042,7 @@ class GPTree:
         sample_indices: IndexArray,
     ) -> None:
         """Answer a question for a subset of self._X inplace."""
+        _t0 = time.perf_counter()
         if self._X is None or self._y is None:
             raise ValueError("X and y must be set")
 
@@ -1013,6 +1109,7 @@ class GPTree:
                 series_update = pd.Series(answers_buffer, dtype=object)
                 index_update = cast(pd.Index, series_update.index)
                 self._X.loc[index_update, question.df_column] = series_update
+            self._timing._record("answer_question", time.perf_counter() - _t0)
 
     async def _build_tree(
         self,

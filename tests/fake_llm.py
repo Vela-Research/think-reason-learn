@@ -1,10 +1,10 @@
-"""Deterministic fake LLM for offline RRF testing."""
+"""Deterministic fake LLM for offline RRF and GPTree testing."""
 
 from __future__ import annotations
 
 import json
 import re
-from typing import Any, Dict, List, Literal, Type
+from typing import Any, Dict, List, Literal, Type, get_args, get_origin
 
 from think_reason_learn.core.llms._schemas import (
     LLMChoice,
@@ -14,26 +14,62 @@ from think_reason_learn.core.llms._schemas import (
     T,
 )
 from think_reason_learn.core.llms import OpenAIChoice
-from think_reason_learn.rrf._rrf import Answer, Questions
+from think_reason_learn.rrf._rrf import Answer as RRFAnswer
+from think_reason_learn.rrf._rrf import Questions as RRFQuestions
 from think_reason_learn.rrf._prompts import num_questions_tag
+from think_reason_learn.gptree._gptree import Question as GPTreeQuestion
+from think_reason_learn.gptree._gptree import Questions as GPTreeQuestions
 
 
 _FAKE_PROVIDER = OpenAIChoice(model="gpt-4.1-nano")
 
 
+def _is_gptree_questions(response_format: type) -> bool:
+    """Check if response_format is GPTree's Questions (List[Question] not List[str])."""
+    return response_format is GPTreeQuestions
+
+
+def _is_rrf_questions(response_format: type) -> bool:
+    """Check if response_format is RRF's Questions (List[str])."""
+    return response_format is RRFQuestions
+
+
+def _is_dynamic_answer_model(response_format: type) -> bool:
+    """Check for dynamically-created Answer model.
+
+    GPTree's _make_answer_model creates models with name "Answer"
+    and a single ``answer`` field whose annotation is a Literal type.
+    """
+    if getattr(response_format, "__name__", None) != "Answer":
+        return False
+    # Exclude the static RRF Answer class
+    if response_format is RRFAnswer:
+        return False
+    # Check for a Literal-typed answer field (dynamic model from create_model)
+    fields = getattr(response_format, "model_fields", {})
+    answer_field = fields.get("answer")
+    if answer_field is None:
+        return False
+    annotation = answer_field.annotation
+    return get_origin(annotation) is Literal
+
+
 class FakeLLM:
     """Drop-in replacement for ``LLM`` that returns canned responses.
 
-    Dispatches based on ``response_format`` to handle the 4 RRF call sites:
+    Dispatches based on ``response_format`` to handle call sites from both
+    RRF and GPTree:
 
+    **RRF call sites:**
     1. ``set_tasks``  (``str``)  -- template with ``<number_of_questions>`` tag
-    2. ``_generate_questions``  (``Questions``)  -- pydantic model
-    3. ``_answer_single_question``  (``Answer``)  -- pydantic model
+    2. ``_generate_questions``  (``RRFQuestions``)  -- pydantic model
+    3. ``_answer_single_question``  (``RRFAnswer``)  -- pydantic model
     4. ``_answer_questions_batch``  (``str``)  -- JSON list
 
-    The two ``str``-typed sites are distinguished by query content:
-    ``set_tasks`` sends ``"Generate YES/NO questions for:..."`` while
-    batch sends ``"You are a VC analyst..."``.
+    **GPTree call sites:**
+    1. ``set_tasks``  (``str``)  -- query contains "Build a decision tree"
+    2. ``_generate_questions``  (``GPTreeQuestions``)  -- pydantic model
+    3. ``_answer_question_for_row``  (dynamic ``Answer``)  -- Literal-typed choices
 
     Args:
         default_answer: ``"YES"``, ``"NO"``, or ``"ALTERNATE"``.
@@ -82,25 +118,41 @@ class FakeLLM:
             }
         )
 
-        if response_format is Questions:
-            return self._questions_response()
-        if response_format is Answer:
-            return self._answer_response()
-        if response_format is not str:
-            raise TypeError(
-                f"FakeLLM: unknown response_format {response_format!r}. "
-                "Add a handler for this new call site."
-            )
-        # response_format is str — distinguish set_tasks vs batch by query
-        if "generate yes/no" in query.lower():
-            return self._set_tasks_response()
-        return self._batch_answer_response(query)
+        # --- Pydantic model dispatch (by identity, then by introspection) ---
+
+        if _is_rrf_questions(response_format):
+            return self._rrf_questions_response()
+
+        if _is_gptree_questions(response_format):
+            return self._gptree_questions_response()
+
+        if response_format is RRFAnswer:
+            return self._rrf_answer_response()
+
+        if _is_dynamic_answer_model(response_format):
+            fields = getattr(response_format, "model_fields", {})
+            choices = get_args(fields["answer"].annotation)
+            return self._gptree_answer_response(response_format, choices)
+
+        # --- str dispatch (set_tasks vs batch, RRF vs GPTree) ---
+
+        if response_format is str:
+            if "generate yes/no" in query.lower():
+                return self._rrf_set_tasks_response()
+            if "build a decision tree" in query.lower():
+                return self._gptree_set_tasks_response()
+            return self._rrf_batch_answer_response(query)
+
+        raise TypeError(
+            f"FakeLLM: unknown response_format {response_format!r}. "
+            "Add a handler for this new call site."
+        )
 
     # ------------------------------------------------------------------
-    # Canned responses
+    # RRF canned responses
     # ------------------------------------------------------------------
 
-    def _set_tasks_response(self) -> LLMResponse[str]:
+    def _rrf_set_tasks_response(self) -> LLMResponse[str]:
         return LLMResponse(
             response=(
                 f"Generate {num_questions_tag} YES/NO questions to determine "
@@ -111,13 +163,13 @@ class FakeLLM:
             provider_model=_FAKE_PROVIDER,
         )
 
-    def _questions_response(self) -> LLMResponse[Questions]:
+    def _rrf_questions_response(self) -> LLMResponse[RRFQuestions]:
         qs = [
             f"Does the person have relevant technical experience? (variant {i})"
             for i in range(self.questions_per_call)
         ]
         return LLMResponse(
-            response=Questions(
+            response=RRFQuestions(
                 questions=qs,
                 cumulative_memory="Fake memory: technical background matters.",
             ),
@@ -126,21 +178,68 @@ class FakeLLM:
             provider_model=_FAKE_PROVIDER,
         )
 
-    def _answer_response(self) -> LLMResponse[Answer]:
+    def _rrf_answer_response(self) -> LLMResponse[RRFAnswer]:
         return LLMResponse(
-            response=Answer(answer=self._get_answer(self._call_count)),
+            response=RRFAnswer(answer=self._get_answer(self._call_count)),
             logprobs=[("YES", -0.01)],
             total_tokens=15,
             provider_model=_FAKE_PROVIDER,
         )
 
-    def _batch_answer_response(self, query: str) -> LLMResponse[str]:
+    def _rrf_batch_answer_response(self, query: str) -> LLMResponse[str]:
         indices = [int(m) for m in re.findall(r"Sample (\d+):", query)]
         results = [{"sample_index": i, "answer": self._get_answer(i)} for i in indices]
         return LLMResponse(
             response=json.dumps(results),
             logprobs=[],
             total_tokens=20 * max(len(indices), 1),
+            provider_model=_FAKE_PROVIDER,
+        )
+
+    # ------------------------------------------------------------------
+    # GPTree canned responses
+    # ------------------------------------------------------------------
+
+    def _gptree_set_tasks_response(self) -> LLMResponse[str]:
+        return LLMResponse(
+            response=(
+                f"Generate {num_questions_tag} discriminative questions for "
+                "the classification task. Each question should have clear, "
+                "mutually exclusive answer choices."
+            ),
+            logprobs=[("t", -0.1)],
+            total_tokens=50,
+            provider_model=_FAKE_PROVIDER,
+        )
+
+    def _gptree_questions_response(self) -> LLMResponse[GPTreeQuestions]:
+        qs = [
+            GPTreeQuestion(
+                value=f"Does the founder have trait {i}?",
+                choices=["Yes", "No"],
+                question_type="INFERENCE",
+            )
+            for i in range(self.questions_per_call)
+        ]
+        return LLMResponse(
+            response=GPTreeQuestions(
+                questions=qs,
+                cumulative_memory="Fake memory: observed patterns in backgrounds.",
+            ),
+            logprobs=[("t", -0.05)],
+            total_tokens=100,
+            provider_model=_FAKE_PROVIDER,
+        )
+
+    def _gptree_answer_response(
+        self, response_format: type, choices: tuple[str, ...]
+    ) -> LLMResponse[Any]:
+        """Return an answer cycling through available choices."""
+        chosen = choices[self._call_count % len(choices)]
+        return LLMResponse(
+            response=response_format(answer=chosen),
+            logprobs=[("ans", -0.01)],
+            total_tokens=15,
             provider_model=_FAKE_PROVIDER,
         )
 

@@ -1,12 +1,14 @@
-"""Tests for GPTree class-weighted Gini and threshold predictions."""
+"""Tests for GPTree class-weighted Gini, threshold predictions, and integration."""
 
 from __future__ import annotations
 
 from typing import Any
 
 import numpy as np
+import pandas as pd
 import pytest
 
+from tests.fake_llm import FakeLLM
 from think_reason_learn.core.llms import OpenAIChoice
 from think_reason_learn.gptree import GPTree, Node
 
@@ -22,6 +24,41 @@ def _make_tree(**kwargs: Any) -> GPTree:
         qgen_instr_llmc=kwargs.pop("qgen_instr_llmc", _DUMMY_LLM),
         **kwargs,
     )
+
+
+def _tiny_dataset() -> tuple[pd.DataFrame, list[str]]:
+    """6 samples with 1 prose column and binary labels."""
+    data = {
+        "prose": [
+            "Alice is a software engineer with 10 years experience at Google",
+            "Bob is a marketing intern with no startup experience",
+            "Charlie is a serial entrepreneur with 2 prior exits",
+            "Diana is a recent graduate from a local college",
+            "Eve is a VP of engineering at a Fortune 500 company",
+            "Frank is a freelance graphic designer with varied clients",
+        ]
+    }
+    labels = ["successful", "failed", "successful", "failed", "successful", "failed"]
+    return pd.DataFrame(data), labels
+
+
+def _make_integration_tree(
+    fake: FakeLLM, *, tmp_path: Any = None, **kwargs: Any
+) -> GPTree:
+    """Create a GPTree wired to FakeLLM for integration tests."""
+    defaults: dict[str, Any] = {
+        "max_depth": 2,
+        "min_samples_leaf": 1,
+        "min_question_candidates": 2,
+        "max_question_candidates": 2,
+        "n_samples_as_context": 3,
+        "random_state": 42,
+    }
+    defaults.update(kwargs)
+    if tmp_path is not None:
+        defaults.setdefault("save_path", str(tmp_path))
+        defaults.setdefault("name", "test_tree")
+    return _make_tree(_llm=fake, **defaults)
 
 
 def _set_y(tree: GPTree, y: list[str]) -> None:
@@ -269,3 +306,279 @@ class TestBackwardCompat:
         _set_y(tree, ["failed"] * 90 + ["successful"] * 10)
         indices = np.arange(100, dtype=np.intp)
         assert tree._gini(indices) == pytest.approx(0.18)
+
+
+# ---------------------------------------------------------------------------
+# Integration tests (FakeLLM)
+# ---------------------------------------------------------------------------
+
+
+class TestSetTasksIntegration:
+    """Test set_tasks() with FakeLLM."""
+
+    @pytest.mark.asyncio
+    async def test_generates_template_from_description(self) -> None:
+        fake = FakeLLM()
+        tree = _make_integration_tree(fake)
+        template = await tree.set_tasks(
+            task_description="Classify founders as successful or not"
+        )
+        assert "<number_of_questions>" in template
+        assert fake.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_custom_template_no_llm_call(self) -> None:
+        fake = FakeLLM()
+        tree = _make_integration_tree(fake)
+        custom = "Generate <number_of_questions> questions about startups."
+        result = await tree.set_tasks(instructions_template=custom)
+        assert result == custom
+        assert fake.call_count == 0
+
+
+class TestFitIntegration:
+    """Test fit() end-to-end with FakeLLM."""
+
+    @pytest.mark.asyncio
+    async def test_fit_completes(self, tmp_path: Any) -> None:
+        fake = FakeLLM(questions_per_call=2)
+        tree = _make_integration_tree(fake, tmp_path=tmp_path)
+        await tree.set_tasks(
+            instructions_template="Generate <number_of_questions> questions."
+        )
+        X, y = _tiny_dataset()
+        nodes = []
+        async for node in tree.fit(X, y):
+            nodes.append(node)
+        assert len(nodes) > 0
+        assert tree.get_root_id() is not None
+        root = tree.get_node(0)
+        assert root is not None
+
+    @pytest.mark.asyncio
+    async def test_fit_produces_correct_class_distribution(self, tmp_path: Any) -> None:
+        fake = FakeLLM(questions_per_call=2)
+        tree = _make_integration_tree(fake, tmp_path=tmp_path)
+        await tree.set_tasks(
+            instructions_template="Generate <number_of_questions> questions."
+        )
+        X, y = _tiny_dataset()
+        async for _ in tree.fit(X, y):
+            pass
+        root = tree.get_node(0)
+        assert root is not None
+        dist = root.class_distribution
+        assert dist["successful"] == 3
+        assert dist["failed"] == 3
+
+    @pytest.mark.asyncio
+    async def test_fit_at_depth_1_call_count(self, tmp_path: Any) -> None:
+        """At max_depth=1, root is the only non-leaf that generates questions."""
+        fake = FakeLLM(questions_per_call=2)
+        tree = _make_integration_tree(fake, tmp_path=tmp_path, max_depth=1)
+        await tree.set_tasks(
+            instructions_template="Generate <number_of_questions> questions."
+        )
+        X, y = _tiny_dataset()
+        async for _ in tree.fit(X, y):
+            pass
+        # Calls: 1 generate_questions + (2 questions × 6 samples) answers = 13
+        # But actual count depends on whether splits are valid.
+        # At minimum: 1 (generate) + 12 (answers for 2 questions × 6 samples)
+        assert fake.call_count >= 13
+
+    @pytest.mark.asyncio
+    async def test_leaf_nodes_have_no_question(self, tmp_path: Any) -> None:
+        fake = FakeLLM(questions_per_call=2)
+        tree = _make_integration_tree(fake, tmp_path=tmp_path)
+        await tree.set_tasks(
+            instructions_template="Generate <number_of_questions> questions."
+        )
+        X, y = _tiny_dataset()
+        async for _ in tree.fit(X, y):
+            pass
+        for node in tree._nodes.values():
+            if node.is_leaf:
+                assert node.question is None
+
+    @pytest.mark.asyncio
+    async def test_fit_generates_questions_at_nodes(self, tmp_path: Any) -> None:
+        fake = FakeLLM(questions_per_call=2)
+        tree = _make_integration_tree(fake, tmp_path=tmp_path)
+        await tree.set_tasks(
+            instructions_template="Generate <number_of_questions> questions."
+        )
+        X, y = _tiny_dataset()
+        async for _ in tree.fit(X, y):
+            pass
+        df_questions = tree.get_questions()
+        assert df_questions is not None
+        assert len(df_questions) >= 2  # At least root generated 2 questions
+
+
+class TestPredictIntegration:
+    """Test predict() after fit with FakeLLM."""
+
+    @pytest.mark.asyncio
+    async def test_predict_returns_results(self, tmp_path: Any) -> None:
+        fake = FakeLLM(questions_per_call=2)
+        tree = _make_integration_tree(fake, tmp_path=tmp_path)
+        await tree.set_tasks(
+            instructions_template="Generate <number_of_questions> questions."
+        )
+        X, y = _tiny_dataset()
+        async for _ in tree.fit(X, y):
+            pass
+        # Predict on 2 samples
+        test_samples = X.iloc[:2]
+        results = []
+        async for record in tree.predict(test_samples):
+            results.append(record)
+        assert len(results) > 0
+
+    @pytest.mark.asyncio
+    async def test_predict_reaches_leaf(self, tmp_path: Any) -> None:
+        fake = FakeLLM(questions_per_call=2)
+        tree = _make_integration_tree(fake, tmp_path=tmp_path)
+        await tree.set_tasks(
+            instructions_template="Generate <number_of_questions> questions."
+        )
+        X, y = _tiny_dataset()
+        async for _ in tree.fit(X, y):
+            pass
+        test_samples = X.iloc[:1]
+        results = []
+        async for record in tree.predict(test_samples):
+            results.append(record)
+        # Last record for a sample should be "No Question" (reached leaf)
+        leaf_records = [r for r in results if r[1] == "No Question"]
+        assert len(leaf_records) == 1
+
+
+class TestDeterminism:
+    """Test that identical inputs produce identical trees."""
+
+    @pytest.mark.asyncio
+    async def test_same_inputs_same_tree(self, tmp_path: Any) -> None:
+        trees = []
+        for i in range(2):
+            fake = FakeLLM(questions_per_call=2)
+            tree = _make_integration_tree(fake, tmp_path=tmp_path / f"run_{i}")
+            await tree.set_tasks(
+                instructions_template="Generate <number_of_questions> questions."
+            )
+            X, y = _tiny_dataset()
+            async for _ in tree.fit(X, y):
+                pass
+            trees.append(tree)
+        assert len(trees[0]._nodes) == len(trees[1]._nodes)
+        assert set(trees[0]._nodes.keys()) == set(trees[1]._nodes.keys())
+
+
+class TestTimingInstrumentation:
+    """Test that timing stats accumulate during fit."""
+
+    @pytest.mark.asyncio
+    async def test_timing_records_calls(self, tmp_path: Any) -> None:
+        fake = FakeLLM(questions_per_call=2)
+        tree = _make_integration_tree(fake, tmp_path=tmp_path)
+        await tree.set_tasks(
+            instructions_template="Generate <number_of_questions> questions."
+        )
+        X, y = _tiny_dataset()
+        async for _ in tree.fit(X, y):
+            pass
+        summary = tree.timing.summary()
+        assert summary["generate_questions"]["count"] >= 1
+        assert summary["generate_questions"]["total_s"] > 0
+        assert summary["answer_question"]["count"] >= 1
+        assert summary["answer_question_for_row"]["count"] >= 1
+        # answer_question_for_row count should be >= answer_question count
+        assert (
+            summary["answer_question_for_row"]["count"]
+            >= summary["answer_question"]["count"]
+        )
+
+
+class TestAnswerCache:
+    """Test persistent answer cache."""
+
+    def test_cache_roundtrip(self, tmp_path: Any) -> None:
+        from think_reason_learn.gptree._cache import AnswerCache
+
+        cache = AnswerCache(tmp_path / "test.db")
+        assert cache.get("Q1", "Sample1", 0.0, "gemini") is None
+        assert cache.misses == 1
+        cache.put("Q1", "Sample1", 0.0, "gemini", "Yes")
+        assert cache.get("Q1", "Sample1", 0.0, "gemini") == "Yes"
+        assert cache.hits == 1
+        assert len(cache) == 1
+        cache.close()
+
+    def test_different_temps_different_keys(self, tmp_path: Any) -> None:
+        from think_reason_learn.gptree._cache import AnswerCache
+
+        cache = AnswerCache(tmp_path / "test.db")
+        cache.put("Q1", "S1", 0.0, "gemini", "Yes")
+        cache.put("Q1", "S1", 1.0, "gemini", "No")
+        assert cache.get("Q1", "S1", 0.0, "gemini") == "Yes"
+        assert cache.get("Q1", "S1", 1.0, "gemini") == "No"
+        cache.close()
+
+    def test_different_models_different_keys(self, tmp_path: Any) -> None:
+        from think_reason_learn.gptree._cache import AnswerCache
+
+        cache = AnswerCache(tmp_path / "test.db")
+        cache.put("Q1", "S1", 0.0, "gemini-flash", "Yes")
+        cache.put("Q1", "S1", 0.0, "gpt-4o", "No")
+        assert cache.get("Q1", "S1", 0.0, "gemini-flash") == "Yes"
+        assert cache.get("Q1", "S1", 0.0, "gpt-4o") == "No"
+        cache.close()
+
+    @pytest.mark.asyncio
+    async def test_cache_enabled_during_fit(self, tmp_path: Any) -> None:
+        """Fit with cache enabled populates the cache."""
+        fake = FakeLLM(questions_per_call=2)
+        tree = _make_integration_tree(fake, tmp_path=tmp_path, use_answer_cache=True)
+        await tree.set_tasks(
+            instructions_template="Generate <number_of_questions> questions."
+        )
+        X, y = _tiny_dataset()
+        async for _ in tree.fit(X, y):
+            pass
+        assert tree._answer_cache is not None
+        assert len(tree._answer_cache) > 0
+        # All entries were misses on first run
+        assert tree._answer_cache.misses > 0
+        assert tree._answer_cache.hits == 0
+
+    @pytest.mark.asyncio
+    async def test_cache_disabled_by_default(self, tmp_path: Any) -> None:
+        fake = FakeLLM(questions_per_call=2)
+        tree = _make_integration_tree(fake, tmp_path=tmp_path)
+        assert tree._answer_cache is None
+
+
+class TestSaveLoadIntegration:
+    """Test save/load round-trip with FakeLLM-built tree."""
+
+    @pytest.mark.asyncio
+    async def test_save_load_preserves_structure(self, tmp_path: Any) -> None:
+        fake = FakeLLM(questions_per_call=2)
+        tree = _make_integration_tree(fake, tmp_path=tmp_path)
+        await tree.set_tasks(
+            instructions_template="Generate <number_of_questions> questions."
+        )
+        X, y = _tiny_dataset()
+        async for _ in tree.fit(X, y):
+            pass
+
+        original_nodes = len(tree._nodes)
+        original_root_dist = tree.get_node(0).class_distribution  # type: ignore
+
+        # Save and reload
+        tree.save()
+        loaded = GPTree.load(tree.save_path / tree.name)
+
+        assert len(loaded._nodes) == original_nodes
+        assert loaded.get_node(0).class_distribution == original_root_dist  # type: ignore

@@ -63,6 +63,10 @@ build-backend = "poetry.core.masonry.api"
 line-length = 88
 target-version = "py313" 
 
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
+
 [tool.ruff.lint]
 select = ["E", "F", "D"]   # E/F for pyflakes + pycodestyle, D for docstrings
 ignore = ["D101"]

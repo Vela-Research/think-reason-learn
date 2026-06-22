@@ -11,6 +11,7 @@ Subpackages
    think_reason_learn.gptree
    think_reason_learn.reasoned_rule_mining
    think_reason_learn.rrf
+   think_reason_learn.verifiable_rl
 
 Package
 -------

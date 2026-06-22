@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import pytest
 import pandas as pd
@@ -2435,3 +2437,122 @@ class TestPromptPresets:
         template = await rrf.set_tasks(task_description="Classify founders")
         assert fake.call_count == 0
         assert template is not None
+
+
+# ---------------------------------------------------------------------------
+# Elastic-net (learned-weights) aggregation
+# ---------------------------------------------------------------------------
+
+
+def _enet_rrf(n: int = 40, seed: int = 0) -> tuple[RRF, np.ndarray]:
+    """An RRF with hand-set answers/labels for testing learned aggregation.
+
+    Three questions: ``q_pred`` perfectly predicts the label, ``q_anti`` is its
+    inverse, ``q_noise`` is random. No LLM is exercised.
+    """
+    rng = np.random.default_rng(seed)
+    y = np.array(["YES", "NO"] * (n // 2))
+    yb = (y == "YES").astype(int)
+    answers = pd.DataFrame(
+        {
+            "q_pred": np.where(yb == 1, "YES", "NO"),
+            "q_noise": rng.choice(["YES", "NO"], size=n),
+            "q_anti": np.where(yb == 1, "NO", "YES"),
+        },
+        index=pd.RangeIndex(n),
+    )
+    rrf = RRF(
+        qgen_llmc=LLM_CHOICE,
+        aggregation_method="elasticnet",
+        elasticnet_cv=3,
+        random_state=42,
+        _llm=FakeLLM(),
+    )
+    qdf = rrf._get_initial_questions_df()
+    for qid in ["q_pred", "q_noise", "q_anti"]:
+        qdf.loc[qid] = {
+            "question": qid,
+            "embedding": None,
+            "exclusion": None,
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1_score": 0.0,
+            "f_beta_score": 0.5,
+            "accuracy": 0.0,
+        }
+    rrf._questions = qdf
+    rrf._answers = answers
+    rrf._X = pd.DataFrame(
+        {"data": [f"sample {i}" for i in range(n)]}, index=pd.RangeIndex(n)
+    )
+    rrf._y = y
+    return rrf, y
+
+
+class TestElasticNetAggregation:
+    def test_default_method_is_vote(self) -> None:
+        rrf = RRF(qgen_llmc=LLM_CHOICE, _llm=FakeLLM())
+        assert rrf.aggregation_method == "vote"
+
+    def test_bad_method_raises(self) -> None:
+        with pytest.raises(ValueError, match="aggregation_method"):
+            RRF(qgen_llmc=LLM_CHOICE, aggregation_method="bogus", _llm=FakeLLM())  # type: ignore[arg-type]
+
+    def test_bad_elasticnet_cv_raises(self) -> None:
+        with pytest.raises(ValueError, match="elasticnet_cv"):
+            RRF(qgen_llmc=LLM_CHOICE, elasticnet_cv=1, _llm=FakeLLM())
+
+    def test_bad_l1_ratios_raises(self) -> None:
+        with pytest.raises(ValueError, match="l1_ratio"):
+            RRF(qgen_llmc=LLM_CHOICE, elasticnet_l1_ratios=(1.5,), _llm=FakeLLM())
+
+    def test_tune_learns_signed_weights(self) -> None:
+        rrf, _ = _enet_rrf()
+        rrf._tune_aggregation()
+        w = rrf._aggregation_weights
+        assert w is not None
+        # Predictive question gets a strong positive weight, its inverse a
+        # negative one, and both dominate the noise question.
+        assert w["q_pred"] > 0
+        assert w["q_anti"] < 0
+        assert abs(w["q_pred"]) > abs(w["q_noise"])
+        assert rrf._aggregation_intercept is not None
+        assert 0.0 < rrf._aggregation_threshold < 1.0  # type: ignore[operator]
+
+    def test_dispatch_sets_only_elasticnet_state(self) -> None:
+        rrf, _ = _enet_rrf()
+        rrf._tune_aggregation()
+        # elastic-net path populates weights, not the (K, T) vote state.
+        assert rrf._aggregation_weights is not None
+        assert rrf._aggregation_k is None and rrf._aggregation_t is None
+
+    def test_aggregate_recovers_separable_labels(self) -> None:
+        rrf, y = _enet_rrf()
+        rrf._tune_aggregation()
+        matrix = (rrf._answers == "YES").astype(int)
+        preds = rrf._aggregate_elasticnet(matrix)
+        acc = float(np.mean(preds.to_numpy() == y))
+        assert acc >= 0.9
+
+    def test_aggregate_applies_threshold(self) -> None:
+        rrf, _ = _enet_rrf()
+        # Manually pin a model: only q_pred matters, threshold 0.6.
+        rrf._aggregation_weights = {"q_pred": 10.0}
+        rrf._aggregation_intercept = 0.0
+        rrf._aggregation_threshold = 0.6
+        rrf._aggregation_feature_order = ["q_pred"]
+        matrix = pd.DataFrame({"q_pred": [1, 0]}, index=pd.Index([0, 1]))
+        preds = rrf._aggregate_elasticnet(matrix)
+        # sigmoid(10) ~ 1 >= 0.6 -> YES ; sigmoid(0) = 0.5 < 0.6 -> NO
+        assert list(preds.to_numpy()) == ["YES", "NO"]
+
+    def test_save_load_roundtrip(self, tmp_path: Any) -> None:
+        rrf, _ = _enet_rrf()
+        rrf._tune_aggregation()
+        rrf.save(tmp_path)
+        loaded = RRF.load(tmp_path)
+        assert loaded.aggregation_method == "elasticnet"
+        assert loaded._aggregation_weights == rrf._aggregation_weights
+        assert loaded._aggregation_intercept == rrf._aggregation_intercept
+        assert loaded._aggregation_threshold == rrf._aggregation_threshold
+        assert loaded._aggregation_feature_order == rrf._aggregation_feature_order

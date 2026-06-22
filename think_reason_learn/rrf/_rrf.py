@@ -35,6 +35,7 @@ import numpy.typing as npt
 import orjson
 import pandas as pd
 from pydantic import BaseModel, Field
+from sklearn.linear_model import LogisticRegressionCV
 
 from think_reason_learn.core.exceptions import CorruptionError, DataError, LLMError
 from think_reason_learn.core.llms import LLMChoice, TokenCounter, llm
@@ -124,7 +125,24 @@ class RRF:
             as the beta parameter. Default ``"f1"``.
         aggregation_max_k: Maximum K (number of top questions) to consider
             during (K, T) grid search. ``None`` means use all active
-            questions. Default ``None``.
+            questions. Default ``None`` (vote method only).
+        aggregation_method: How per-question answers are combined into a
+            founder-level label. ``"vote"`` (default) uses the unit-weight
+            top-(K, T) scheme tuned by grid search. ``"elasticnet"`` instead
+            fits an elastic-net logistic regression over all active questions,
+            learning a signed weight per question plus a decision threshold.
+            Learned weights are usually more accurate (they down-weight noisy
+            questions and exploit correlations) but trade away the simple
+            "N of K rules fired" interpretation for inspectable logistic
+            coefficients. ``aggregation_max_k`` and the ``k``/``t`` overrides on
+            ``predict_founder_level`` apply to ``"vote"`` only.
+        elasticnet_cs: Inverse-regularisation grid (sklearn ``Cs``) searched by
+            inner CV when ``aggregation_method="elasticnet"``. Default
+            ``(0.05, 0.1, 0.5)``.
+        elasticnet_l1_ratios: Elastic-net mixing grid (0 = pure L2, 1 = pure L1)
+            searched by inner CV. Default ``(0.1, 0.5)``.
+        elasticnet_cv: Number of inner CV folds for elastic-net hyperparameter
+            selection. Must be >= 2. Default ``3``.
         cost_sensitive: Enable cost-sensitive mode with screening and early pruning.
         cost_sensitive_config: Configuration for cost-sensitive mode. If None,
             uses default CostSensitiveConfig.
@@ -158,6 +176,10 @@ class RRF:
             "f1", "f_beta", "accuracy", "precision", "recall"
         ] = "f1",
         aggregation_max_k: int | None = None,
+        aggregation_method: Literal["vote", "elasticnet"] = "vote",
+        elasticnet_cs: Tuple[float, ...] = (0.05, 0.1, 0.5),
+        elasticnet_l1_ratios: Tuple[float, ...] = (0.1, 0.5),
+        elasticnet_cv: int = 3,
         cost_sensitive: bool = False,
         cost_sensitive_config: CostSensitiveConfig | None = None,
         prompt_preset: str | PromptPreset | None = None,
@@ -189,6 +211,10 @@ class RRF:
         self.semantic_similarity_threshold = semantic_similarity_threshold
         self.aggregation_metric = aggregation_metric
         self.aggregation_max_k = aggregation_max_k
+        self.aggregation_method = aggregation_method
+        self.elasticnet_cs = elasticnet_cs
+        self.elasticnet_l1_ratios = elasticnet_l1_ratios
+        self.elasticnet_cv = elasticnet_cv
         self.cost_sensitive = cost_sensitive
         self.cost_sensitive_config = cost_sensitive_config or CostSensitiveConfig()
 
@@ -208,6 +234,10 @@ class RRF:
         self._last_fit_summary: dict[str, Any] = {}
         self._aggregation_k: int | None = None
         self._aggregation_t: int | None = None
+        self._aggregation_weights: dict[str, float] | None = None
+        self._aggregation_intercept: float | None = None
+        self._aggregation_threshold: float | None = None
+        self._aggregation_feature_order: list[str] | None = None
 
         self._token_counter: TokenCounter = TokenCounter()
 
@@ -287,6 +317,30 @@ class RRF:
         val = kwargs["aggregation_max_k"]
         if val is not None and (not isinstance(val, int) or val < 1):
             raise ValueError("aggregation_max_k must be None or a positive integer")
+        val = kwargs["aggregation_method"]
+        if val not in ("vote", "elasticnet"):
+            raise ValueError("aggregation_method must be 'vote' or 'elasticnet'")
+        val = kwargs["elasticnet_cs"]
+        if not (
+            isinstance(val, (tuple, list))
+            and len(val) >= 1
+            and all(isinstance(c, (int, float)) and c > 0 for c in val)
+        ):
+            raise ValueError(
+                "elasticnet_cs must be a non-empty sequence of positive floats"
+            )
+        val = kwargs["elasticnet_l1_ratios"]
+        if not (
+            isinstance(val, (tuple, list))
+            and len(val) >= 1
+            and all(isinstance(r, (int, float)) and 0 <= r <= 1 for r in val)
+        ):
+            raise ValueError(
+                "elasticnet_l1_ratios must be a non-empty sequence of floats in [0, 1]"
+            )
+        val = kwargs["elasticnet_cv"]
+        if not (isinstance(val, int) and val >= 2):
+            raise ValueError("elasticnet_cv must be an integer >= 2")
 
     def _get_name(self, name: str | None) -> str:
         if name is None:
@@ -1414,13 +1468,17 @@ class RRF:
         )
 
     def _tune_aggregation(self) -> None:
-        """Find best (K, T) on training data via grid search.
+        """Tune founder-level aggregation on training data (no LLM calls).
 
-        Uses the already-computed ``_answers`` DataFrame and ``_y`` labels.
-        No additional LLM calls are made. Stores results in
-        ``_aggregation_k`` and ``_aggregation_t``.
+        Dispatches on ``aggregation_method``: ``"vote"`` grid-searches the
+        unit-weight top-(K, T) scheme; ``"elasticnet"`` fits a learned-weight
+        logistic model (see :meth:`_tune_aggregation_elasticnet`).
         """
         if self._y is None:
+            return
+
+        if self.aggregation_method == "elasticnet":
+            self._tune_aggregation_elasticnet()
             return
 
         active_qids = [
@@ -1470,6 +1528,124 @@ class RRF:
             best_t,
             self.aggregation_metric,
             best_score,
+        )
+
+    def _tune_aggregation_elasticnet(self) -> None:
+        """Fit an elastic-net logistic regression over question answers.
+
+        Learns a signed weight per active question (L1+L2 regularised, with the
+        ``C``/``l1_ratio`` grid chosen by inner CV) plus a decision threshold —
+        a learned-weight alternative to the unit-weight top-(K, T) vote. Stores
+        results in ``_aggregation_weights`` / ``_aggregation_intercept`` /
+        ``_aggregation_threshold`` / ``_aggregation_feature_order``. No LLM
+        calls are made.
+
+        Unlike the vote scheme, the weights are not a simple "N of K rules
+        fired" count; they are inspectable logistic coefficients.
+        """
+        if self._y is None:
+            return
+
+        active_qids = [
+            cast(str, qid)
+            for qid in self._questions.index
+            if self._questions.at[qid, "exclusion"] is None
+            and qid in self._answers.columns
+        ]
+        if not active_qids:
+            return
+
+        binary = self._answers[active_qids].apply(
+            lambda col: (col == "YES").astype(int)
+        )
+        x = binary.to_numpy(dtype=float)
+        y_true = np.array([1 if yi == "YES" else 0 for yi in self._y])
+        if len(np.unique(y_true)) < 2:
+            logger.warning(
+                "Elastic-net aggregation needs both classes present; skipping."
+            )
+            return
+
+        model = LogisticRegressionCV(
+            penalty="elasticnet",
+            solver="saga",
+            Cs=list(self.elasticnet_cs),  # type: ignore[arg-type]
+            l1_ratios=list(self.elasticnet_l1_ratios),
+            cv=self.elasticnet_cv,
+            scoring="roc_auc",
+            max_iter=5000,
+            random_state=self.random_state,
+            n_jobs=1,
+            refit=True,
+        )
+        model.fit(x, y_true)
+        proba = model.predict_proba(x)[:, 1]
+
+        best_score, best_thr = -1.0, 0.5
+        for thr in np.arange(0.05, 0.951, 0.01):
+            preds = (proba >= thr).astype(int)
+            score = RRF._compute_metric(
+                preds,
+                y_true,
+                self.aggregation_metric,
+                beta=self.question_scoring_f_beta,
+            )
+            if score > best_score:
+                best_score, best_thr = score, float(thr)
+
+        coefs = model.coef_[0]
+        self._aggregation_weights = {
+            qid: float(w) for qid, w in zip(active_qids, coefs)
+        }
+        self._aggregation_intercept = float(model.intercept_[0])
+        self._aggregation_threshold = best_thr
+        self._aggregation_feature_order = active_qids
+        # The vote (K, T) state does not apply in this mode.
+        self._aggregation_k = None
+        self._aggregation_t = None
+        logger.info(
+            "Elastic-net aggregation tuned: %d features, thr=%.3f (%s=%.4f)",
+            len(active_qids),
+            best_thr,
+            self.aggregation_metric,
+            best_score,
+        )
+
+    def _elasticnet_proba(self, response_matrix: pd.DataFrame) -> np.ndarray:
+        """Return P(YES) per sample from the learned elastic-net coefficients.
+
+        Computes ``sigmoid(intercept + sum_q w_q * answer_q)``. Questions absent
+        from ``response_matrix`` are treated as 0 (NO); extra columns are
+        ignored.
+        """
+        intercept = float(self._aggregation_intercept or 0.0)
+        weights = self._aggregation_weights or {}
+        order = self._aggregation_feature_order or []
+        z = np.full(len(response_matrix), intercept, dtype=float)
+        for qid in order:
+            if qid in response_matrix.columns:
+                z = z + weights[qid] * response_matrix[qid].to_numpy(dtype=float)
+        return 1.0 / (1.0 + np.exp(-z))
+
+    def _aggregate_elasticnet(self, response_matrix: pd.DataFrame) -> pd.Series:
+        """Aggregate a binary response matrix via the learned elastic-net model.
+
+        Predicts YES when ``P(YES) >= _aggregation_threshold``.
+
+        Raises:
+            ValueError: If elastic-net aggregation has not been fitted.
+        """
+        if (
+            self._aggregation_weights is None
+            or self._aggregation_intercept is None
+            or self._aggregation_threshold is None
+            or self._aggregation_feature_order is None
+        ):
+            raise ValueError("Elastic-net aggregation is not fitted. Call fit() first.")
+        proba = self._elasticnet_proba(response_matrix)
+        return pd.Series(
+            np.where(proba >= self._aggregation_threshold, "YES", "NO"),
+            index=response_matrix.index,
         )
 
     async def _build_response_matrix(self, X: pd.DataFrame) -> pd.DataFrame:
@@ -1537,16 +1713,30 @@ class RRF:
                 value learned during fit.
 
         Returns:
-            DataFrame with columns:
-                - prediction: "YES" or "NO"
-                - yes_count: number of YES answers among top-K questions
-                - k: the K value used
-                - t: the T value used
-            Index matches X.index.
+            DataFrame indexed by ``X.index``. For ``aggregation_method="vote"``
+            (default) the columns are ``prediction`` ("YES"/"NO"),
+            ``yes_count`` (YES answers among the top-K questions), ``k`` and
+            ``t``. For ``aggregation_method="elasticnet"`` the columns are
+            ``prediction``, ``probability`` (learned P(YES)) and ``threshold``;
+            the ``k``/``t`` arguments are ignored in that mode.
 
         Raises:
-            ValueError: If k/t not provided and not learned during fit.
+            ValueError: If (vote mode) k/t are not provided and not learned
+                during fit, or (elasticnet mode) the model is not fitted.
         """
+        if self.aggregation_method == "elasticnet":
+            matrix = await self._build_response_matrix(X)
+            proba = self._elasticnet_proba(matrix)
+            predictions = self._aggregate_elasticnet(matrix)
+            return pd.DataFrame(
+                {
+                    "prediction": predictions,
+                    "probability": proba,
+                    "threshold": self._aggregation_threshold,
+                },
+                index=X.index,
+            )
+
         k_val = k if k is not None else self._aggregation_k
         t_val = t if t is not None else self._aggregation_t
         if k_val is None or t_val is None:
@@ -2430,6 +2620,14 @@ class RRF:
             "aggregation_max_k": self.aggregation_max_k,
             "aggregation_k": self._aggregation_k,
             "aggregation_t": self._aggregation_t,
+            "aggregation_method": self.aggregation_method,
+            "elasticnet_cs": list(self.elasticnet_cs),
+            "elasticnet_l1_ratios": list(self.elasticnet_l1_ratios),
+            "elasticnet_cv": self.elasticnet_cv,
+            "aggregation_weights": self._aggregation_weights,
+            "aggregation_intercept": self._aggregation_intercept,
+            "aggregation_threshold": self._aggregation_threshold,
+            "aggregation_feature_order": self._aggregation_feature_order,
         }
         with (base / "rrf.json").open("w", encoding="utf-8") as f:
             f.write(orjson.dumps(manifest).decode())
@@ -2478,6 +2676,12 @@ class RRF:
             ),
             aggregation_metric=manifest.get("aggregation_metric", "f1"),
             aggregation_max_k=manifest.get("aggregation_max_k"),
+            aggregation_method=manifest.get("aggregation_method", "vote"),
+            elasticnet_cs=tuple(manifest.get("elasticnet_cs", (0.05, 0.1, 0.5))),
+            elasticnet_l1_ratios=tuple(
+                manifest.get("elasticnet_l1_ratios", (0.1, 0.5))
+            ),
+            elasticnet_cv=manifest.get("elasticnet_cv", 3),
         )
 
         inst._task_description = manifest["task_description"]
@@ -2486,6 +2690,10 @@ class RRF:
         inst._exclusion_log = manifest.get("exclusion_log", [])
         inst._aggregation_k = manifest.get("aggregation_k")
         inst._aggregation_t = manifest.get("aggregation_t")
+        inst._aggregation_weights = manifest.get("aggregation_weights")
+        inst._aggregation_intercept = manifest.get("aggregation_intercept")
+        inst._aggregation_threshold = manifest.get("aggregation_threshold")
+        inst._aggregation_feature_order = manifest.get("aggregation_feature_order")
         if tk_dict := manifest["token_counter"]:
             inst._token_counter = TokenCounter.from_dict(tk_dict)
 

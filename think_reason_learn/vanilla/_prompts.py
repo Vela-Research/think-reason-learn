@@ -79,8 +79,7 @@ def build_system_prompt(scoring_format: ScoringFormat) -> str:
     spec = SCALES.get(scoring_format)
     if spec is None:
         raise ValueError(
-            f"Unknown scoring_format {scoring_format!r}. "
-            f"Supported: {list(SCALES)}."
+            f"Unknown scoring_format {scoring_format!r}. Supported: {list(SCALES)}."
         )
     return SYSTEM_PROMPT_TEMPLATE.format(
         range_text=spec.range_text,

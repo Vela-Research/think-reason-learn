@@ -128,8 +128,10 @@ async def main() -> None:  # noqa: D103
         "agnostic on F0.5, so the format is an operational choice: ternary@2\n"
         "for precision, 5-point@4 for coverage.\n"
     )
-    print(f"  format={PRO_PRECISION.scoring_format}  "
-          f"threshold>={PRO_PRECISION.threshold}  T={PRO_PRECISION.temperature}")
+    print(
+        f"  format={PRO_PRECISION.scoring_format}  "
+        f"threshold>={PRO_PRECISION.threshold}  T={PRO_PRECISION.temperature}"
+    )
     print("Done.")
 
 

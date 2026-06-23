@@ -78,8 +78,7 @@ class VanillaClassifier:
     ) -> None:
         if scoring_format not in SCALES:
             raise ValueError(
-                f"Unknown scoring_format {scoring_format!r}. "
-                f"Supported: {list(SCALES)}."
+                f"Unknown scoring_format {scoring_format!r}. Supported: {list(SCALES)}."
             )
         if llm_semaphore_limit <= 0:
             raise ValueError("llm_semaphore_limit must be > 0")
@@ -95,9 +94,7 @@ class VanillaClassifier:
         self.seed = seed
         self.extra_config: Dict[str, Any] = dict(extra_config or {})
 
-        self.llmc: List[LLMChoice] = (
-            list(llmc) if llmc else [GoogleChoice(model=model)]
-        )
+        self.llmc: List[LLMChoice] = list(llmc) if llmc else [GoogleChoice(model=model)]
         self._system_prompt = build_system_prompt(scoring_format)
         self._llm_instance: Any = _llm if _llm is not None else llm
         self._llm_semaphore = asyncio.Semaphore(llm_semaphore_limit)
@@ -196,15 +193,11 @@ class VanillaClassifier:
                 status="OK",
             )
         except Exception as exc:  # noqa: BLE001 - per-row isolation by design
-            logger.warning(
-                "Vanilla scoring failed for sample %s", index, exc_info=True
-            )
+            logger.warning("Vanilla scoring failed for sample %s", index, exc_info=True)
             base["error"] = f"{type(exc).__name__}: {exc}"
         return base
 
-    async def score(
-        self, X: pd.DataFrame, column: str = "data"
-    ) -> pd.DataFrame:
+    async def score(self, X: pd.DataFrame, column: str = "data") -> pd.DataFrame:
         """Score every profile in ``X`` concurrently.
 
         Args:
@@ -226,8 +219,7 @@ class VanillaClassifier:
             )
 
         tasks = [
-            self._score_one(idx, str(profile))
-            for idx, profile in X[column].items()
+            self._score_one(idx, str(profile)) for idx, profile in X[column].items()
         ]
         rows = await asyncio.gather(*tasks)
 
@@ -235,9 +227,7 @@ class VanillaClassifier:
         result.index = X.index
         return result
 
-    async def predict(
-        self, X: pd.DataFrame, column: str = "data"
-    ) -> List[int]:
+    async def predict(self, X: pd.DataFrame, column: str = "data") -> List[int]:
         """Return 0/1 predictions for every profile in ``X``.
 
         Args:
@@ -275,14 +265,10 @@ class VanillaClassifier:
             DataError: If ``len(y) != len(X)``.
         """
         if len(y) != len(X):
-            raise DataError(
-                f"len(y)={len(y)} does not match len(X)={len(X)}."
-            )
+            raise DataError(f"len(y)={len(y)} does not match len(X)={len(X)}.")
         scored = await self.score(X, column=column)
         y_pred = scored["predicted"].fillna(0).astype(int).tolist()
-        return compute_metrics(
-            list(y), y_pred, threshold=self.threshold, beta=beta
-        )
+        return compute_metrics(list(y), y_pred, threshold=self.threshold, beta=beta)
 
     async def sweep_thresholds(
         self,
@@ -315,9 +301,7 @@ class VanillaClassifier:
             DataError: If ``len(y) != len(X)``.
         """
         if len(y) != len(X):
-            raise DataError(
-                f"len(y)={len(y)} does not match len(X)={len(X)}."
-            )
+            raise DataError(f"len(y)={len(y)} does not match len(X)={len(X)}.")
         if thresholds is None:
             thresholds = [v for v in self.scale.values if v > min(self.scale.values)]
 

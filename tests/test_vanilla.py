@@ -191,9 +191,7 @@ async def test_failed_row_is_isolated() -> None:
 async def test_temperature_and_seed_forwarded() -> None:
     X, _ = _data()
     fake = FakeLLM({})
-    clf = VanillaClassifier(
-        scoring_format="binary", temperature=1.0, seed=7, _llm=fake
-    )
+    clf = VanillaClassifier(scoring_format="binary", temperature=1.0, seed=7, _llm=fake)
     await clf.score(X.head(1))
     assert fake.calls[0]["temperature"] == 1.0
     assert fake.calls[0]["kwargs"].get("seed") == 7

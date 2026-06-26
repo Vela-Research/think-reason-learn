@@ -68,7 +68,7 @@ poetry run pre-commit install  # Optional: code quality hooks
 
 ```python
 import asyncio
-from IPython.display import Image
+from IPython.display import display, Image
 import pandas as pd
 import numpy as np
 from think_reason_learn.gptree import GPTree

@@ -58,3 +58,5 @@ pyrightconfig.json
 examples/*
 !examples/**/*.ipynb
 .private/
+
+vcbench/*

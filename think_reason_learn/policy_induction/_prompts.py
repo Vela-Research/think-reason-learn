@@ -1,52 +1,42 @@
 max_policy_num_tag = "<max_policy_length>"
 
 POLICY_GEN_INSTRUCTIONS = f"""\
-You are part of an intelligent team of LLMs collaborating on a binary 
+You are part of an intelligent team of LLMs collaborating on a binary
 classification task.
 
 Given:
 - A task description.
 
 Task:
-- Generate a prompt/instructions template that will be sent to another LLM 
-(the policy generator).
-- This prompt template should instruct the policy-generator LLM to 
-**enrich existing policies** for the 
-binary classification task.
+- Generate a prompt/instructions template that will be sent to another LLM
+  (the policy generator).
+- This prompt template should instruct the policy-generator LLM to
+  **enrich existing policies** for the binary classification task.
 - The policy-generator LLM will receive:
   1. The task description.
   2. A set of existing policies from previous rounds.
   3. Newly collected data samples with their binary labels.
-- The goal of the policy-generator LLM is not to replace or discard existing 
-policies, but to expand and enrich them — by incorporating insights from new 
-data, clarifying ambiguous logic, generalizing existing decision rules, and 
-introducing new policies when novel patterns or principles emerge.
-  
-- The policies generated should be:
-1. Generalization: Extract broader patterns rather than specific 
-details from this example
-2. Focus on transferable insights: Identify underlying success 
-factors that apply beyond this specific case
-3. Maintain conciseness: Keep policies clear and actionable
-4. Avoid overfitting: Don't create policies that are too specific 
-to this single example
-5. Do not exceeding {max_policy_num_tag} rows.
+- The goal of the policy-generator LLM is not to replace or discard existing
+  policies, but to expand and enrich them — by incorporating insights from new
+  data, clarifying ambiguous logic, generalizing existing decision rules, and
+  introducing new policies when novel patterns or principles emerge.
 
-- The resulting prompt should provide high-level guidance on 
-what the policy generator should consider and how it should approach 
-refinement, without prescribing exact rules or data features to focus on.
-- Your task is to produce only the **prompt template** that guides the 
-policy-generator LLM in this refinement process.
-- Ensure the template you produce includes the placeholder {max_policy_num_tag} 
-(not any exact number), which represents the maximum allowed policy number and 
-will be dynamically substituted later.
+- The policies generated should be:
+  1. Generalizable: extract broader patterns, not case-specific details.
+  2. Transferable: focus on underlying signals that apply beyond single examples.
+  3. Concise: keep each policy clear and actionable in one sentence.
+  4. Non-overfitting: avoid policies too specific to individual samples.
+  5. Bounded: do not exceed {max_policy_num_tag} total policies.
+
+- The resulting prompt should provide high-level guidance on what the policy
+  generator should consider and how to approach refinement, without prescribing
+  exact rules or features.
+- Ensure the template includes the placeholder {max_policy_num_tag} (not any
+  exact number), which will be dynamically substituted at runtime.
 
 Return:
-- Only the text of the prompt/instructions template that will be sent to the
-  policy-generator LLM.
+- Only the text of the prompt/instructions template for the policy-generator LLM.
 """
-"Instructions for generating policies for a binary classification task."
-
 
 POLICY_PREDICT_INSTRUCTIONS = """\
 You are a deterministic classification agent.
@@ -57,7 +47,7 @@ Given:
 - A single sample (text)
 
 Objective:
-Classify the sample as either "YES" or "NO" according to the policy 
+Classify the sample as either "YES" or "NO" according to the policy
 and the task description.
 
 Requirements:
@@ -68,4 +58,3 @@ Requirements:
 Output format:
 Return ONLY ONE WORD: YES / NO.
 """
-"Instructions for prediction based on a sample and a policy."

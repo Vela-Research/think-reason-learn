@@ -298,7 +298,14 @@ class PolicyInduction:
     def _sample(
         self, n: int, seed: int | None = None
     ) -> Generator[pd.DataFrame, None, None]:
-        """Yield balanced batches of up to n samples, covering all data once."""
+        """Yield balanced batches of n samples, stopping once either class runs out.
+
+        Each batch draws exactly the class_ratio-determined share of YES/NO
+        samples. Generation stops as soon as one class can no longer fill its
+        share, rather than topping batches up from the other class — on an
+        imbalanced dataset, this means not every majority-class row is shown
+        during generation (scoring and weight fitting still use all of them).
+        """
         rng = np.random.default_rng(seed if seed is not None else self.random_state)
         yes_idx = rng.permutation(np.where(self._y == "YES")[0])
         no_idx = rng.permutation(np.where(self._y == "NO")[0])
@@ -310,18 +317,11 @@ class PolicyInduction:
         taken_y = taken_n = 0
         len_yes, len_no = len(yes_idx), len(no_idx)
 
-        while taken_y < len_yes or taken_n < len_no:
+        while True:
             take_y = min(want_yes, len_yes - taken_y)
             take_n = min(want_no, len_no - taken_n)
-            if take_y == 0 and take_n == 0:
+            if take_y < want_yes or take_n < want_no:
                 break
-            if take_y + take_n < n:
-                rem = n - take_y - take_n
-                extra = min(rem, len_yes - taken_y - take_y)
-                take_y += extra
-                rem -= extra
-                if rem > 0:
-                    take_n += min(rem, len_no - taken_n - take_n)
 
             batch = np.concatenate(
                 [
@@ -329,8 +329,6 @@ class PolicyInduction:
                     no_idx[taken_n : taken_n + take_n],
                 ]
             )
-            if batch.size == 0:
-                break
             rng.shuffle(batch)
             df = self._X.iloc[batch].copy()  # type: ignore
             df["y"] = self._y[batch]  # type: ignore

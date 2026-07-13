@@ -17,12 +17,12 @@ from pathlib import Path
 from typing import (
     Any,
     AsyncGenerator,
+    Callable,
     Dict,
     Generator,
     Iterable,
     List,
     Literal,
-    Optional,
     Self,
     Sequence,
     Tuple,
@@ -87,7 +87,7 @@ class WeightTrainerConfig:
     """
 
     beta: float = 0.5
-    penalty: Literal["l1", "l2"] = "l2"
+    penalty: Literal["l1", "l2"] = "l1"
     cv_folds: int = 5
     Cs: Iterable[float] = (1e-3, 1e-2, 1e-1, 1, 10, 100, 1000)
     threshold_grid: Iterable[float] = tuple(np.linspace(0.01, 0.99, 99))
@@ -425,6 +425,11 @@ class PolicyInduction:
     # cleared checkpoints that could describe different generated policies.
     _FIT_CKPT_NAME = "fit_checkpoint.json"
 
+    # Flush a checkpoint after this many samples complete within a single
+    # policy's scoring pass, so interrupting mid-policy on a large dataset
+    # still saves whatever finished instead of losing the whole policy.
+    _SCORING_CKPT_EVERY = 25
+
     # ── Policy generation ───────────────────────────────────────────────────────
 
     async def _run_generation(self, instructions: str) -> List[str]:
@@ -500,13 +505,18 @@ class PolicyInduction:
     # ── Policy scoring ──────────────────────────────────────────────────────────
 
     def _fix_memory(self) -> None:
-        """Drop rows with missing policies or malformed prediction series."""
+        """Drop rows with missing policies or malformed prediction series.
+
+        A prediction Series with some null entries is kept as-is — it
+        represents a policy that's partially scored, not a broken one. Only
+        the wrong length (stale/mismatched data) resets it to unscored.
+        """
         pm = self._policy_memory.dropna(subset=["policy"]).copy()
         expected = len(self._X) if self._X is not None else 0
         for idx in pm.index:
             val = pm.at[idx, "predictions"]
             if isinstance(val, pd.Series):
-                if len(val) != expected or val.isnull().any():
+                if len(val) != expected:
                     pm.at[idx, "predictions"] = None
             elif val is not None:
                 pm.at[idx, "predictions"] = None
@@ -536,8 +546,10 @@ class PolicyInduction:
             logger.info(f"Restored scoring checkpoint: {restored} policies pre-scored.")
 
     def _save_scoring_ckpt(self) -> None:
-        """Atomically persist all completed policy predictions to disk.
+        """Atomically persist current policy predictions to disk, complete or not.
 
+        Partial (in-progress) Series are saved too, not just fully-scored
+        ones, so interrupting mid-policy still keeps whatever finished.
         Preserves the "policies"/"batches_done" section already written by
         generation, only replacing "scores" — both sections live in the
         same file for the whole fit() run.
@@ -545,17 +557,35 @@ class PolicyInduction:
         scores: dict[str, dict] = {}
         for idx, row in self._policy_memory.iterrows():
             val = row["predictions"]
-            if isinstance(val, pd.Series) and not val.isnull().any():
-                scores[str(idx)] = {str(k): v for k, v in val.items()}
+            if isinstance(val, pd.Series):
+                scores[str(idx)] = {
+                    str(k): (None if pd.isna(v) else v) for k, v in val.items()
+                }
         ckpt = self._read_ckpt(self._FIT_CKPT_NAME) or {}
         ckpt["scores"] = scores
         self._write_ckpt(self._FIT_CKPT_NAME, ckpt)
 
     async def _score_single_policy(
-        self, policy: str, samples: pd.DataFrame
-    ) -> Optional[pd.Series]:
-        """Score one policy against all samples concurrently."""
-        results: Dict[Any, str | None] = {}
+        self,
+        policy: str,
+        samples: pd.DataFrame,
+        existing: pd.Series | None = None,
+        on_progress: Callable[[pd.Series], None] | None = None,
+    ) -> pd.Series:
+        """Score one policy, resuming from `existing` and checkpointing as it goes.
+
+        Only samples still null in `existing` are (re)scored. `on_progress`
+        is called with the current partial Series every
+        `_SCORING_CKPT_EVERY` completions, and once more on cancellation, so
+        interrupting mid-policy on a large dataset still keeps whatever
+        finished instead of losing the whole policy.
+        """
+        out = (
+            existing.copy()
+            if existing is not None
+            else pd.Series([None] * len(samples), index=samples.index, dtype="object")
+        )
+        pending = samples.loc[out.isna()]
         done_q: asyncio.Queue[None] = asyncio.Queue()
 
         async def worker(row_idx: Any, row: pd.Series) -> None:
@@ -583,7 +613,7 @@ class PolicyInduction:
                 if response.response is None:
                     raise LLMError("No response from LLM")
                 txt = str(response.response.answer).strip().upper().strip('".,;:')
-                results[row_idx] = (
+                out.at[row_idx] = (
                     txt
                     if txt in {"YES", "NO"}
                     else "YES"
@@ -594,40 +624,46 @@ class PolicyInduction:
                 )
             except Exception:
                 logger.warning("Scoring worker error", exc_info=True)
-                results[row_idx] = None
+                out.at[row_idx] = None
             finally:
                 done_q.put_nowait(None)
 
-        it = iter(samples.iterrows())
+        it = iter(pending.iterrows())
         in_flight = 0
-        async with asyncio.TaskGroup() as tg:
-            for _ in range(self.llm_semaphore_limit):
-                try:
-                    idx, row = next(it)
-                    tg.create_task(worker(idx, row))
-                    in_flight += 1
-                except StopIteration:
-                    break
-            while in_flight > 0:
-                await done_q.get()
-                in_flight -= 1
-                try:
-                    idx, row = next(it)
-                    tg.create_task(worker(idx, row))
-                    in_flight += 1
-                except StopIteration:
-                    pass
+        since_checkpoint = 0
+        try:
+            async with asyncio.TaskGroup() as tg:
+                for _ in range(self.llm_semaphore_limit):
+                    try:
+                        idx, row = next(it)
+                        tg.create_task(worker(idx, row))
+                        in_flight += 1
+                    except StopIteration:
+                        break
+                while in_flight > 0:
+                    await done_q.get()
+                    in_flight -= 1
+                    since_checkpoint += 1
+                    if (
+                        on_progress is not None
+                        and since_checkpoint >= self._SCORING_CKPT_EVERY
+                    ):
+                        on_progress(out.copy())
+                        since_checkpoint = 0
+                    try:
+                        idx, row = next(it)
+                        tg.create_task(worker(idx, row))
+                        in_flight += 1
+                    except StopIteration:
+                        pass
+        finally:
+            if on_progress is not None and since_checkpoint > 0:
+                on_progress(out.copy())
 
-        if not results:
-            return None
-        out = pd.Series([None] * len(samples), index=samples.index, dtype="object")
-        for k, v in results.items():
-            if k in out.index:
-                out.at[k] = v
         return out
 
     async def _score_policies(self) -> None:
-        """Score all unscored policies; flush to disk after each one."""
+        """Score all unscored/partially-scored policies; checkpoint as it goes."""
         if self._X is None or self._y is None:
             raise ValueError("X and y must be set before scoring.")
 
@@ -635,9 +671,14 @@ class PolicyInduction:
         self._load_scoring_ckpt()
         self._fix_memory()
 
-        unscored = self._policy_memory.index[
-            self._policy_memory["predictions"].isna()
-        ].tolist()
+        def needs_work(val: Any) -> bool:
+            return not isinstance(val, pd.Series) or bool(val.isnull().any())
+
+        unscored = [
+            idx
+            for idx in self._policy_memory.index
+            if needs_work(self._policy_memory.at[idx, "predictions"])
+        ]
         total = len(unscored)
         logger.info(f"Scoring {total} policies.")
 
@@ -651,9 +692,17 @@ class PolicyInduction:
             )
         ):
             policy = str(self._policy_memory.at[policy_idx, "policy"])
-            result = await self._score_single_policy(policy, self._X)
-            if result is not None:
-                self._policy_memory.at[policy_idx, "predictions"] = result  # type: ignore
+            existing = self._policy_memory.at[policy_idx, "predictions"]
+            existing = existing if isinstance(existing, pd.Series) else None
+
+            def on_progress(partial: pd.Series, _idx: Any = policy_idx) -> None:
+                self._policy_memory.at[_idx, "predictions"] = partial  # type: ignore
+                self._save_scoring_ckpt()
+
+            result = await self._score_single_policy(
+                policy, self._X, existing=existing, on_progress=on_progress
+            )
+            self._policy_memory.at[policy_idx, "predictions"] = result  # type: ignore
             self._save_scoring_ckpt()
             if (i + 1) % self.p_predict_update_interval == 0:
                 logger.info(f"Scored {i + 1}/{total} policies.")

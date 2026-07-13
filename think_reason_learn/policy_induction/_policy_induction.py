@@ -27,6 +27,7 @@ from typing import (
     Sequence,
     Tuple,
     Union,
+    cast,
 )
 from uuid import uuid4
 
@@ -40,6 +41,7 @@ from pydantic import BaseModel, Field
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import fbeta_score
 from sklearn.model_selection import StratifiedKFold
+from tqdm.auto import tqdm
 
 from think_reason_learn.core.exceptions import DataError, LLMError
 from think_reason_learn.core.llms import LLMChoice, TokenCounter, llm
@@ -50,6 +52,10 @@ from ._prompts import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Compact terminal-style progress bar: "[TAG] ████░░░░ n/total · rate/s · eta MM:SS"
+_BAR_FORMAT = "{desc} {bar} {n_fmt}/{total_fmt} · {rate_fmt} · eta {remaining}"
+_BAR_ASCII = "░█"
 
 
 # ── Schemas ────────────────────────────────────────────────────────────────────
@@ -416,20 +422,27 @@ class PolicyInduction:
             if p.exists():
                 p.unlink()
 
-    def _clear_gen_checkpoints(self) -> None:
-        self._del_ckpt("gen_policies.json")
+    # Single checkpoint file spanning the whole fit() pipeline (generation +
+    # scoring), so resuming never mixes progress from two independently
+    # cleared checkpoints that could describe different generated policies.
+    _FIT_CKPT_NAME = "fit_checkpoint.json"
 
     # ── Policy generation ───────────────────────────────────────────────────────
 
     async def _run_generation(self, instructions: str) -> List[str]:
         """Run policy induction. Resumes from checkpoint if present."""
-        ckpt_name = "gen_policies.json"
-        ckpt = self._read_ckpt(ckpt_name)
-        all_policies: List[str] = ckpt["policies"] if ckpt else []
-        batches_done: int = ckpt["batches_done"] if ckpt else 0
+        ckpt = self._read_ckpt(self._FIT_CKPT_NAME) or {}
+        all_policies: List[str] = ckpt.get("policies", [])
+        batches_done: int = ckpt.get("batches_done", 0)
 
         for batch_idx, sample_df in enumerate(
-            self._sample(self.max_samples_as_context, seed=self.random_state)
+            tqdm(
+                self._sample(self.max_samples_as_context, seed=self.random_state),
+                desc="[GEN]",
+                unit="",
+                bar_format=_BAR_FORMAT,
+                ascii=_BAR_ASCII,
+            )
         ):
             if batch_idx < batches_done:
                 continue
@@ -462,7 +475,8 @@ class PolicyInduction:
             all_policies = response.response.policies
             logger.info(f"Batch {batch_idx + 1}: {len(all_policies)} policies")
             self._write_ckpt(
-                ckpt_name, {"policies": all_policies, "batches_done": batch_idx + 1}
+                self._FIT_CKPT_NAME,
+                {"policies": all_policies, "batches_done": batch_idx + 1, "scores": {}},
             )
 
         return all_policies
@@ -477,7 +491,6 @@ class PolicyInduction:
         instructions = self._get_gen_instructions()
         policies = await self._run_generation(instructions)
 
-        self._clear_gen_checkpoints()
         self._policy_memory = pd.DataFrame(
             {
                 "policy": policies,
@@ -502,12 +515,18 @@ class PolicyInduction:
         self._policy_memory = pm
 
     def _load_scoring_ckpt(self) -> None:
-        """Restore scored policy predictions from disk into _policy_memory."""
-        ckpt = self._read_ckpt("scoring_checkpoint.json")
+        """Restore scored policy predictions from disk into _policy_memory.
+
+        Reads the "scores" section of the same checkpoint file that
+        generation writes to, so restored scores can never describe a
+        different set of policies than the ones currently in memory.
+        """
+        ckpt = self._read_ckpt(self._FIT_CKPT_NAME)
         if ckpt is None or self._X is None:
             return
+        scores: dict = ckpt.get("scores", {})
         restored = 0
-        for str_pid, pred_dict in ckpt.items():
+        for str_pid, pred_dict in scores.items():
             pid = int(str_pid)
             if pid not in self._policy_memory.index:
                 continue
@@ -519,13 +538,20 @@ class PolicyInduction:
             logger.info(f"Restored scoring checkpoint: {restored} policies pre-scored.")
 
     def _save_scoring_ckpt(self) -> None:
-        """Atomically persist all completed policy predictions to disk."""
-        data: dict[str, dict] = {}
+        """Atomically persist all completed policy predictions to disk.
+
+        Preserves the "policies"/"batches_done" section already written by
+        generation, only replacing "scores" — both sections live in the
+        same file for the whole fit() run.
+        """
+        scores: dict[str, dict] = {}
         for idx, row in self._policy_memory.iterrows():
             val = row["predictions"]
             if isinstance(val, pd.Series) and not val.isnull().any():
-                data[str(idx)] = {str(k): v for k, v in val.items()}
-        self._write_ckpt("scoring_checkpoint.json", data)
+                scores[str(idx)] = {str(k): v for k, v in val.items()}
+        ckpt = self._read_ckpt(self._FIT_CKPT_NAME) or {}
+        ckpt["scores"] = scores
+        self._write_ckpt(self._FIT_CKPT_NAME, ckpt)
 
     async def _score_single_policy(
         self, policy: str, samples: pd.DataFrame
@@ -617,11 +643,19 @@ class PolicyInduction:
         total = len(unscored)
         logger.info(f"Scoring {total} policies.")
 
-        for i, policy_idx in enumerate(unscored):
+        for i, policy_idx in enumerate(
+            tqdm(
+                unscored,
+                desc="[SCORE]",
+                unit="",
+                bar_format=_BAR_FORMAT,
+                ascii=_BAR_ASCII,
+            )
+        ):
             policy = str(self._policy_memory.at[policy_idx, "policy"])
             result = await self._score_single_policy(policy, self._X)
             if result is not None:
-                self._policy_memory.at[policy_idx, "predictions"] = result
+                self._policy_memory.at[policy_idx, "predictions"] = result  # type: ignore
             self._save_scoring_ckpt()
             if (i + 1) % self.p_predict_update_interval == 0:
                 logger.info(f"Scored {i + 1}/{total} policies.")
@@ -693,7 +727,13 @@ class PolicyInduction:
         )
         best_C, best_score, best_thresholds = None, -np.inf, []
 
-        for C in cfg.Cs:
+        for C in tqdm(
+            list(cfg.Cs),
+            desc="[FIT]",
+            unit="",
+            bar_format=_BAR_FORMAT,
+            ascii=_BAR_ASCII,
+        ):
             fold_scores, fold_thresholds = [], []
             for tr_idx, val_idx in skf.split(X, y):
                 lr = LogisticRegression(
@@ -843,8 +883,10 @@ class PolicyInduction:
     ) -> Self:
         """Fit the PolicyInduction model.
 
-        Runs policy generation, scoring, and weight fitting in sequence.
-        Checkpoints allow resuming any interrupted stage without restarting.
+        Runs policy generation, scoring, and weight fitting in sequence. A
+        single checkpoint file spans generation and scoring, so resuming
+        after an interruption never restores scores for a different set of
+        policies than the ones actually in memory.
 
         Args:
             X: Feature DataFrame.
@@ -858,23 +900,108 @@ class PolicyInduction:
         await self._generate_policies()
         await self._score_policies()
         self._fit_weights()
-        self._del_ckpt("scoring_checkpoint.json")
+        self._del_ckpt(self._FIT_CKPT_NAME)
         logger.info("PolicyInduction fit complete.")
         return self
 
+    @staticmethod
+    def _save_predict_checkpoint(
+        path: str | PathLike[str],
+        completed: Dict[str, Tuple[List[float], str]],
+        token_counter: TokenCounter,
+    ) -> None:
+        """Atomically write a predict checkpoint to *path*."""
+        checkpoint = {
+            "completed": {
+                sidx: {"vector": vec, "prediction": pred}
+                for sidx, (vec, pred) in completed.items()
+            },
+            "token_counter": token_counter.to_dict(),
+        }
+        final = Path(path) / "predict_checkpoint.json"
+        tmp = final.with_suffix(".json.tmp")
+        final.parent.mkdir(parents=True, exist_ok=True)
+        tmp.write_bytes(orjson.dumps(checkpoint))
+        tmp.replace(final)
+
+    @staticmethod
+    def _load_predict_checkpoint(
+        path: str | PathLike[str],
+    ) -> Tuple[Dict[str, Tuple[List[float], str]], TokenCounter] | None:
+        """Load a predict checkpoint written by ``_save_predict_checkpoint``."""
+        final = Path(path) / "predict_checkpoint.json"
+        if not final.exists():
+            return None
+        data = orjson.loads(final.read_bytes())
+        completed = {
+            sidx: (v["vector"], v["prediction"])
+            for sidx, v in data["completed"].items()
+        }
+        token_counter = TokenCounter.from_dict(data["token_counter"])
+        return completed, token_counter
+
     async def predict(
-        self, samples: pd.DataFrame
+        self,
+        samples: pd.DataFrame,
+        *,
+        checkpoint_path: str | PathLike[str] | None = None,
+        checkpoint_every: int | None = None,
+        resume: bool = False,
     ) -> AsyncGenerator[Tuple[Any, NDArray, Literal["YES", "NO"], TokenCounter], None]:
         """Yield predictions for each sample in the DataFrame.
 
         Args:
             samples: DataFrame of samples to classify.
+            checkpoint_path: Directory where ``predict_checkpoint.json`` is
+                written. Defaults to ``self.save_path`` (same default as
+                ``save()``) whenever checkpointing is active, i.e. this,
+                ``checkpoint_every``, or ``resume`` is set. If none of the
+                three are set, checkpointing stays off.
+            checkpoint_every: Save a checkpoint every *N* completed samples,
+                in addition to always saving once when the generator stops
+                (whether by completion or early cancellation).
+            resume: If ``True``, load an existing checkpoint and skip
+                already-completed samples.
 
         Yields:
             (sample_index, policy_vector, prediction, token_counter)
         """
         self._check_memory()
+        if checkpoint_every is not None and (
+            not isinstance(checkpoint_every, int) or checkpoint_every <= 0
+        ):
+            raise ValueError("checkpoint_every must be None or an int > 0")
+
+        ckpt_path: Path | None = (
+            Path(checkpoint_path)
+            if checkpoint_path is not None
+            else self.save_path
+            if (checkpoint_every is not None or resume)
+            else None
+        )
+
         token_counter = TokenCounter()
+        completed: Dict[str, Tuple[List[float], str]] = {}
+        remaining_samples = samples
+
+        if resume and ckpt_path is not None:
+            loaded = self._load_predict_checkpoint(ckpt_path)
+            if loaded is not None:
+                completed, token_counter = loaded
+                idx_type = type(samples.index[0]) if len(samples.index) else str
+                for sidx_str, (vec, pred) in completed.items():
+                    yield (
+                        idx_type(sidx_str),
+                        np.array(vec, dtype=float),
+                        cast(Literal["YES", "NO"], pred),
+                        token_counter,
+                    )
+                done = set(completed.keys())
+                remaining_samples = samples[~samples.index.map(str).isin(done)]
+                logger.info(
+                    f"Resumed predict checkpoint: {len(completed)} samples pre-scored."
+                )
+
         queue: asyncio.Queue = asyncio.Queue()
         sem = asyncio.Semaphore(self.llm_semaphore_limit)
 
@@ -891,15 +1018,28 @@ class PolicyInduction:
             asyncio.create_task(
                 worker(idx, "\n".join(f"{col}: {val}" for col, val in row.items()))
             )
-            for idx, row in samples.iterrows()
+            for idx, row in remaining_samples.iterrows()
         ]
         remaining = len(tasks)
+        since_checkpoint = 0
         try:
             while remaining > 0:
                 item = await queue.get()
                 if item == "DONE":
                     remaining -= 1
                 else:
+                    sidx, vec, pred = item
+                    completed[str(sidx)] = (vec.tolist(), pred)
+                    since_checkpoint += 1
+                    if (
+                        ckpt_path is not None
+                        and checkpoint_every is not None
+                        and since_checkpoint >= checkpoint_every
+                    ):
+                        self._save_predict_checkpoint(
+                            ckpt_path, completed, token_counter
+                        )
+                        since_checkpoint = 0
                     yield item + (token_counter,)
         except asyncio.CancelledError:
             pass
@@ -907,21 +1047,8 @@ class PolicyInduction:
             for t in tasks:
                 if not t.done():
                     t.cancel()
-
-    async def add_policy(self, policy: str) -> Literal[True]:
-        """Manually add a policy, score it against training data, and re-fit.
-
-        Args:
-            policy: Natural-language policy string to add.
-        """
-        if not isinstance(policy, str):
-            raise ValueError(f"Policy must be str, got {type(policy)}")
-        new_idx = max(self._policy_memory.index, default=-1) + 1
-        self._policy_memory.at[new_idx, "policy"] = policy
-        self._policy_memory.at[new_idx, "predictions"] = None
-        await self._score_policies()
-        self._fit_weights()
-        return True
+            if ckpt_path is not None and since_checkpoint > 0:
+                self._save_predict_checkpoint(ckpt_path, completed, token_counter)
 
     # ── Persistence ─────────────────────────────────────────────────────────────
 
@@ -1113,7 +1240,7 @@ class PolicyInduction:
                     g["pred"].values, index=g["sample_index"].values, dtype="object"
                 )
                 if pid in inst._policy_memory.index:
-                    inst._policy_memory.at[pid, "predictions"] = s.reindex(
+                    inst._policy_memory.at[pid, "predictions"] = s.reindex(  # type: ignore
                         inst._X.index
                     )
 

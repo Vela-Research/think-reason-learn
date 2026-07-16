@@ -1084,6 +1084,8 @@ class PolicyInduction:
             (sample_index, policy_vector, prediction, token_counter)
         """
         self._check_memory()
+        if not hasattr(self, "_feature_order_") or self._lr is None:
+            raise RuntimeError("Model not fitted. Call fit() first.")
         self._confirm_requests(self._estimate_predict_requests(samples))
 
         token_counter = TokenCounter()
@@ -1389,7 +1391,7 @@ class PolicyInduction:
             max_samples_as_context=m["max_samples_as_context"],
             p_predict_update_interval=m["p_predict_update_interval"],
             random_state=m["random_state"],
-            save_path=str(base.parent),
+            save_path=str(base),
             name=m["name"],
         )
         inst._task_description = m.get("task_description")
@@ -1402,7 +1404,7 @@ class PolicyInduction:
 
         if (fo := m.get("feature_order")) is not None:
             inst._feature_order_ = np.array(fo, dtype=str)
-            inst._n_features_ = int(m.get("n_features", len(inst._feature_order_)))
+            inst._n_features_ = int(m.get("n_features") or len(inst._feature_order_))
             inst._policy_pos_ = {name: i for i, name in enumerate(inst._feature_order_)}
 
         # Training data

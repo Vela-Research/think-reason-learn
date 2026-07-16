@@ -11,8 +11,10 @@ import itertools
 import logging
 import os
 import re
+import time
 from copy import deepcopy
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from os import PathLike
 from pathlib import Path
 from typing import (
@@ -114,12 +116,17 @@ class PolicyInduction:
         predict_temperature: Sampling temperature for prediction.
         llm_semaphore_limit: Max concurrent LLM calls.
         max_policy_length: Max total policies to induce (< 500).
-        class_ratio: YES/NO sampling ratio for generation context batches.
+        class_ratio: Target YES/NO mix per generation batch, not the dataset's
+            actual ratio. Generation stops once either class can no longer
+            fill its share, so imbalanced datasets won't have every
+            majority-class row shown during generation.
         max_samples_as_context: Samples per generation batch (max 100).
         p_predict_update_interval: Log progress every N policies during scoring.
         save_path: Directory for checkpoints and saved models.
         name: Instance name (alphanumeric + underscores only).
         random_state: Base random seed.
+        confirm_requests: Before fit()/predict() make any LLM calls, print an
+            estimated request count per model and require a y/n confirmation.
     """
 
     def __init__(
@@ -137,6 +144,7 @@ class PolicyInduction:
         save_path: str | PathLike[str] | None = None,
         name: str | None = None,
         random_state: int = 0,
+        confirm_requests: bool = True,
     ):
         self._validate_init(
             max_policy_length=max_policy_length,
@@ -159,6 +167,7 @@ class PolicyInduction:
         self.random_state = random_state
         self.max_samples_as_context = max_samples_as_context
         self.p_predict_update_interval = p_predict_update_interval
+        self.confirm_requests = confirm_requests
         self.name: str = self._parse_name(name)
         self.save_path: Path = self._parse_save_path(save_path)
 
@@ -173,6 +182,8 @@ class PolicyInduction:
         self._threshold: float = 0.0
         self._lr: LogisticRegression | None = None
         self._validation_result: dict | None = None
+        self._fit_duration_seconds: float | None = None
+        self._fit_completed_at: str | None = None
 
     # ── Properties ─────────────────────────────────────────────────────────────
 
@@ -398,6 +409,72 @@ class PolicyInduction:
             max_policy_num_tag, str(self.max_policy_length)
         )
 
+    # ── Request confirmation ────────────────────────────────────────────────────
+
+    @staticmethod
+    def _llmc_label(llmc: LLMChoice) -> str:
+        return llmc["model"] if isinstance(llmc, dict) else llmc.model
+
+    def _confirm_requests(self, estimates: Dict[str, int]) -> None:
+        """Print an estimated request count per model and require y/n to proceed.
+
+        No-op (and no prompt) if the total estimate is 0 — nothing new to do,
+        e.g. a fully-resumed run with everything already checkpointed.
+        """
+        if not self.confirm_requests or sum(estimates.values()) == 0:
+            return
+        lines = ["Estimated API requests:"]
+        for label, count in estimates.items():
+            lines.append(f"  {label}: ~{count} requests")
+        lines.append("Proceed? [y/N]: ")
+        answer = input("\n".join(lines)).strip().lower()
+        if answer not in ("y", "yes"):
+            raise RuntimeError("Aborted by user before making API requests.")
+
+    def _estimate_fit_requests(self) -> Dict[str, int]:
+        """Estimate remaining LLM calls for fit(), accounting for any checkpoint."""
+        ckpt = self._read_ckpt(self._FIT_CKPT_NAME) or {}
+        batches_done: int = ckpt.get("batches_done", 0)
+        total_batches = sum(
+            1 for _ in self._sample(self.max_samples_as_context, seed=self.random_state)
+        )
+        gen_remaining = max(total_batches - batches_done, 0)
+
+        policies = ckpt.get("policies")
+        n_policies = len(policies) if policies else self.max_policy_length
+        scores: dict = ckpt.get("scores", {})
+        n_samples = len(self._X) if self._X is not None else 0
+
+        score_remaining = 0
+        for i in range(n_policies):
+            existing = scores.get(str(i))
+            if not existing:
+                score_remaining += n_samples
+            else:
+                score_remaining += sum(1 for v in existing.values() if v is None)
+                score_remaining += max(n_samples - len(existing), 0)
+
+        return {
+            f"{self._llmc_label(self.gen_llmc[0])} (generation)": gen_remaining,
+            f"{self._llmc_label(self.predict_llmc[0])} (scoring)": score_remaining,
+        }
+
+    def _estimate_predict_requests(self, samples: pd.DataFrame) -> Dict[str, int]:
+        """Estimate remaining LLM calls for predict(), accounting for any checkpoint."""
+        ckpt = self._read_ckpt(self._PREDICT_CKPT_NAME) or {}
+        done_ids = set(ckpt.get("completed", {}).keys())
+        remaining_samples = sum(1 for idx in samples.index if str(idx) not in done_ids)
+        if hasattr(self, "_feature_order_") and self._lr is not None:
+            # Zero-weight policies (common with L1) are skipped by
+            # _predict_single, so only count the ones actually queried.
+            n_policies = int(np.count_nonzero(self._lr.coef_[0]))
+        elif hasattr(self, "_feature_order_"):
+            n_policies = len(self._feature_order_)
+        else:
+            n_policies = self.max_policy_length
+        label = self._llmc_label(self.predict_llmc[0])
+        return {f"{label} (predict)": remaining_samples * n_policies}
+
     # ── Checkpointing ───────────────────────────────────────────────────────────
 
     def _ckpt_path(self, name: str) -> Path:
@@ -420,6 +497,19 @@ class PolicyInduction:
             p = self._ckpt_path(name)
             if p.exists():
                 p.unlink()
+        # Clean up directories the checkpoint's mkdir(parents=True) created and
+        # that are now empty — including the intermediate parents (e.g. the
+        # default save_path is cwd/policy_induction/<name>, so both levels get
+        # created). Walk up removing empty dirs; rmdir raises OSError on the
+        # first non-empty ancestor (one holding save() artifacts or anything
+        # else), so this stops there and never deletes a dir with content.
+        d = self.save_path
+        while d != d.parent:
+            try:
+                d.rmdir()
+            except OSError:
+                break
+            d = d.parent
 
     # Single checkpoint file spanning the whole fit() pipeline (generation +
     # scoring), so resuming never mixes progress from two independently
@@ -490,7 +580,7 @@ class PolicyInduction:
             )
             if response.response is None:
                 raise LLMError(f"Batch {batch_idx}: no response from LLM.")
-            all_policies = response.response.policies
+            all_policies = response.response.policies[: self.max_policy_length]
             logger.info(f"Batch {batch_idx + 1}: {len(all_policies)} policies")
             self._write_ckpt(
                 self._FIT_CKPT_NAME,
@@ -879,10 +969,14 @@ class PolicyInduction:
         policies.index = policies.index.map(str)
         policies = policies.reindex(self._feature_order_)
 
+        # Zero-weight policies (common with L1) can't affect lr.predict_proba
+        # regardless of their answer, so skip querying the LLM for them —
+        # `results` stays 0.0 at those positions, which is correct either way.
+        weights = self._lr.coef_[0]
         tasks_to_run = [
             (pos, pt)
             for pos, pt in enumerate(policies.fillna("").astype(str).values)
-            if pt.strip()
+            if pt.strip() and weights[pos] != 0
         ]
 
         results = np.zeros(len(self._feature_order_), dtype=float)
@@ -961,10 +1055,14 @@ class PolicyInduction:
             Self.
         """
         self._set_data(X, y)
+        self._confirm_requests(self._estimate_fit_requests())
+        start = time.monotonic()
 
         await self._generate_policies()
         await self._score_policies()
         self._fit_weights()
+        self._fit_duration_seconds = time.monotonic() - start
+        self._fit_completed_at = datetime.now(timezone.utc).isoformat()
         self._del_ckpt(self._FIT_CKPT_NAME)
         logger.info("PolicyInduction fit complete.")
         return self
@@ -986,6 +1084,7 @@ class PolicyInduction:
             (sample_index, policy_vector, prediction, token_counter)
         """
         self._check_memory()
+        self._confirm_requests(self._estimate_predict_requests(samples))
 
         token_counter = TokenCounter()
         completed: Dict[str, Tuple[List[float], str]] = {}
@@ -1083,6 +1182,75 @@ class PolicyInduction:
 
     # ── Persistence ─────────────────────────────────────────────────────────────
 
+    @staticmethod
+    def _format_duration(seconds: float) -> str:
+        m, s = divmod(int(seconds), 60)
+        h, m = divmod(m, 60)
+        if h:
+            return f"{h}h {m}m {s}s"
+        if m:
+            return f"{m}m {s}s"
+        return f"{s}s"
+
+    def _build_report(self) -> str:
+        """Build a human-readable summary of the last fit: time + ranked weights."""
+        lines = [f"# PolicyInduction Report: {self.name}", ""]
+
+        if self._fit_completed_at is not None:
+            lines.append(f"**Fit completed:** {self._fit_completed_at}")
+        if self._fit_duration_seconds is not None:
+            lines.append(
+                f"**Fit duration:** {self._format_duration(self._fit_duration_seconds)}"
+            )
+        lines.append(f"**Token usage:** {self._token_counter.to_dict()}")
+        lines.append("")
+
+        if self._validation_result is not None:
+            v = self._validation_result
+            lines.append("## Validation")
+            lines.append(f"- Best C: {v['best_C']}")
+            lines.append(f"- CV F{v['beta']}: {v['avg_cv_fbeta']:.4f}")
+            lines.append(f"- Decision threshold: {v['recommended_threshold']:.4f}")
+            lines.append("")
+
+        if self._lr is not None and hasattr(self, "_feature_order_"):
+            policies = self._policy_memory["policy"].copy()
+            policies.index = policies.index.map(str)
+
+            def clean(text: object) -> str:
+                return str(text).replace("|", "\\|").replace("\n", " ")
+
+            weights = dict(
+                zip(self._feature_order_.tolist(), self._lr.coef_[0].tolist())
+            )
+            ranked = sorted(weights.items(), key=lambda kv: abs(kv[1]), reverse=True)
+            used = [(pid, w) for pid, w in ranked if w != 0]
+            dropped = [(pid, w) for pid, w in ranked if w == 0]
+
+            lines.append(
+                f"## Policies used by the model ({len(used)}/{len(ranked)}, "
+                "ranked by |weight|)"
+            )
+            lines.append("")
+            lines.append("| Rank | Weight | Policy |")
+            lines.append("|---|---|---|")
+            for rank, (pid, w) in enumerate(used, 1):
+                lines.append(f"| {rank} | {w:+.4f} | {clean(policies.get(pid, '?'))} |")
+            lines.append("")
+
+            if dropped:
+                lines.append(f"## Policies dropped (zero weight, {len(dropped)})")
+                lines.append("")
+                for pid, _ in dropped:
+                    lines.append(f"- {clean(policies.get(pid, '?'))}")
+                lines.append("")
+        else:
+            lines.append("## Policies")
+            lines.append("Model has not been fitted yet — no weights available.")
+            lines.append("")
+
+        return "\n".join(lines)
+
     def save(
         self,
         dir_path: str | PathLike[str] | None = None,
@@ -1097,6 +1265,7 @@ class PolicyInduction:
             policy_predictions.parquet   scored YES/NO matrix  (dev only)
             data.parquet                 training data          (dev only)
             lr.joblib                    trained logistic regression
+            report.md                    human-readable fit summary
 
         Args:
             dir_path: Target directory. Defaults to self.save_path.
@@ -1189,6 +1358,10 @@ class PolicyInduction:
         (base / "policy_induction.json").write_bytes(
             orjson.dumps(manifest, option=orjson.OPT_SERIALIZE_NUMPY)
         )
+
+        # Human-readable report
+        (base / "report.md").write_text(self._build_report(), encoding="utf-8")
+
         logger.info(f"Model saved to {base}")
 
     @classmethod

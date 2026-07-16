@@ -7,6 +7,7 @@ weighted by logistic regression.
 from __future__ import annotations
 
 import asyncio
+import itertools
 import logging
 import os
 import re
@@ -430,6 +431,12 @@ class PolicyInduction:
     # still saves whatever finished instead of losing the whole policy.
     _SCORING_CKPT_EVERY = 25
 
+    # Single checkpoint file for predict(), same automatic/unconditional
+    # design as _FIT_CKPT_NAME: always on, always at self.save_path, deleted
+    # once every sample is predicted.
+    _PREDICT_CKPT_NAME = "predict_checkpoint.json"
+    _PREDICT_CKPT_EVERY = 25
+
     # ── Policy generation ───────────────────────────────────────────────────────
 
     async def _run_generation(self, instructions: str) -> List[str]:
@@ -438,18 +445,26 @@ class PolicyInduction:
         all_policies: List[str] = ckpt.get("policies", [])
         batches_done: int = ckpt.get("batches_done", 0)
 
+        # Skip already-done batches via islice (still advances _sample()'s
+        # internal RNG state correctly) instead of iterating through them
+        # inside the progress bar, so a resumed run starts the bar at
+        # batches_done instead of flashing through 0..batches_done.
+        remaining_batches = itertools.islice(
+            self._sample(self.max_samples_as_context, seed=self.random_state),
+            batches_done,
+            None,
+        )
         for batch_idx, sample_df in enumerate(
             tqdm(
-                self._sample(self.max_samples_as_context, seed=self.random_state),
+                remaining_batches,
+                initial=batches_done,
                 desc="[GEN]",
                 unit="",
                 bar_format=_BAR_FORMAT,
                 ascii=_BAR_ASCII,
-            )
+            ),
+            start=batches_done,
         ):
-            if batch_idx < batches_done:
-                continue
-
             samples_str = "\n".join(
                 "\n".join(f"{col}: {val}" for col, val in row.items()) + ";"
                 for row in sample_df.to_dict(orient="records")
@@ -680,11 +695,14 @@ class PolicyInduction:
             if needs_work(self._policy_memory.at[idx, "predictions"])
         ]
         total = len(unscored)
+        already_done = len(self._policy_memory) - total
         logger.info(f"Scoring {total} policies.")
 
         for i, policy_idx in enumerate(
             tqdm(
                 unscored,
+                initial=already_done,
+                total=len(self._policy_memory),
                 desc="[SCORE]",
                 unit="",
                 bar_format=_BAR_FORMAT,
@@ -951,103 +969,61 @@ class PolicyInduction:
         logger.info("PolicyInduction fit complete.")
         return self
 
-    @staticmethod
-    def _save_predict_checkpoint(
-        path: str | PathLike[str],
-        completed: Dict[str, Tuple[List[float], str]],
-        token_counter: TokenCounter,
-    ) -> None:
-        """Atomically write a predict checkpoint to *path*."""
-        checkpoint = {
-            "completed": {
-                sidx: {"vector": vec, "prediction": pred}
-                for sidx, (vec, pred) in completed.items()
-            },
-            "token_counter": token_counter.to_dict(),
-        }
-        final = Path(path) / "predict_checkpoint.json"
-        tmp = final.with_suffix(".json.tmp")
-        final.parent.mkdir(parents=True, exist_ok=True)
-        tmp.write_bytes(orjson.dumps(checkpoint))
-        tmp.replace(final)
-
-    @staticmethod
-    def _load_predict_checkpoint(
-        path: str | PathLike[str],
-    ) -> Tuple[Dict[str, Tuple[List[float], str]], TokenCounter] | None:
-        """Load a predict checkpoint written by ``_save_predict_checkpoint``."""
-        final = Path(path) / "predict_checkpoint.json"
-        if not final.exists():
-            return None
-        data = orjson.loads(final.read_bytes())
-        completed = {
-            sidx: (v["vector"], v["prediction"])
-            for sidx, v in data["completed"].items()
-        }
-        token_counter = TokenCounter.from_dict(data["token_counter"])
-        return completed, token_counter
-
     async def predict(
-        self,
-        samples: pd.DataFrame,
-        *,
-        checkpoint_path: str | PathLike[str] | None = None,
-        checkpoint_every: int | None = None,
-        resume: bool = False,
+        self, samples: pd.DataFrame
     ) -> AsyncGenerator[Tuple[Any, NDArray, Literal["YES", "NO"], TokenCounter], None]:
         """Yield predictions for each sample in the DataFrame.
 
+        Automatically checkpoints to self.save_path as it goes, resuming any
+        matching in-progress checkpoint found there — same unconditional,
+        single-file design as fit(). The checkpoint is deleted once every
+        sample has been predicted.
+
         Args:
             samples: DataFrame of samples to classify.
-            checkpoint_path: Directory where ``predict_checkpoint.json`` is
-                written. Defaults to ``self.save_path`` (same default as
-                ``save()``) whenever checkpointing is active, i.e. this,
-                ``checkpoint_every``, or ``resume`` is set. If none of the
-                three are set, checkpointing stays off.
-            checkpoint_every: Save a checkpoint every *N* completed samples,
-                in addition to always saving once when the generator stops
-                (whether by completion or early cancellation).
-            resume: If ``True``, load an existing checkpoint and skip
-                already-completed samples.
 
         Yields:
             (sample_index, policy_vector, prediction, token_counter)
         """
         self._check_memory()
-        if checkpoint_every is not None and (
-            not isinstance(checkpoint_every, int) or checkpoint_every <= 0
-        ):
-            raise ValueError("checkpoint_every must be None or an int > 0")
-
-        ckpt_path: Path | None = (
-            Path(checkpoint_path)
-            if checkpoint_path is not None
-            else self.save_path
-            if (checkpoint_every is not None or resume)
-            else None
-        )
 
         token_counter = TokenCounter()
         completed: Dict[str, Tuple[List[float], str]] = {}
         remaining_samples = samples
 
-        if resume and ckpt_path is not None:
-            loaded = self._load_predict_checkpoint(ckpt_path)
-            if loaded is not None:
-                completed, token_counter = loaded
-                idx_type = type(samples.index[0]) if len(samples.index) else str
-                for sidx_str, (vec, pred) in completed.items():
-                    yield (
-                        idx_type(sidx_str),
-                        np.array(vec, dtype=float),
-                        cast(Literal["YES", "NO"], pred),
-                        token_counter,
-                    )
-                done = set(completed.keys())
-                remaining_samples = samples[~samples.index.map(str).isin(done)]
+        ckpt = self._read_ckpt(self._PREDICT_CKPT_NAME)
+        if ckpt is not None:
+            completed = {
+                sidx: (v["vector"], v["prediction"])
+                for sidx, v in ckpt["completed"].items()
+            }
+            token_counter = TokenCounter.from_dict(ckpt["token_counter"])
+            idx_type = type(samples.index[0]) if len(samples.index) else str
+            for sidx_str, (vec, pred) in completed.items():
+                yield (
+                    idx_type(sidx_str),
+                    np.array(vec, dtype=float),
+                    cast(Literal["YES", "NO"], pred),
+                    token_counter,
+                )
+            done = set(completed.keys())
+            remaining_samples = samples[~samples.index.map(str).isin(done)]
+            if completed:
                 logger.info(
                     f"Resumed predict checkpoint: {len(completed)} samples pre-scored."
                 )
+
+        def save_ckpt() -> None:
+            self._write_ckpt(
+                self._PREDICT_CKPT_NAME,
+                {
+                    "completed": {
+                        sidx: {"vector": vec, "prediction": pred}
+                        for sidx, (vec, pred) in completed.items()
+                    },
+                    "token_counter": token_counter.to_dict(),
+                },
+            )
 
         queue: asyncio.Queue = asyncio.Queue()
         sem = asyncio.Semaphore(self.llm_semaphore_limit)
@@ -1069,6 +1045,15 @@ class PolicyInduction:
         ]
         remaining = len(tasks)
         since_checkpoint = 0
+        success = False
+        pbar = tqdm(
+            total=len(samples),
+            initial=len(completed),
+            desc="[PREDICT]",
+            unit="",
+            bar_format=_BAR_FORMAT,
+            ascii=_BAR_ASCII,
+        )
         try:
             while remaining > 0:
                 item = await queue.get()
@@ -1078,24 +1063,23 @@ class PolicyInduction:
                     sidx, vec, pred = item
                     completed[str(sidx)] = (vec.tolist(), pred)
                     since_checkpoint += 1
-                    if (
-                        ckpt_path is not None
-                        and checkpoint_every is not None
-                        and since_checkpoint >= checkpoint_every
-                    ):
-                        self._save_predict_checkpoint(
-                            ckpt_path, completed, token_counter
-                        )
+                    pbar.update(1)
+                    if since_checkpoint >= self._PREDICT_CKPT_EVERY:
+                        save_ckpt()
                         since_checkpoint = 0
                     yield item + (token_counter,)
+            success = True
         except asyncio.CancelledError:
             pass
         finally:
+            pbar.close()
             for t in tasks:
                 if not t.done():
                     t.cancel()
-            if ckpt_path is not None and since_checkpoint > 0:
-                self._save_predict_checkpoint(ckpt_path, completed, token_counter)
+            if success:
+                self._del_ckpt(self._PREDICT_CKPT_NAME)
+            elif since_checkpoint > 0:
+                save_ckpt()
 
     # ── Persistence ─────────────────────────────────────────────────────────────
 

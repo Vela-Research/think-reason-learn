@@ -19,6 +19,9 @@ TRL is developed by Vela Research in collaboration with the University of Oxford
 
 - **GPTree**: LLM-guided decision trees for dynamic feature generation.
 - **RRF (Random Rule Forest)**: Transparent ensembles of LLM-generated YES/NO rules.
+- **Policy Induction**: Ensembles of LLM-generated decision policies with learned weights.
+- **Reasoned Rule Mining (RRM)**: Mines natural-language IF-THEN rules from LLM reasoning into a calibrated, weighted ensemble.
+- **Verifiable RL**: Adaptive information-gathering — a learned policy decides what to reveal next (or stop), then classifies from the partial state.
 
 For in-depth papers and methodology, see our [Research section](https://thinkreasonlearn.com/research.html).
 
@@ -65,7 +68,7 @@ poetry run pre-commit install  # Optional: code quality hooks
 
 ```python
 import asyncio
-from IPython.display import Image
+from IPython.display import display, Image
 import pandas as pd
 import numpy as np
 from think_reason_learn.gptree import GPTree
@@ -86,18 +89,18 @@ y = ["successful", "failed", "successful", "failed", "successful"]
 async def main():
     tree = GPTree(
         qgen_llmc=[
-            GoogleChoice(model="gemini-1.5-flash-latest"),
-            OpenAIChoice(model="gpt-4o-mini"),
-            XAIChoice(model="grok-beta"),
+            GoogleChoice(model="gemini-2.0-flash-lite"),
+            OpenAIChoice(model="gpt-4.1-nano"),
+            XAIChoice(model="grok-3-mini"),
         ],
         critic_llmc=[
-            OpenAIChoice(model="gpt-4o-mini"),
-            AnthropicChoice(model="claude-3-5-sonnet-20240620"),
-            XAIChoice(model="grok-beta"),
+            OpenAIChoice(model="gpt-4.1-nano"),
+            AnthropicChoice(model="claude-3-5-haiku-latest"),
+            XAIChoice(model="grok-3-mini"),
         ],
         qgen_instr_llmc=[
-            GoogleChoice(model="gemini-1.5-flash-latest"),
-            XAIChoice(model="grok-beta"),
+            GoogleChoice(model="gemini-2.0-flash-lite"),
+            XAIChoice(model="grok-3-mini"),
         ],
     )
 

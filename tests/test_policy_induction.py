@@ -11,6 +11,7 @@ import pytest
 
 from think_reason_learn.core.llms import OpenAIChoice
 from think_reason_learn.policy_induction import PolicyInduction
+from think_reason_learn.policy_induction._policy_induction import Policies
 from tests.fake_policy_llm import FakePolicyLLM
 
 
@@ -145,6 +146,83 @@ def test_estimate_predict_requests_batched(tmp_path, bs):
 
     key = next(k for k in pi._estimate_predict_requests(X) if "predict" in k)
     assert pi._estimate_predict_requests(X)[key] == len(X) * math.ceil(3 / bs)
+
+
+# ── Generation batch cap ────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_max_gen_batches_caps_generation(tmp_path):
+    """max_gen_batches stops generation early even though both classes remain."""
+    fake = FakePolicyLLM(n_policies=6)
+    pi = make_pi(tmp_path, fake, max_gen_batches=1)
+    pi._set_data(X, Y)
+
+    policies = await pi._run_generation(pi._get_gen_instructions())
+
+    assert fake.count_of(Policies) == 1
+    assert policies == fake.policy_texts()
+    ckpt = pi._read_ckpt(pi._FIT_CKPT_NAME)
+    assert ckpt is not None and ckpt["batches_done"] == 1
+
+
+@pytest.mark.asyncio
+async def test_max_gen_batches_none_runs_until_class_exhaustion(tmp_path):
+    """Default behaviour is unchanged: stop only once a class runs out."""
+    fake = FakePolicyLLM(n_policies=6)
+    pi = make_pi(tmp_path, fake, max_gen_batches=None)
+    pi._set_data(X, Y)
+
+    await pi._run_generation(pi._get_gen_instructions())
+
+    # 8 rows, 4 YES / 4 NO, batches of 4 (2 YES + 2 NO) => exhausts after 2.
+    assert fake.count_of(Policies) == 2
+
+
+@pytest.mark.parametrize("cap", [1, 2, 5])
+def test_estimate_fit_requests_respects_max_gen_batches(tmp_path, cap):
+    """The generation estimate is capped the same way _run_generation is."""
+    fake = FakePolicyLLM(n_policies=6)
+    pi = make_pi(tmp_path, fake, max_gen_batches=cap)
+    pi._set_data(X, Y)
+
+    key = next(k for k in pi._estimate_fit_requests() if "generation" in k)
+    assert pi._estimate_fit_requests()[key] == min(cap, 2)
+
+
+@pytest.mark.parametrize("bad", [0, -1, 1.5, "1", True])
+def test_validate_init_rejects_bad_max_gen_batches(bad):
+    with pytest.raises(ValueError, match="max_gen_batches"):
+        PolicyInduction(
+            gen_llmc=[OpenAIChoice(model="gpt-4.1-nano")],
+            max_gen_batches=bad,
+        )
+
+
+def test_max_gen_batches_round_trips(tmp_path):
+    """The saved cap is restored on load."""
+    fake = FakePolicyLLM(n_policies=6)
+    pi = make_pi(tmp_path, fake, max_gen_batches=1)
+    seed_for_scoring(pi, fake)
+    pi.save(tmp_path / "model")
+
+    assert PolicyInduction.load(tmp_path / "model").max_gen_batches == 1
+
+
+def test_max_gen_batches_default_none_round_trips(tmp_path):
+    """A missing key on an old-style save restores the default, None."""
+    fake = FakePolicyLLM(n_policies=6)
+    pi = make_pi(tmp_path, fake)  # max_gen_batches left at its default, None
+    seed_for_scoring(pi, fake)
+    pi.save(tmp_path / "model")
+
+    manifest_path = tmp_path / "model" / "policy_induction.json"
+    manifest = orjson.loads(manifest_path.read_bytes())
+    assert manifest["max_gen_batches"] is None
+    del manifest["max_gen_batches"]
+    manifest_path.write_bytes(orjson.dumps(manifest))
+
+    assert PolicyInduction.load(tmp_path / "model").max_gen_batches is None
 
 
 # ── Alignment and recovery ─────────────────────────────────────────────────────

@@ -137,6 +137,10 @@ class PolicyInduction:
             fill its share, so imbalanced datasets won't have every
             majority-class row shown during generation.
         max_samples_as_context: Samples per generation batch (max 100).
+        max_gen_batches: Cap on the number of generation batches. Generation
+            stops at this many batches even if both classes still have rows
+            left. None (default) keeps the original behaviour: stop only once
+            either class runs out.
         policy_batch_size: Number of policies judged per LLM call (1-50). One
             call carries one sample and up to this many policies, returning
             one answer per policy. 1 restores the original one-call-per-
@@ -164,6 +168,7 @@ class PolicyInduction:
         max_policy_length: int = 20,
         class_ratio: Tuple[float, float] = (1.0, 1.0),
         max_samples_as_context: int = 10,
+        max_gen_batches: int | None = 7,
         policy_batch_size: int = 10,
         p_predict_update_interval: int = 10,
         save_path: str | PathLike[str] | None = None,
@@ -176,6 +181,7 @@ class PolicyInduction:
             max_policy_length=max_policy_length,
             class_ratio=class_ratio,
             llm_semaphore_limit=llm_semaphore_limit,
+            max_gen_batches=max_gen_batches,
             policy_batch_size=policy_batch_size,
             p_predict_update_interval=p_predict_update_interval,
             save_path=save_path,
@@ -193,6 +199,7 @@ class PolicyInduction:
         self.max_policy_length = max_policy_length
         self.random_state = random_state
         self.max_samples_as_context = max_samples_as_context
+        self.max_gen_batches = max_gen_batches
         self.policy_batch_size = policy_batch_size
         self.p_predict_update_interval = p_predict_update_interval
         self.confirm_requests = confirm_requests
@@ -270,6 +277,12 @@ class PolicyInduction:
             raise ValueError("class_ratio must be two positive floats")
         if kw["llm_semaphore_limit"] <= 0:
             raise ValueError("llm_semaphore_limit must be > 0")
+        mgb = kw["max_gen_batches"]
+        if not (
+            mgb is None
+            or (isinstance(mgb, int) and not isinstance(mgb, bool) and mgb > 0)
+        ):
+            raise ValueError("max_gen_batches must be None or a positive integer")
         # Upper bound guards against output-token truncation: the LLM layer has
         # no retry, and a truncated structured response is a hard parse failure.
         pbs = kw["policy_batch_size"]
@@ -475,7 +488,11 @@ class PolicyInduction:
         ckpt = self._read_ckpt(self._FIT_CKPT_NAME) or {}
         batches_done: int = ckpt.get("batches_done", 0)
         total_batches = sum(
-            1 for _ in self._sample(self.max_samples_as_context, seed=self.random_state)
+            1
+            for _ in itertools.islice(
+                self._sample(self.max_samples_as_context, seed=self.random_state),
+                self.max_gen_batches,
+            )
         )
         gen_remaining = max(total_batches - batches_done, 0)
 
@@ -591,11 +608,13 @@ class PolicyInduction:
         # Skip already-done batches via islice (still advances _sample()'s
         # internal RNG state correctly) instead of iterating through them
         # inside the progress bar, so a resumed run starts the bar at
-        # batches_done instead of flashing through 0..batches_done.
+        # batches_done instead of flashing through 0..batches_done. The stop
+        # bound applies max_gen_batches on top of the class-exhaustion stop
+        # _sample() already does on its own; None means no extra cap.
         remaining_batches = itertools.islice(
             self._sample(self.max_samples_as_context, seed=self.random_state),
             batches_done,
-            None,
+            self.max_gen_batches,
         )
         for batch_idx, sample_df in enumerate(
             tqdm(
@@ -1551,6 +1570,7 @@ class PolicyInduction:
             "max_policy_length": self.max_policy_length,
             "class_ratio": list(self.class_ratio),
             "max_samples_as_context": self.max_samples_as_context,
+            "max_gen_batches": self.max_gen_batches,
             "policy_batch_size": self.policy_batch_size,
             "p_predict_update_interval": self.p_predict_update_interval,
             "random_state": self.random_state,
@@ -1599,6 +1619,9 @@ class PolicyInduction:
             max_policy_length=m["max_policy_length"],
             class_ratio=tuple(m["class_ratio"]),
             max_samples_as_context=m["max_samples_as_context"],
+            # Default is None either way, so a missing key (old saves) and an
+            # explicit null both resolve correctly with a plain .get().
+            max_gen_batches=m.get("max_gen_batches"),
             # `or`, not get(key, 10): save() writes this key unconditionally,
             # so a present-but-None value would defeat a two-arg get default.
             policy_batch_size=int(m.get("policy_batch_size") or 10),

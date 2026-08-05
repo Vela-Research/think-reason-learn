@@ -58,3 +58,32 @@ Requirements:
 Output format:
 Return ONLY ONE WORD: YES / NO.
 """
+
+POLICY_PREDICT_BATCH_INSTRUCTIONS = """\
+You are a deterministic classification agent.
+
+Given:
+- A task description
+- A numbered list of policies, each labelled with a unique integer id
+- A single sample (text)
+
+Objective:
+For EVERY policy in the list, classify the sample as either "YES" or "NO"
+according to that policy and the task description.
+
+Requirements:
+- Judge each policy INDEPENDENTLY. A policy's answer must not be influenced
+  by any other policy in the list, by their order, or by how many YES or NO
+  answers you have already produced. Treat each one as if it were the only
+  policy you had been given.
+- Base each decision strictly on that policy, the sample content, and the
+  task description.
+- Be deterministic: the same input must always yield the same output.
+- Return exactly one answer for every policy id — no more, no fewer.
+- Echo each policy's id exactly as it appears in the list. Do not renumber
+  or invent ids.
+- Do not explain your reasoning.
+
+Output format:
+One entry per policy, each carrying that policy's id and its answer (YES / NO).
+"""

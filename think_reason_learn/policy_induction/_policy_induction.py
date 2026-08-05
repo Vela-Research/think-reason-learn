@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import itertools
 import logging
+import math
 import os
 import re
 import time
@@ -20,7 +21,6 @@ from pathlib import Path
 from typing import (
     Any,
     AsyncGenerator,
-    Callable,
     Dict,
     Generator,
     Iterable,
@@ -50,6 +50,7 @@ from think_reason_learn.core.exceptions import DataError, LLMError
 from think_reason_learn.core.llms import LLMChoice, TokenCounter, llm
 from ._prompts import (
     POLICY_GEN_INSTRUCTIONS,
+    POLICY_PREDICT_BATCH_INSTRUCTIONS,
     POLICY_PREDICT_INSTRUCTIONS,
     max_policy_num_tag,
 )
@@ -70,6 +71,21 @@ class Policies(BaseModel):
 
 class Answer(BaseModel):
     answer: Literal["YES", "NO"]
+
+
+class PolicyAnswer(BaseModel):
+    policy_id: int = Field(
+        ...,
+        description="Id of the policy this answer applies to, copied exactly "
+        "from the policy list in the prompt.",
+    )
+    answer: Literal["YES", "NO"]
+
+
+class BatchedAnswers(BaseModel):
+    answers: List[PolicyAnswer] = Field(
+        ..., description="Exactly one answer per policy id given in the prompt."
+    )
 
 
 # ── Config ─────────────────────────────────────────────────────────────────────
@@ -121,12 +137,20 @@ class PolicyInduction:
             fill its share, so imbalanced datasets won't have every
             majority-class row shown during generation.
         max_samples_as_context: Samples per generation batch (max 100).
-        p_predict_update_interval: Log progress every N policies during scoring.
+        policy_batch_size: Number of policies judged per LLM call (1-50). One
+            call carries one sample and up to this many policies, returning
+            one answer per policy. 1 restores the original one-call-per-
+            (policy, sample) behaviour. Answers missing from a batch response
+            are re-queried individually. The same value governs both fit-time
+            scoring and predict(), so features are always drawn the same way.
+        p_predict_update_interval: Log progress every N LLM calls during scoring.
         save_path: Directory for checkpoints and saved models.
         name: Instance name (alphanumeric + underscores only).
         random_state: Base random seed.
         confirm_requests: Before fit()/predict() make any LLM calls, print an
             estimated request count per model and require a y/n confirmation.
+        _llm: LLM instance for testing (dependency injection). If None, uses
+            the global llm.
     """
 
     def __init__(
@@ -140,16 +164,19 @@ class PolicyInduction:
         max_policy_length: int = 20,
         class_ratio: Tuple[float, float] = (1.0, 1.0),
         max_samples_as_context: int = 10,
+        policy_batch_size: int = 10,
         p_predict_update_interval: int = 10,
         save_path: str | PathLike[str] | None = None,
         name: str | None = None,
         random_state: int = 0,
         confirm_requests: bool = True,
+        _llm: Any = None,
     ):
         self._validate_init(
             max_policy_length=max_policy_length,
             class_ratio=class_ratio,
             llm_semaphore_limit=llm_semaphore_limit,
+            policy_batch_size=policy_batch_size,
             p_predict_update_interval=p_predict_update_interval,
             save_path=save_path,
             name=name,
@@ -166,11 +193,13 @@ class PolicyInduction:
         self.max_policy_length = max_policy_length
         self.random_state = random_state
         self.max_samples_as_context = max_samples_as_context
+        self.policy_batch_size = policy_batch_size
         self.p_predict_update_interval = p_predict_update_interval
         self.confirm_requests = confirm_requests
         self.name: str = self._parse_name(name)
         self.save_path: Path = self._parse_save_path(save_path)
 
+        self._llm_instance: Any = _llm if _llm is not None else llm
         self._token_counter: TokenCounter = TokenCounter()
         self._llm_semaphore = asyncio.Semaphore(llm_semaphore_limit)
         self._pgen_instructions_template: str | None = None
@@ -241,6 +270,11 @@ class PolicyInduction:
             raise ValueError("class_ratio must be two positive floats")
         if kw["llm_semaphore_limit"] <= 0:
             raise ValueError("llm_semaphore_limit must be > 0")
+        # Upper bound guards against output-token truncation: the LLM layer has
+        # no retry, and a truncated structured response is a hard parse failure.
+        pbs = kw["policy_batch_size"]
+        if not (isinstance(pbs, int) and not isinstance(pbs, bool) and 0 < pbs <= 50):
+            raise ValueError("policy_batch_size must be an int in [1, 50]")
         if kw["p_predict_update_interval"] <= 0:
             raise ValueError("p_predict_update_interval must be > 0")
         if not (kw["save_path"] is None or isinstance(kw["save_path"], (str, Path))):
@@ -381,7 +415,7 @@ class PolicyInduction:
             return instructions_template
 
         async with self._llm_semaphore:
-            response = await llm.respond(
+            response = await self._llm_instance.respond(
                 query=f"Generate policies for:\n{task_description}",
                 llm_priority=self.gen_llmc,
                 response_format=str,
@@ -432,7 +466,12 @@ class PolicyInduction:
             raise RuntimeError("Aborted by user before making API requests.")
 
     def _estimate_fit_requests(self) -> Dict[str, int]:
-        """Estimate remaining LLM calls for fit(), accounting for any checkpoint."""
+        """Estimate remaining LLM calls for fit(), accounting for any checkpoint.
+
+        Approximate: answers missing from a batched response are re-queried
+        individually, which can add up to policy_batch_size - 1 extra calls
+        per batch.
+        """
         ckpt = self._read_ckpt(self._FIT_CKPT_NAME) or {}
         batches_done: int = ckpt.get("batches_done", 0)
         total_batches = sum(
@@ -443,16 +482,22 @@ class PolicyInduction:
         policies = ckpt.get("policies")
         n_policies = len(policies) if policies else self.max_policy_length
         scores: dict = ckpt.get("scores", {})
-        n_samples = len(self._X) if self._X is not None else 0
 
-        score_remaining = 0
+        # Scoring is sample-major (one call per sample per policy chunk) while
+        # the checkpoint is policy-major, so pivot to per-sample counts first.
+        # A cell counts as remaining when it is absent OR explicitly None.
+        sample_keys = [str(i) for i in self._X.index] if self._X is not None else []
+        missing_per_sample: Dict[str, int] = {k: 0 for k in sample_keys}
         for i in range(n_policies):
-            existing = scores.get(str(i))
-            if not existing:
-                score_remaining += n_samples
-            else:
-                score_remaining += sum(1 for v in existing.values() if v is None)
-                score_remaining += max(n_samples - len(existing), 0)
+            existing = scores.get(str(i)) or {}
+            for k in sample_keys:
+                if existing.get(k) is None:
+                    missing_per_sample[k] += 1
+        score_remaining = sum(
+            math.ceil(c / self.policy_batch_size)
+            for c in missing_per_sample.values()
+            if c
+        )
 
         return {
             f"{self._llmc_label(self.gen_llmc[0])} (generation)": gen_remaining,
@@ -460,7 +505,12 @@ class PolicyInduction:
         }
 
     def _estimate_predict_requests(self, samples: pd.DataFrame) -> Dict[str, int]:
-        """Estimate remaining LLM calls for predict(), accounting for any checkpoint."""
+        """Estimate remaining LLM calls for predict(), accounting for any checkpoint.
+
+        Approximate: answers missing from a batched response are re-queried
+        individually, which can add up to policy_batch_size - 1 extra calls
+        per batch.
+        """
         ckpt = self._read_ckpt(self._PREDICT_CKPT_NAME) or {}
         done_ids = set(ckpt.get("completed", {}).keys())
         remaining_samples = sum(1 for idx in samples.index if str(idx) not in done_ids)
@@ -473,7 +523,10 @@ class PolicyInduction:
         else:
             n_policies = self.max_policy_length
         label = self._llmc_label(self.predict_llmc[0])
-        return {f"{label} (predict)": remaining_samples * n_policies}
+        return {
+            f"{label} (predict)": remaining_samples
+            * math.ceil(n_policies / self.policy_batch_size)
+        }
 
     # ── Checkpointing ───────────────────────────────────────────────────────────
 
@@ -516,9 +569,9 @@ class PolicyInduction:
     # cleared checkpoints that could describe different generated policies.
     _FIT_CKPT_NAME = "fit_checkpoint.json"
 
-    # Flush a checkpoint after this many samples complete within a single
-    # policy's scoring pass, so interrupting mid-policy on a large dataset
-    # still saves whatever finished instead of losing the whole policy.
+    # Flush a checkpoint after this many (policy, sample) cells complete,
+    # anywhere in the scoring pass, so interrupting a large run still saves
+    # whatever finished instead of losing it.
     _SCORING_CKPT_EVERY = 25
 
     # Single checkpoint file for predict(), same automatic/unconditional
@@ -565,7 +618,7 @@ class PolicyInduction:
                 f"SAMPLES:\n{samples_str}\n\n"
             )
             async with self._llm_semaphore:
-                response = await llm.respond(
+                response = await self._llm_instance.respond(
                     query=query,
                     llm_priority=self.gen_llmc,
                     response_format=Policies,
@@ -670,105 +723,160 @@ class PolicyInduction:
         ckpt["scores"] = scores
         self._write_ckpt(self._FIT_CKPT_NAME, ckpt)
 
-    async def _score_single_policy(
+    async def _score_policy_single(
         self,
-        policy: str,
-        samples: pd.DataFrame,
-        existing: pd.Series | None = None,
-        on_progress: Callable[[pd.Series], None] | None = None,
-    ) -> pd.Series:
-        """Score one policy, resuming from `existing` and checkpointing as it goes.
+        sample_str: str,
+        policy_text: str,
+        token_counter: TokenCounter,
+        caller: str,
+    ) -> Literal["YES", "NO"] | None:
+        """Ask one policy about one sample. Returns None if it can't be answered.
 
-        Only samples still null in `existing` are (re)scored. `on_progress`
-        is called with the current partial Series every
-        `_SCORING_CKPT_EVERY` completions, and once more on cancellation, so
-        interrupting mid-policy on a large dataset still keeps whatever
-        finished instead of losing the whole policy.
+        This is the original, unbatched call. It is used directly when
+        policy_batch_size == 1, and as the re-query path for answers missing
+        from a batched response.
         """
-        out = (
-            existing.copy()
-            if existing is not None
-            else pd.Series([None] * len(samples), index=samples.index, dtype="object")
-        )
-        pending = samples.loc[out.isna()]
-        done_q: asyncio.Queue[None] = asyncio.Queue()
-
-        async def worker(row_idx: Any, row: pd.Series) -> None:
-            try:
-                sample_str = "\n".join(f"{col}: {row[col]}" for col in row.index)
-                query = (
-                    f"Task description:\n{self._task_description}\n\n"
-                    f"Policy:\n{policy}\n\n"
-                    f"Sample:\n{sample_str}\n\n"
-                )
-                async with self._llm_semaphore:
-                    response = await llm.respond(
-                        query=query,
-                        llm_priority=self.predict_llmc,
-                        instructions=POLICY_PREDICT_INSTRUCTIONS,
-                        response_format=Answer,
-                        temperature=self.predict_temperature,
-                    )
-                await self._token_counter.append(
-                    provider=response.provider_model.provider,
-                    model=response.provider_model.model,
-                    value=response.total_tokens,
-                    caller="PolicyInduction.score_policy",
-                )
-                if response.response is None:
-                    raise LLMError("No response from LLM")
-                txt = str(response.response.answer).strip().upper().strip('".,;:')
-                out.at[row_idx] = (
-                    txt
-                    if txt in {"YES", "NO"}
-                    else "YES"
-                    if "YES" in txt
-                    else "NO"
-                    if "NO" in txt
-                    else None
-                )
-            except Exception:
-                logger.warning("Scoring worker error", exc_info=True)
-                out.at[row_idx] = None
-            finally:
-                done_q.put_nowait(None)
-
-        it = iter(pending.iterrows())
-        in_flight = 0
-        since_checkpoint = 0
         try:
-            async with asyncio.TaskGroup() as tg:
-                for _ in range(self.llm_semaphore_limit):
-                    try:
-                        idx, row = next(it)
-                        tg.create_task(worker(idx, row))
-                        in_flight += 1
-                    except StopIteration:
-                        break
-                while in_flight > 0:
-                    await done_q.get()
-                    in_flight -= 1
-                    since_checkpoint += 1
-                    if (
-                        on_progress is not None
-                        and since_checkpoint >= self._SCORING_CKPT_EVERY
-                    ):
-                        on_progress(out.copy())
-                        since_checkpoint = 0
-                    try:
-                        idx, row = next(it)
-                        tg.create_task(worker(idx, row))
-                        in_flight += 1
-                    except StopIteration:
-                        pass
-        finally:
-            if on_progress is not None and since_checkpoint > 0:
-                on_progress(out.copy())
+            query = (
+                f"Task description:\n{self._task_description}\n\n"
+                f"Policy:\n{policy_text}\n\n"
+                f"Sample:\n{sample_str}\n\n"
+            )
+            async with self._llm_semaphore:
+                response = await self._llm_instance.respond(
+                    query=query,
+                    llm_priority=self.predict_llmc,
+                    instructions=POLICY_PREDICT_INSTRUCTIONS,
+                    response_format=Answer,
+                    temperature=self.predict_temperature,
+                )
+            await token_counter.append(
+                provider=response.provider_model.provider,
+                model=response.provider_model.model,
+                value=response.total_tokens,
+                caller=caller,
+            )
+            if response.response is None:
+                raise LLMError("No response from LLM")
+            txt = str(response.response.answer).strip().upper().strip('".,;:')
+            return (
+                cast(Literal["YES", "NO"], txt)
+                if txt in {"YES", "NO"}
+                else "YES"
+                if "YES" in txt
+                else "NO"
+                if "NO" in txt
+                else None
+            )
+        except Exception:
+            logger.warning("Scoring worker error", exc_info=True)
+            return None
 
+    async def _score_policy_batch(
+        self,
+        sample_str: str,
+        policies: Sequence[Tuple[str, str]],
+        token_counter: TokenCounter,
+        caller: str,
+    ) -> Dict[str, Literal["YES", "NO"]]:
+        """Judge one sample against several policies in a single LLM call.
+
+        Shared by fit-time scoring and predict(), so both paths always draw
+        features the same way.
+
+        Args:
+            sample_str: The rendered sample.
+            policies: (key, policy_text) pairs. Keys are opaque here and are
+                what the returned mapping is keyed by; the prompt uses its own
+                0..n-1 ids, so the model never sees them.
+            token_counter: Counter to charge this call to.
+            caller: Label recorded on the token counter.
+
+        Returns:
+            key -> "YES"/"NO" for every policy successfully judged. Keys absent
+            from the mapping could not be resolved even after an individual
+            re-query; the caller decides what that means.
+        """
+        if not policies:
+            return {}
+        if len(policies) == 1:
+            key, text = policies[0]
+            ans = await self._score_policy_single(
+                sample_str, text, token_counter, caller
+            )
+            return {key: ans} if ans is not None else {}
+
+        local_ids = {i: key for i, (key, _) in enumerate(policies)}
+        policies_block = "\n".join(
+            f"id={i}: {text}" for i, (_, text) in enumerate(policies)
+        )
+        query = (
+            f"Task description:\n{self._task_description}\n\n"
+            f"Policies:\n{policies_block}\n\n"
+            f"Sample:\n{sample_str}\n\n"
+        )
+
+        out: Dict[str, Literal["YES", "NO"]] = {}
+        try:
+            async with self._llm_semaphore:
+                response = await self._llm_instance.respond(
+                    query=query,
+                    llm_priority=self.predict_llmc,
+                    instructions=POLICY_PREDICT_BATCH_INSTRUCTIONS,
+                    response_format=BatchedAnswers,
+                    temperature=self.predict_temperature,
+                )
+            await token_counter.append(
+                provider=response.provider_model.provider,
+                model=response.provider_model.model,
+                value=response.total_tokens,
+                caller=caller,
+            )
+            if response.response is None:
+                raise LLMError("No response from LLM")
+            # Pydantic already constrains `answer` to the literal, so only the
+            # id needs checking. Unknown/duplicate ids are dropped and fall
+            # through to the individual re-query below.
+            for item in response.response.answers:
+                key = local_ids.get(item.policy_id)
+                if key is not None and key not in out:
+                    out[key] = item.answer
+        except Exception:
+            # Deliberately no re-query here: if the call itself failed, the
+            # provider is unhealthy and fanning out to N individual calls
+            # would be worse than not batching at all. Unanswered cells stay
+            # missing and are retried on the next resume, as before.
+            logger.warning("Batched scoring worker error", exc_info=True)
+            return out
+
+        missing = [(key, text) for key, text in policies if key not in out]
+        if missing:
+            logger.warning(
+                "Batched scoring returned %d/%d answers; re-querying %d individually.",
+                len(out),
+                len(policies),
+                len(missing),
+            )
+            results = await asyncio.gather(
+                *(
+                    self._score_policy_single(sample_str, text, token_counter, caller)
+                    for _, text in missing
+                )
+            )
+            for (key, _), ans in zip(missing, results):
+                if ans is not None:
+                    out[key] = ans
         return out
 
+    def _render_sample(self, row: pd.Series) -> str:
+        return "\n".join(f"{col}: {row[col]}" for col in row.index)
+
     async def _score_policies(self) -> None:
-        """Score all unscored/partially-scored policies; checkpoint as it goes."""
+        """Score every unscored (policy, sample) cell; checkpoint as it goes.
+
+        Iterates sample-major so each LLM call carries one sample and up to
+        `policy_batch_size` policies.
+        """
         if self._X is None or self._y is None:
             raise ValueError("X and y must be set before scoring.")
 
@@ -776,44 +884,108 @@ class PolicyInduction:
         self._load_scoring_ckpt()
         self._fix_memory()
 
-        def needs_work(val: Any) -> bool:
-            return not isinstance(val, pd.Series) or bool(val.isnull().any())
+        # Materialise a full-length Series for every policy up front so workers
+        # only ever write into an existing cell. Side effect: the checkpoint now
+        # also holds all-None rows for untouched policies, where they used to be
+        # omitted — both _load_scoring_ckpt and _estimate_fit_requests treat a
+        # None cell as unscored, so this is equivalent.
+        for pid in self._policy_memory.index:
+            val = self._policy_memory.at[pid, "predictions"]
+            self._policy_memory.at[pid, "predictions"] = (  # type: ignore
+                val.reindex(self._X.index)
+                if isinstance(val, pd.Series)
+                else pd.Series(
+                    [None] * len(self._X), index=self._X.index, dtype="object"
+                )
+            )
+        series_by_pid = {
+            pid: self._policy_memory.at[pid, "predictions"]
+            for pid in self._policy_memory.index
+        }
 
-        unscored = [
-            idx
-            for idx in self._policy_memory.index
-            if needs_work(self._policy_memory.at[idx, "predictions"])
+        # Cells still needing work, grouped by sample.
+        pending: Dict[Any, List[Any]] = {}
+        for pid, s in series_by_pid.items():
+            for sidx in s.index[s.isna()]:
+                pending.setdefault(sidx, []).append(pid)
+
+        # Flatten to units of (sample, policy chunk).
+        bs = self.policy_batch_size
+        units: List[Tuple[Any, List[Any]]] = [
+            (sidx, pids[i : i + bs])
+            for sidx, pids in pending.items()
+            for i in range(0, len(pids), bs)
         ]
-        total = len(unscored)
-        already_done = len(self._policy_memory) - total
-        logger.info(f"Scoring {total} policies.")
 
-        for i, policy_idx in enumerate(
-            tqdm(
-                unscored,
-                initial=already_done,
-                total=len(self._policy_memory),
-                desc="[SCORE]",
-                unit="",
-                bar_format=_BAR_FORMAT,
-                ascii=_BAR_ASCII,
-            )
-        ):
-            policy = str(self._policy_memory.at[policy_idx, "policy"])
-            existing = self._policy_memory.at[policy_idx, "predictions"]
-            existing = existing if isinstance(existing, pd.Series) else None
+        total_cells = len(self._policy_memory) * len(self._X)
+        pending_cells = sum(len(p) for p in pending.values())
+        logger.info(
+            f"Scoring {pending_cells} (policy, sample) cells in {len(units)} LLM calls."
+        )
 
-            def on_progress(partial: pd.Series, _idx: Any = policy_idx) -> None:
-                self._policy_memory.at[_idx, "predictions"] = partial  # type: ignore
+        done_q: asyncio.Queue[int] = asyncio.Queue()
+
+        async def worker(sidx: Any, pids: List[Any]) -> None:
+            try:
+                sample_str = self._render_sample(self._X.loc[sidx])  # type: ignore
+                answers = await self._score_policy_batch(
+                    sample_str=sample_str,
+                    policies=[
+                        (str(pid), str(self._policy_memory.at[pid, "policy"]))
+                        for pid in pids
+                    ],
+                    token_counter=self._token_counter,
+                    caller="PolicyInduction.score_policy",
+                )
+                for pid in pids:
+                    series_by_pid[pid].at[sidx] = answers.get(str(pid))
+            except Exception:
+                logger.warning("Scoring worker error", exc_info=True)
+            finally:
+                done_q.put_nowait(len(pids))
+
+        it = iter(units)
+        in_flight = 0
+        since_checkpoint = 0
+        calls_done = 0
+        pbar = tqdm(
+            total=total_cells,
+            initial=total_cells - pending_cells,
+            desc="[SCORE]",
+            unit="",
+            bar_format=_BAR_FORMAT,
+            ascii=_BAR_ASCII,
+        )
+        try:
+            async with asyncio.TaskGroup() as tg:
+                for _ in range(self.llm_semaphore_limit):
+                    try:
+                        sidx, pids = next(it)
+                    except StopIteration:
+                        break
+                    tg.create_task(worker(sidx, pids))
+                    in_flight += 1
+                while in_flight > 0:
+                    n = await done_q.get()
+                    in_flight -= 1
+                    calls_done += 1
+                    since_checkpoint += n
+                    pbar.update(n)
+                    if since_checkpoint >= self._SCORING_CKPT_EVERY:
+                        self._save_scoring_ckpt()
+                        since_checkpoint = 0
+                    if calls_done % self.p_predict_update_interval == 0:
+                        logger.info(f"Scored {calls_done}/{len(units)} batches.")
+                    try:
+                        sidx, pids = next(it)
+                    except StopIteration:
+                        continue
+                    tg.create_task(worker(sidx, pids))
+                    in_flight += 1
+        finally:
+            pbar.close()
+            if since_checkpoint > 0:
                 self._save_scoring_ckpt()
-
-            result = await self._score_single_policy(
-                policy, self._X, existing=existing, on_progress=on_progress
-            )
-            self._policy_memory.at[policy_idx, "predictions"] = result  # type: ignore
-            self._save_scoring_ckpt()
-            if (i + 1) % self.p_predict_update_interval == 0:
-                logger.info(f"Scored {i + 1}/{total} policies.")
 
         logger.info("Scoring complete.")
 
@@ -980,52 +1152,74 @@ class PolicyInduction:
         ]
 
         results = np.zeros(len(self._feature_order_), dtype=float)
+        missing_positions: List[int] = []
         done_q: asyncio.Queue[None] = asyncio.Queue()
 
-        async def worker(pos: int, policy_text: str) -> None:
+        # Same batching as fit-time scoring, via the same primitive, so the
+        # features fed to the LR here match the ones it was trained on.
+        bs = self.policy_batch_size
+        units: List[List[Tuple[int, str]]] = [
+            tasks_to_run[i : i + bs] for i in range(0, len(tasks_to_run), bs)
+        ]
+
+        async def worker(chunk: List[Tuple[int, str]]) -> None:
             try:
-                query = (
-                    f"Task description:\n{self._task_description}\n\n"
-                    f"Policy:\n{policy_text}\n\n"
-                    f"Sample:\n{sample}\n\n"
-                )
-                async with self._llm_semaphore:
-                    response = await llm.respond(
-                        query=query,
-                        llm_priority=self.predict_llmc,
-                        instructions=POLICY_PREDICT_INSTRUCTIONS,
-                        response_format=Answer,
-                        temperature=self.predict_temperature,
-                    )
-                await token_counter.append(
-                    provider=response.provider_model.provider,
-                    model=response.provider_model.model,
-                    value=response.total_tokens,
+                answers = await self._score_policy_batch(
+                    sample_str=sample,
+                    policies=[(str(pos), pt) for pos, pt in chunk],
+                    token_counter=token_counter,
                     caller="PolicyInduction.predict_single",
                 )
-                if response.response is None:
-                    raise LLMError("No response from LLM")
-                txt = str(response.response.answer).strip().upper().strip('".,;:')
-                results[pos] = 1.0 if txt == "YES" or "YES" in txt else 0.0
+                for pos, _pt in chunk:
+                    ans = answers.get(str(pos))
+                    if ans is None:
+                        missing_positions.append(pos)
+                    else:
+                        results[pos] = 1.0 if ans == "YES" else 0.0
             except Exception:
                 logger.warning("Predict worker error", exc_info=True)
-                results[pos] = 0.0
+                missing_positions.extend(pos for pos, _ in chunk)
             finally:
                 done_q.put_nowait(None)
 
+        it = iter(units)
         in_flight = 0
         async with asyncio.TaskGroup() as tg:
-            for _ in range(min(self.llm_semaphore_limit, len(tasks_to_run))):
-                pos, pt = tasks_to_run.pop(0)
-                tg.create_task(worker(pos, pt))
+            for _ in range(self.llm_semaphore_limit):
+                try:
+                    chunk = next(it)
+                except StopIteration:
+                    break
+                tg.create_task(worker(chunk))
                 in_flight += 1
             while in_flight > 0:
                 await done_q.get()
                 in_flight -= 1
-                if tasks_to_run:
-                    pos, pt = tasks_to_run.pop(0)
-                    tg.create_task(worker(pos, pt))
-                    in_flight += 1
+                try:
+                    chunk = next(it)
+                except StopIteration:
+                    continue
+                tg.create_task(worker(chunk))
+                in_flight += 1
+
+        if missing_positions:
+            if len(missing_positions) == len(tasks_to_run):
+                # Every policy failed, so `results` would be all zeros — a
+                # vector the LR would happily classify despite resting on no
+                # evidence at all. Refuse to produce a record; predict() skips
+                # the sample and leaves it out of the checkpoint so a later
+                # run retries it.
+                raise LLMError(
+                    f"Sample {sample_index}: no policy answers obtained "
+                    f"({len(tasks_to_run)} policies queried)."
+                )
+            logger.warning(
+                "Sample %s: %d/%d policy answers missing after re-query; "
+                "treating as NO.",
+                sample_index,
+                len(missing_positions),
+                len(tasks_to_run),
+            )
 
         return sample_index, results, self._lr_predict(results)
 
@@ -1076,6 +1270,12 @@ class PolicyInduction:
         matching in-progress checkpoint found there — same unconditional,
         single-file design as fit(). The checkpoint is deleted once every
         sample has been predicted.
+
+        May yield fewer records than len(samples): a sample for which no
+        policy answer could be obtained at all is skipped rather than given a
+        prediction built from an all-zero feature vector. Skipped samples are
+        left out of the checkpoint, which is retained so a later run retries
+        them.
 
         Args:
             samples: DataFrame of samples to classify.
@@ -1129,11 +1329,19 @@ class PolicyInduction:
         queue: asyncio.Queue = asyncio.Queue()
         sem = asyncio.Semaphore(self.llm_semaphore_limit)
 
+        had_failures = False
+
         async def worker(idx: Any, sample_str: str) -> None:
+            nonlocal had_failures
             await sem.acquire()
             try:
                 rec = await self._predict_single(idx, sample_str, token_counter)
                 await queue.put(rec)
+            except Exception:
+                had_failures = True
+                logger.warning(
+                    "Predict failed for sample %s; skipping.", idx, exc_info=True
+                )
             finally:
                 await queue.put("DONE")
                 sem.release()
@@ -1177,9 +1385,10 @@ class PolicyInduction:
             for t in tasks:
                 if not t.done():
                     t.cancel()
-            if success:
+            if success and not had_failures:
                 self._del_ckpt(self._PREDICT_CKPT_NAME)
-            elif since_checkpoint > 0:
+            elif since_checkpoint > 0 or had_failures:
+                # Keep the checkpoint so skipped samples are retried next run.
                 save_ckpt()
 
     # ── Persistence ─────────────────────────────────────────────────────────────
@@ -1327,7 +1536,7 @@ class PolicyInduction:
             else None
         )
         manifest = {
-            "version": 2,
+            "version": 3,
             "name": self.name,
             "gen_llmc": [
                 lc if isinstance(lc, dict) else lc.model_dump() for lc in self.gen_llmc
@@ -1342,6 +1551,7 @@ class PolicyInduction:
             "max_policy_length": self.max_policy_length,
             "class_ratio": list(self.class_ratio),
             "max_samples_as_context": self.max_samples_as_context,
+            "policy_batch_size": self.policy_batch_size,
             "p_predict_update_interval": self.p_predict_update_interval,
             "random_state": self.random_state,
             "task_description": self._task_description,
@@ -1389,6 +1599,9 @@ class PolicyInduction:
             max_policy_length=m["max_policy_length"],
             class_ratio=tuple(m["class_ratio"]),
             max_samples_as_context=m["max_samples_as_context"],
+            # `or`, not get(key, 10): save() writes this key unconditionally,
+            # so a present-but-None value would defeat a two-arg get default.
+            policy_batch_size=int(m.get("policy_batch_size") or 10),
             p_predict_update_interval=m["p_predict_update_interval"],
             random_state=m["random_state"],
             save_path=str(base),

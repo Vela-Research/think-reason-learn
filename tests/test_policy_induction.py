@@ -168,7 +168,7 @@ async def test_max_gen_batches_caps_generation(tmp_path):
 
 @pytest.mark.asyncio
 async def test_max_gen_batches_none_runs_until_class_exhaustion(tmp_path):
-    """Default behaviour is unchanged: stop only once a class runs out."""
+    """None disables the cap: generation stops only once a class runs out."""
     fake = FakePolicyLLM(n_policies=6)
     pi = make_pi(tmp_path, fake, max_gen_batches=None)
     pi._set_data(X, Y)
@@ -209,18 +209,42 @@ def test_max_gen_batches_round_trips(tmp_path):
     assert PolicyInduction.load(tmp_path / "model").max_gen_batches == 1
 
 
-def test_max_gen_batches_default_none_round_trips(tmp_path):
-    """A missing key on an old-style save restores the default, None."""
+def test_max_gen_batches_default_round_trips(tmp_path):
+    """Generation is capped at 7 batches by default, and that survives a save."""
     fake = FakePolicyLLM(n_policies=6)
-    pi = make_pi(tmp_path, fake)  # max_gen_batches left at its default, None
+    pi = make_pi(tmp_path, fake)  # max_gen_batches left at its default
+    assert pi.max_gen_batches == 7
     seed_for_scoring(pi, fake)
     pi.save(tmp_path / "model")
 
-    manifest_path = tmp_path / "model" / "policy_induction.json"
-    manifest = orjson.loads(manifest_path.read_bytes())
+    manifest = orjson.loads((tmp_path / "model" / "policy_induction.json").read_bytes())
+    assert manifest["max_gen_batches"] == 7
+    assert PolicyInduction.load(tmp_path / "model").max_gen_batches == 7
+
+
+def test_max_gen_batches_explicit_none_round_trips(tmp_path):
+    """An explicit None (uncapped) is preserved, not coerced to the default."""
+    fake = FakePolicyLLM(n_policies=6)
+    pi = make_pi(tmp_path, fake, max_gen_batches=None)
+    seed_for_scoring(pi, fake)
+    pi.save(tmp_path / "model")
+
+    manifest = orjson.loads((tmp_path / "model" / "policy_induction.json").read_bytes())
     assert manifest["max_gen_batches"] is None
+    assert PolicyInduction.load(tmp_path / "model").max_gen_batches is None
+
+
+def test_load_manifest_without_max_gen_batches(tmp_path):
+    """A save predating the key loads uncapped, matching how it was trained."""
+    fake = FakePolicyLLM(n_policies=6)
+    pi = make_pi(tmp_path, fake)
+    seed_for_scoring(pi, fake)
+    pi.save(tmp_path / "model")
+
+    path = tmp_path / "model" / "policy_induction.json"
+    manifest = orjson.loads(path.read_bytes())
     del manifest["max_gen_batches"]
-    manifest_path.write_bytes(orjson.dumps(manifest))
+    path.write_bytes(orjson.dumps(manifest))
 
     assert PolicyInduction.load(tmp_path / "model").max_gen_batches is None
 

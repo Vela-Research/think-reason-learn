@@ -137,9 +137,9 @@ class PolicyInduction:
             fill its share, so imbalanced datasets won't have every
             majority-class row shown during generation.
         max_samples_as_context: Samples per generation batch (max 100).
-        max_gen_batches: Cap on the number of generation batches. Generation
-            stops at this many batches even if both classes still have rows
-            left. None (default) keeps the original behaviour: stop only once
+        max_gen_batches: Cap on the number of generation batches (default 7).
+            Generation stops at this many batches even if both classes still
+            have rows left. Set to None to disable the cap and stop only once
             either class runs out.
         policy_batch_size: Number of policies judged per LLM call (1-50). One
             call carries one sample and up to this many policies, returning
@@ -1619,8 +1619,10 @@ class PolicyInduction:
             max_policy_length=m["max_policy_length"],
             class_ratio=tuple(m["class_ratio"]),
             max_samples_as_context=m["max_samples_as_context"],
-            # Default is None either way, so a missing key (old saves) and an
-            # explicit null both resolve correctly with a plain .get().
+            # Plain .get(), deliberately not falling back to the constructor
+            # default: None is a meaningful value here (uncapped), so it has
+            # to survive a round trip. Old saves lacking the key also load
+            # uncapped, which is how they were actually trained.
             max_gen_batches=m.get("max_gen_batches"),
             # `or`, not get(key, 10): save() writes this key unconditionally,
             # so a present-but-None value would defeat a two-arg get default.

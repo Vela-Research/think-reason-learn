@@ -31,10 +31,12 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Literal
 
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
+from sklearn.linear_model import LogisticRegressionCV
 from sklearn.model_selection import StratifiedKFold
 
 from ._rrf import RRF
@@ -171,6 +173,66 @@ def _evaluate_fold(
     }
 
 
+def _elasticnet_fold(
+    train_binary: npt.NDArray[np.int_],
+    train_y: npt.NDArray[np.int_],
+    test_binary: npt.NDArray[np.int_],
+    test_y: npt.NDArray[np.int_],
+    *,
+    metric: str,
+    beta: float,
+    cs: Sequence[float],
+    l1_ratios: Sequence[float],
+    cv: int,
+    random_state: int,
+) -> tuple[dict[str, float], npt.NDArray[np.int_], npt.NDArray[np.float64], float]:
+    """Fit elastic-net on a train fold and evaluate on the test fold.
+
+    Mirrors the ``RRF`` learned-weights aggregator: an elastic-net logistic
+    regression (``C``/``l1_ratio`` chosen by inner CV) plus a decision threshold
+    tuned on the **train** fold only (no test leakage). The inner-CV fold count
+    is capped at the smaller class's size so tiny folds don't crash.
+
+    Returns:
+        ``(test_metrics, test_preds, test_proba, threshold)``.
+    """
+    min_class = int(np.bincount(train_y).min()) if len(train_y) else 0
+    eff_cv = max(2, min(cv, min_class)) if min_class >= 2 else 2
+
+    model = LogisticRegressionCV(
+        penalty="elasticnet",
+        solver="saga",
+        Cs=list(cs),  # type: ignore[arg-type]
+        l1_ratios=list(l1_ratios),
+        cv=eff_cv,
+        scoring="roc_auc",
+        max_iter=5000,
+        random_state=random_state,
+        n_jobs=1,
+        refit=True,
+    )
+    model.fit(train_binary.astype(float), train_y)
+
+    train_proba = model.predict_proba(train_binary.astype(float))[:, 1]
+    best_score, best_thr = -1.0, 0.5
+    for thr in np.arange(0.05, 0.951, 0.01):
+        preds = (train_proba >= thr).astype(np.int_)
+        score = RRF._compute_metric(preds, train_y, metric, beta=beta)
+        if score > best_score:
+            best_score, best_thr = score, float(thr)
+
+    test_proba = model.predict_proba(test_binary.astype(float))[:, 1]
+    test_preds = (test_proba >= best_thr).astype(np.int_)
+    test_metrics = {
+        "precision": RRF._compute_metric(test_preds, test_y, "precision"),
+        "recall": RRF._compute_metric(test_preds, test_y, "recall"),
+        "f1": RRF._compute_metric(test_preds, test_y, "f1"),
+        "f_beta": RRF._compute_metric(test_preds, test_y, "f_beta", beta=beta),
+        "accuracy": RRF._compute_metric(test_preds, test_y, "accuracy"),
+    }
+    return test_metrics, test_preds, test_proba, best_thr
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -186,6 +248,10 @@ def cross_validate_aggregation(
     beta: float = 0.5,
     max_k: int | None = None,
     random_state: int = 42,
+    method: Literal["vote", "elasticnet"] = "vote",
+    elasticnet_cs: Sequence[float] = (0.05, 0.1, 0.5),
+    elasticnet_l1_ratios: Sequence[float] = (0.1, 0.5),
+    elasticnet_cv: int = 3,
 ) -> CVResult:
     """Evaluate RRF aggregation via repeated stratified k-fold CV.
 
@@ -214,11 +280,26 @@ def cross_validate_aggregation(
             questions.
         random_state: Base random seed; each repeat uses
             ``random_state + repeat``.
+        method: Aggregation evaluated. ``"vote"`` (default) tunes the
+            unit-weight top-(K, T) scheme per fold; ``"elasticnet"`` instead
+            refits an elastic-net logistic regression per fold (inner CV for
+            ``C``/``l1_ratio``, threshold tuned on the train fold) — mirroring
+            ``RRF(aggregation_method="elasticnet")``. In ``"elasticnet"`` mode
+            ``max_k`` is unused, ``fold_metrics`` reports ``threshold`` instead
+            of ``k``/``t``, and ``per_founder`` reports ``probability`` instead
+            of ``yes_count``.
+        elasticnet_cs: Inverse-regularisation grid for the per-fold inner CV
+            (``"elasticnet"`` only).
+        elasticnet_l1_ratios: Elastic-net mixing grid for the inner CV.
+        elasticnet_cv: Inner-CV folds (capped at the smaller class's size).
 
     Returns:
         A :class:`CVResult` with fold-level metrics, per-founder
         predictions, and an aggregated summary.
     """
+    if method not in ("vote", "elasticnet"):
+        raise ValueError("method must be 'vote' or 'elasticnet'")
+
     y_arr = np.array([1 if yi == "YES" else 0 for yi in y], dtype=np.int_)
     binary_full: npt.NDArray[np.int_] = np.asarray(
         answer_matrix.apply(lambda col: (col == "YES").astype(np.int_)).values
@@ -240,6 +321,45 @@ def cross_validate_aggregation(
             test_binary: npt.NDArray[np.int_] = binary_full[test_idx]
             test_y: npt.NDArray[np.int_] = y_arr[test_idx]
 
+            if method == "elasticnet":
+                # Refit a learned-weight model per fold (nested CV inside),
+                # threshold tuned on the train fold; evaluate on the test fold.
+                test_metrics, preds, proba, thr = _elasticnet_fold(
+                    train_binary,
+                    train_y,
+                    test_binary,
+                    test_y,
+                    metric=metric,
+                    beta=beta,
+                    cs=elasticnet_cs,
+                    l1_ratios=elasticnet_l1_ratios,
+                    cv=elasticnet_cv,
+                    random_state=random_state + repeat,
+                )
+                fold_rows.append(
+                    {
+                        "repeat": repeat,
+                        "fold": fold,
+                        "threshold": thr,
+                        "n_train": len(train_idx),
+                        "n_test": len(test_idx),
+                        **test_metrics,
+                    }
+                )
+                for i, sample_pos in enumerate(test_idx):
+                    founder_rows.append(
+                        {
+                            "sample_idx": int(sample_pos),
+                            "repeat": repeat,
+                            "fold": fold,
+                            "y_true": "YES" if test_y[i] else "NO",
+                            "y_pred": "YES" if preds[i] else "NO",
+                            "probability": float(proba[i]),
+                        }
+                    )
+                continue
+
+            # ----- vote (unit-weight top-(K, T)) path -----
             # 1. Score questions on train fold
             q_scores = _score_questions(train_binary, train_y, beta)
 

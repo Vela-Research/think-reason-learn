@@ -2556,3 +2556,106 @@ class TestElasticNetAggregation:
         assert loaded._aggregation_intercept == rrf._aggregation_intercept
         assert loaded._aggregation_threshold == rrf._aggregation_threshold
         assert loaded._aggregation_feature_order == rrf._aggregation_feature_order
+
+
+# ---------------------------------------------------------------------------
+# Cross-validation with elastic-net aggregation (#3)
+# ---------------------------------------------------------------------------
+
+
+class TestCrossValidationElasticNet:
+    """Tests for ``cross_validate_aggregation(method="elasticnet")``."""
+
+    def test_bad_method_raises(self) -> None:
+        answers, y = _make_answer_matrix()
+        with pytest.raises(ValueError, match="method"):
+            cross_validate_aggregation(answers, y, method="bogus")  # type: ignore[arg-type]
+
+    def test_elasticnet_runs_and_shapes(self) -> None:
+        answers, y = _make_answer_matrix(n_samples=40, pos_rate=0.3)
+        result = cross_validate_aggregation(
+            answers,
+            y,
+            n_splits=4,
+            n_repeats=2,
+            beta=0.5,
+            method="elasticnet",
+            elasticnet_cv=2,
+        )
+        assert isinstance(result, CVResult)
+        assert len(result.fold_metrics) == 8
+        # elastic-net reports a per-fold threshold instead of (K, T)
+        assert "threshold" in result.fold_metrics.columns
+        assert {"precision", "recall", "f1", "f_beta", "accuracy"} <= set(
+            result.fold_metrics.columns
+        )
+        assert "probability" in result.per_founder.columns
+
+    def test_elasticnet_per_founder_coverage(self) -> None:
+        answers, y = _make_answer_matrix(n_samples=40, pos_rate=0.3)
+        result = cross_validate_aggregation(
+            answers,
+            y,
+            n_splits=4,
+            n_repeats=3,
+            method="elasticnet",
+            elasticnet_cv=2,
+        )
+        counts = result.per_founder.groupby("sample_idx").size()
+        assert len(counts) == 40
+        assert (counts == 3).all()
+
+    def test_elasticnet_summary_keys(self) -> None:
+        answers, y = _make_answer_matrix(n_samples=40, pos_rate=0.3)
+        result = cross_validate_aggregation(
+            answers, y, n_splits=4, n_repeats=1, method="elasticnet", elasticnet_cv=2
+        )
+        for m in ("precision", "recall", "f1", "f_beta", "accuracy"):
+            assert f"{m}_mean" in result.summary
+            assert f"{m}_std" in result.summary
+
+
+# ---------------------------------------------------------------------------
+# Cost-sensitive mode + elastic-net aggregation (#4)
+# ---------------------------------------------------------------------------
+
+
+class TestCostSensitiveElasticNet:
+    @pytest.mark.asyncio
+    async def test_cost_sensitive_uses_elasticnet_aggregation(self) -> None:
+        """cost_sensitive=True + elasticnet produces a learned-weight model."""
+        data = {
+            "name": [f"Founder_{i}" for i in range(12)],
+            "description": [f"Description {i}" for i in range(12)],
+        }
+        y = ["YES", "NO"] * 6
+        X = pd.DataFrame(data)
+
+        config = CostSensitiveConfig(
+            screening_fraction=0.5,
+            max_questions_full_eval=3,
+            enable_semantic_filter=False,
+            # Keep questions through screening so the aggregator has features;
+            # this test checks wiring (elastic-net is exercised), not signal.
+            screening_baseline=0.0,
+        )
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            max_generated_questions=5,
+            random_state=42,
+            cost_sensitive=True,
+            cost_sensitive_config=config,
+            aggregation_method="elasticnet",
+            elasticnet_cv=2,
+            _llm=FakeLLM(questions_per_call=5),
+        )
+        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.fit(X, y)
+
+        # Aggregation was tuned via the elastic-net path, not (K, T) vote.
+        assert rrf._aggregation_weights is not None
+        assert rrf._aggregation_k is None and rrf._aggregation_t is None
+
+        result = await rrf.predict_founder_level(X)
+        assert "probability" in result.columns
+        assert len(result) == len(X)

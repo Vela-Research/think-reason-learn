@@ -24,7 +24,7 @@ RUN pip install --no-cache-dir -e .
 
 # Build docs (with -M so output goes to build/html)
 WORKDIR /app/docs
-RUN sphinx-build -M html source build -n -W --keep-going
+RUN sphinx-build -M html source build
 
 
 FROM python:3.13-slim

@@ -1624,9 +1624,16 @@ class PolicyInduction:
             # to survive a round trip. Old saves lacking the key also load
             # uncapped, which is how they were actually trained.
             max_gen_batches=m.get("max_gen_batches"),
-            # `or`, not get(key, 10): save() writes this key unconditionally,
-            # so a present-but-None value would defeat a two-arg get default.
-            policy_batch_size=int(m.get("policy_batch_size") or 10),
+            # A save predating this key (manifest v2) drew its features
+            # unbatched at fit time, so it must keep drawing them unbatched:
+            # batching at predict would skew features against the trained
+            # weights — same train-consistency rule as max_gen_batches above.
+            # For a present-but-None value (v3 writes the key unconditionally,
+            # so only a hand-edited manifest hits this) fall back to the
+            # constructor default via `or`, never to None.
+            policy_batch_size=(
+                int(m["policy_batch_size"] or 10) if "policy_batch_size" in m else 1
+            ),
             p_predict_update_interval=m["p_predict_update_interval"],
             random_state=m["random_state"],
             save_path=str(base),

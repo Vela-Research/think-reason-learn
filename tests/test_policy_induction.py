@@ -373,6 +373,26 @@ def test_load_tolerates_null_policy_batch_size(tmp_path):
     assert PolicyInduction.load(tmp_path / "model").policy_batch_size == 10
 
 
+def test_load_manifest_without_policy_batch_size(tmp_path):
+    """A save predating the key loads unbatched, matching how it was trained.
+
+    A v2 model drew its features one call per (policy, sample); loading it
+    with batched scoring would draw predict-time features differently from
+    the ones its LR weights were fitted on.
+    """
+    fake = FakePolicyLLM(n_policies=6)
+    pi = make_pi(tmp_path, fake, policy_batch_size=4)
+    seed_for_scoring(pi, fake)
+    pi.save(tmp_path / "model")
+
+    path = tmp_path / "model" / "policy_induction.json"
+    manifest = orjson.loads(path.read_bytes())
+    del manifest["policy_batch_size"]
+    path.write_bytes(orjson.dumps(manifest))
+
+    assert PolicyInduction.load(tmp_path / "model").policy_batch_size == 1
+
+
 @pytest.mark.parametrize("bad", [0, -1, 51, 3.0, "3", None, True])
 def test_validate_init_rejects_bad_batch_size(bad):
     with pytest.raises(ValueError, match="policy_batch_size"):

@@ -1,0 +1,325 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FounderBrain</title>
+<meta name="description" content="FounderBrain is a free connector for Claude that analyses how you came across in a pitch or investor call, compares you with 773 public founder interviews, and suggests what to try next. It does not store your transcript.">
+<link rel="canonical" href="https://thinkreasonlearn.com/founderbrain">
+<meta property="og:type" content="website">
+<meta property="og:title" content="FounderBrain, powered by Think, Reason, Learn">
+<meta property="og:description" content="FounderBrain is a free connector for Claude that analyses how you came across in a pitch or investor call, compares you with 773 public founder interviews, and suggests what to try next. It does not store your transcript.">
+<meta property="og:url" content="https://thinkreasonlearn.com/founderbrain">
+<script type="application/ld+json">[{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "FounderBrain", "applicationCategory": "BusinessApplication", "operatingSystem": "Claude (web, desktop, Claude Code)", "description": "FounderBrain is a free connector for Claude that analyses how you came across in a pitch or investor call, compares you with 773 public founder interviews, and suggests what to try next. It does not store your transcript.", "url": "https://thinkreasonlearn.com/founderbrain", "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"}, "publisher": {"@type": "Organization", "name": "Vela Partners", "url": "https://vela.partners"}, "isBasedOn": {"@type": "SoftwareSourceCode", "name": "Think, Reason, Learn", "url": "https://thinkreasonlearn.com", "codeRepository": "https://github.com/Vela-Research/think-reason-learn"}}, {"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "Is FounderBrain free?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. FounderBrain is free and needs no account. There is an hourly limit on analyses so that the service stays available for everyone."}}, {"@type": "Question", "name": "Does FounderBrain store my transcript?", "acceptedAnswer": {"@type": "Answer", "text": "No. The transcript is scored on FounderBrain's server and deleted as soon as the analysis finishes, and nothing you send is used to train a model. Your Claude conversation is kept by Anthropic under its own terms."}}, {"@type": "Question", "name": "How is it different from asking Claude for feedback on my pitch?", "acceptedAnswer": {"@type": "Answer", "text": "Claude on its own gives an opinion. FounderBrain measures your answers against 773 public founder interviews with a fixed model, so the same transcript always gets the same result, and Claude then coaches you from those measurements."}}, {"@type": "Question", "name": "Which meetings work best?", "acceptedAnswer": {"@type": "Answer", "text": "Pitches, investor calls, sales calls and interviews where you answer questions, with at least a few thousand words from you. It works with transcripts from Zoom, Google Meet, Teams, Otter, Granola and most other tools."}}, {"@type": "Question", "name": "Who makes FounderBrain?", "acceptedAnswer": {"@type": "Answer", "text": "FounderBrain is made by Vela Research, the research arm of Vela Partners, with Think, Reason, Learn, Vela's open-source library for models that show their reasoning."}}]}]</script>
+<link rel="stylesheet" href="fonts/fonts.css">
+<style>
+:root{
+  --cream:#FAF7F0;--paper:#FFFDF8;--deep:#F2EDE2;--ink:#1E2321;--soft:#5E655F;--line:#DDD5C4;--dot:#B7AE9B;--mute:#E9E5DC;
+  --green:#1E6B43;--gt:#E4EFE7;--sage:#A9CDB6;--forest:#173F2B;--forest2:#1F4F37;--on-forest:#F6F1E6;--forest-edge:transparent;
+  --gold:#D9A94F;--clay:#9A6434;--clay-t:#F5EBDD;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --cream:#161917;--paper:#1B1F1C;--deep:#1F2320;--ink:#ECE7DB;--soft:#A5ACA6;--line:#343A36;--dot:#5E655F;--mute:#2A2E2B;
+    --green:#6DBB8C;--gt:#203326;--sage:#A9CDB6;--forest:#1A3B29;--forest2:#22503A;--on-forest:#F6F1E6;--forest-edge:rgba(169,205,182,.28);
+    --gold:#E3B560;--clay:#D9A66B;--clay-t:#372B1D;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --cream:#161917;--paper:#1B1F1C;--deep:#1F2320;--ink:#ECE7DB;--soft:#A5ACA6;--line:#343A36;--dot:#5E655F;--mute:#2A2E2B;
+  --green:#6DBB8C;--gt:#203326;--sage:#A9CDB6;--forest:#1A3B29;--forest2:#22503A;--on-forest:#F6F1E6;--forest-edge:rgba(169,205,182,.28);
+  --gold:#E3B560;--clay:#D9A66B;--clay-t:#372B1D;
+  color-scheme:dark;
+}
+html{background:var(--cream);-webkit-text-size-adjust:100%}
+body{background:var(--cream);color:var(--ink);margin:0}
+.trl,.trl *,.trl *::before,.trl *::after{box-sizing:border-box}
+.trl{font-family:'Source Serif 4',Georgia,'Times New Roman',serif;font-size:17px;line-height:1.6;color:var(--ink);background:var(--cream);-webkit-font-smoothing:antialiased}
+:where(.trl) :where(p,h1,h2,h3,ol,ul,dl,dd,figure,pre){margin:0;padding:0}
+.trl a{color:var(--green);text-underline-offset:3px;text-decoration-thickness:1px}
+.trl a:hover{text-decoration-thickness:2px}
+.trl :focus-visible{outline:2px solid var(--green);outline-offset:3px;border-radius:4px}
+.trl button{font:inherit;color:inherit;cursor:pointer}
+.trl code,.trl pre,.mono{font-family:'DM Mono',ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums}
+.wrap{max-width:1132px;margin:0 auto;padding:0 32px}
+.draft{margin-top:14px;font-size:14px;color:var(--clay);background:var(--clay-t);border-radius:8px;padding:8px 12px}
+.ph{font-family:'DM Mono',ui-monospace,monospace;font-size:.78em;color:var(--soft);border:1px dashed var(--line);border-radius:4px;padding:0 5px;overflow-wrap:anywhere}
+.live{position:absolute;left:-9999px}
+
+.bar{display:flex;justify-content:space-between;align-items:center;gap:10px 24px;flex-wrap:wrap;padding:18px 0 16px;border-bottom:1px solid var(--line)}
+.brand{display:inline-flex;align-items:center;gap:9px;font-family:'Fraunces',serif;font-weight:600;font-size:18px}
+.trl a.brand{color:var(--ink);text-decoration:none}
+.brand svg{width:20px;height:20px;flex:none}
+.nav{display:flex;flex-wrap:wrap;gap:4px 18px;font-size:15px}
+.trl .nav a{color:var(--soft);text-decoration:none;white-space:nowrap}
+.trl .nav a:hover,.trl .nav a[aria-current]{color:var(--ink)}
+.trl .nav a[aria-current]{text-decoration:underline}
+
+.mast{padding:60px 0 8px;max-width:860px}
+.eyebrow{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--soft)}
+.eyebrow b{font-weight:600;color:var(--green)}
+.mast h1{font-family:'Fraunces',serif;font-weight:300;font-size:clamp(48px,8vw,84px);line-height:1;letter-spacing:-.025em;margin-top:16px}
+.stand{font-family:'Fraunces',serif;font-weight:400;font-size:clamp(20px,2.3vw,25px);line-height:1.38;margin-top:22px;max-width:36em;text-wrap:pretty}
+.trust{list-style:none;display:flex;flex-wrap:wrap;gap:8px;margin:0 0 16px;padding:0}
+.chip{display:inline-flex;align-items:center;gap:7px;font-size:14.5px;line-height:1;padding:8px 14px;border:1px solid var(--line);border-radius:999px;background:var(--paper);color:var(--ink)}
+.consent{margin-top:12px;font-size:15px;color:var(--soft)}
+.chip svg{width:15px;height:15px;flex:none;color:var(--green)}
+.trl a.chip{color:var(--ink);text-decoration:none}
+.trl a.chip:hover{border-color:var(--green)}
+
+.sec{padding:64px 0 0}
+.k{font-family:'DM Mono',monospace;font-size:13px;color:var(--green);letter-spacing:.06em;text-transform:uppercase}
+.sec h2{font-family:'Fraunces',serif;font-weight:400;font-size:clamp(28px,3.3vw,38px);line-height:1.14;letter-spacing:-.015em;max-width:24em;margin-top:10px;text-wrap:balance}
+.lede{margin-top:14px;max-width:40em;font-size:18px}
+.st{display:inline-block;font-size:13px;padding:2px 10px;border-radius:999px;vertical-align:.3em;margin-left:10px;font-family:'Source Serif 4',serif;letter-spacing:0;text-transform:none;background:var(--clay-t);color:var(--clay)}
+
+/* add to Claude */
+.add{margin-top:30px;background:var(--forest);color:var(--on-forest);border:1px solid var(--forest-edge);border-radius:22px;padding:40px 44px 38px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:40px}
+.sec .add h2,.add h3{font-family:'Fraunces',serif;font-weight:400;font-size:26px;line-height:1.15}
+.add .tag{font-size:12.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--gold);margin-bottom:10px}
+.steps{list-style:none;counter-reset:s;margin-top:16px}
+.steps li{counter-increment:s;display:grid;grid-template-columns:30px minmax(0,1fr);gap:10px;padding:10px 0;border-top:1px solid rgba(246,241,230,.16)}
+.steps li::before{content:counter(s);font-family:'DM Mono',monospace;font-size:13px;color:var(--gold);padding-top:3px}
+.steps b{font-weight:600}
+.cmd{display:flex;align-items:stretch;margin-top:8px;border:1px solid rgba(246,241,230,.35);background:var(--forest2);border-radius:10px;overflow:hidden}
+.cmd code{flex:1;min-width:0;padding:10px 12px;font-size:13.5px;white-space:nowrap;overflow-x:auto;scrollbar-width:thin;color:var(--on-forest);-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 28px),transparent);mask-image:linear-gradient(to right,#000 calc(100% - 28px),transparent)}
+.cmd code.fits{-webkit-mask-image:none;mask-image:none}
+.copy{border:0;border-left:1px solid rgba(246,241,230,.25);background:transparent;padding:0 14px;font-size:14px;color:var(--on-forest);min-width:72px}
+.copy:hover{background:rgba(246,241,230,.1)}
+.add :focus-visible{outline-color:var(--gold)}
+.add .note{font-size:14.5px;opacity:.8;margin-top:14px}
+
+/* what you get */
+.get{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:56px;margin-top:34px;align-items:start}
+.parts{border-top:1px solid var(--line)}
+.parts div{padding:15px 0;border-bottom:1px solid var(--line)}
+.parts dt{font-family:'Fraunces',serif;font-weight:500;font-size:21px;line-height:1.25}
+.parts dd{margin-top:4px;max-width:34em}
+.prompts{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:20px 22px}
+.prompts h3{font-family:'Fraunces',serif;font-weight:500;font-size:19px}
+.prompts ul{list-style:none;margin-top:10px}
+.prompts li{padding:12px 0;border-top:1px solid var(--line);font-family:'Fraunces',serif;font-style:italic;font-size:18px;line-height:1.35}
+.prompts li small{display:block;font-family:'Source Serif 4',serif;font-style:normal;font-size:14px;color:var(--soft);margin-top:2px}
+
+/* facts */
+.facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px 36px;margin-top:30px;border-top:1px solid var(--ink);padding-top:18px}
+.facts .n{font-family:'DM Mono',monospace;font-size:26px;letter-spacing:-.01em}
+.facts p{font-size:15.5px;color:var(--soft);margin-top:4px;max-width:22em}
+
+.two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:56px;align-items:start}
+.two .body{margin-top:14px;max-width:36em}
+.two .body p + p{margin-top:12px}
+.two ul.pl{margin:12px 0 0 1.1em}
+.two ul.pl li{margin-top:6px}
+
+.demo{margin:0;background:var(--forest);color:var(--on-forest);border:1px solid var(--forest-edge);border-radius:18px;padding:22px 24px 18px}
+.demo .t{font-size:12.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--gold)}
+.demo .who{font-family:'Fraunces',serif;font-weight:300;font-size:30px;line-height:1.05;margin-top:8px}
+.demo .ty{font-family:'Fraunces',serif;font-style:italic;font-size:18px;color:var(--sage);margin-top:2px}
+.demo .row{margin-top:14px}
+.demo .row .l{font-size:12px;letter-spacing:.07em;text-transform:uppercase;opacity:.65}
+.demo .row .s{font-family:'Fraunces',serif;font-size:16.5px;margin-top:1px}
+.demo .trk{position:relative;height:6px;border-radius:3px;background:rgba(246,241,230,.15);margin-top:8px}
+.demo .trk::after{content:"";position:absolute;left:50%;top:-4px;bottom:-4px;width:2px;background:rgba(246,241,230,.4)}
+.demo .trk i{position:absolute;top:50%;width:13px;height:13px;margin:-6.5px 0 0 -6.5px;border-radius:50%;background:#E6F2EA;box-shadow:0 0 0 3px var(--forest)}
+.demo .ends{display:flex;justify-content:space-between;font-size:12.5px;opacity:.6;margin-top:6px}
+.demo .ends .on{opacity:1;font-weight:600}
+.demo .match{margin-top:16px;padding-top:12px;border-top:1px solid rgba(246,241,230,.16);font-size:15px}
+.demo .match b{font-family:'Fraunces',serif;font-weight:500;font-size:17px}
+.demo figcaption{font-size:12.5px;opacity:.7;margin-top:12px}
+.askline{padding-top:44px}
+.sec .askline h2{font-family:'Fraunces',serif;font-weight:500;font-size:24px}
+.strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:16px}
+.bubble{background:var(--paper);border:1px solid var(--line);border-radius:16px 16px 16px 4px;padding:14px 16px;font-family:'Fraunces',serif;font-style:italic;font-size:18px;line-height:1.35}
+.bubble small{display:block;font-family:'Source Serif 4',serif;font-style:normal;font-size:13.5px;color:var(--soft);margin-top:6px}
+@media (max-width:900px){.strip{grid-template-columns:minmax(0,1fr)}}
+.steps2{margin:16px 0 0 1.2em;max-width:36em}
+.steps2 li{margin-top:10px;padding-left:4px}
+.ex{margin:12px 0;background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:12px 14px;font-size:14px;line-height:1.6;overflow-x:auto;white-space:pre}
+.faq{margin-top:22px;border-top:1px solid var(--line)}
+.faq details{border-bottom:1px solid var(--line)}
+.faq summary{list-style:none;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:16px;padding:16px 0;font-family:'Fraunces',serif;font-weight:500;font-size:20px;line-height:1.3}
+.faq summary::-webkit-details-marker{display:none}
+.faq summary::after{content:"+";font-family:'DM Mono',monospace;font-size:20px;color:var(--green);flex:none}
+.faq details[open] summary::after{content:"\2212"}
+.faq summary:hover{color:var(--green)}
+.faq details p{margin:0 0 16px;max-width:44em}
+.foot{margin-top:88px;border-top:1px solid var(--line);padding:28px 0 44px;display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) minmax(0,1fr);gap:24px 40px;font-size:15px;color:var(--soft)}
+.foot h2{font-family:'Source Serif 4',serif;font-size:13px;letter-spacing:.08em;text-transform:uppercase;font-weight:400;margin-bottom:8px}
+.foot ul{list-style:none;margin:0;padding:0}
+.foot li{margin-top:4px}
+.trl .foot a{color:var(--soft)}
+.trl .foot a:hover{color:var(--ink)}
+
+@media (max-width:900px){
+  .add,.get,.two{grid-template-columns:minmax(0,1fr)}
+  .two{gap:0}
+  .facts{grid-template-columns:minmax(0,1fr)}
+  .foot{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+  .foot > div:first-child{grid-column:1 / 3}
+}
+@media (max-width:640px){
+  .wrap{padding:0 16px}
+  .trl{font-size:16.5px}
+  .mast{padding:40px 0 4px}
+  .sec{padding-top:48px}
+  .add{padding:28px 18px 26px;border-radius:16px;gap:26px}
+  .cmd code{font-size:12.5px}
+  .foot{grid-template-columns:minmax(0,1fr)}
+  .foot > div:first-child{grid-column:auto}
+}
+</style>
+
+<div class="trl">
+<div class="wrap">
+
+  <header class="bar">
+    <a class="brand" href="https://thinkreasonlearn.com">
+      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v5M10 8 5 13M10 8l5 5" fill="none" stroke="var(--green)" stroke-width="1.6" stroke-linecap="round"/><circle cx="10" cy="3" r="2" fill="var(--green)"/><circle cx="5" cy="15" r="2" fill="var(--green)"/><circle cx="15" cy="15" r="2" fill="none" stroke="var(--green)" stroke-width="1.4"/></svg>Think, Reason, Learn</a>
+    <nav class="nav" aria-label="Main">
+      <a href="https://thinkreasonlearn.com/">Home</a>
+      <a href="https://thinkreasonlearn.com/founderbrain" aria-current="page">FounderBrain</a>
+      <a href="https://thinkreasonlearn.com/docs/">Docs</a>
+      <a href="https://thinkreasonlearn.com/research">Research</a>
+      <a href="https://github.com/vela-research/think-reason-learn">GitHub</a>
+    </nav>
+  </header>
+
+  <main>
+  <section class="mast" aria-labelledby="t">
+    <p class="eyebrow"><b>Pre-trained model</b> · Powered by Think, Reason, Learn</p>
+    <h1 id="t">FounderBrain</h1>
+    <p class="stand">FounderBrain analyses how one person talked in a meeting and compares it with 773 public interviews of founders, CEOs and operators. You use it inside Claude, which then coaches you on what to try in your next conversation.</p>
+  </section>
+
+  <section class="sec" id="add" aria-labelledby="h-add" style="padding-top:36px">
+    <ul class="trust" aria-label="At a glance">
+      <li class="chip"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M2 8.6V2.5h6.1L14 8.4 8.4 14z"/><circle cx="5.3" cy="5.3" r="1.1" fill="currentColor" stroke="none"/></svg>Free</li>
+      <li class="chip"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="5.5" r="2.6"/><path d="M3 14c.6-2.6 2.6-4 5-4s4.4 1.4 5 4"/><path d="M2.5 2.5 13.5 13.5"/></svg>No account</li>
+      <li><a class="chip" href="https://thinkreasonlearn.com/privacy"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></svg>Transcript not stored</a></li>
+    </ul>
+    <p class="consent">Use it on yourself or on someone who has agreed.</p>
+    <div class="add">
+      <div>
+        <p class="tag">In Claude on the web or desktop</p>
+        <h2 id="h-add">Add FounderBrain to Claude</h2>
+        <ol class="steps">
+          <li><div>Open <b>Settings</b>, then <b>Connectors</b>.</div></li>
+          <li><div>Choose <b>Add custom connector</b> and name it FounderBrain.</div></li>
+          <li><div>Paste this address and choose <b>Add</b>.
+            <div class="cmd"><code id="url">https://mcp.thinkreasonlearn.com/mcp</code><button class="copy" type="button" data-copy="https://mcp.thinkreasonlearn.com/mcp" aria-label="Copy the connector address">Copy</button></div></div></li>
+          <li><div>In a new chat, check that FounderBrain is switched on in the tools menu, then attach or paste a transcript and ask how you came across. Claude will ask which speaker is you.</div></li>
+        </ol>
+      </div>
+      <div>
+        <p class="tag">In Claude Code</p>
+        <h2>Add it from the terminal</h2>
+        <ol class="steps">
+          <li><div>Run this once.
+            <div class="cmd"><code>claude mcp add -t http founderbrain https://mcp.thinkreasonlearn.com/mcp</code><button class="copy" type="button" data-copy="claude mcp add -t http founderbrain https://mcp.thinkreasonlearn.com/mcp" aria-label="Copy the Claude Code command">Copy</button></div></div></li>
+          <li><div>Point Claude at a transcript file and ask it to run FounderBrain.</div></li>
+        </ol>
+        <p class="note">In Claude Code you get the same results and coaching as text. The visual report, with charts and your closest matches, shows in the Claude app on the web and desktop.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" aria-labelledby="h-get">
+    <h2 id="h-get">What you get</h2>
+    <div class="get">
+      <dl class="parts">
+        <div><dt>Your speaking type</dt><dd>One of five speaking types found across 773 founder interviews, such as The Open Enthusiast. If you were close to a second speaking type, it says which.</dd></div>
+        <div><dt>Four styles</dt><dd>Where you sit on four scales compared with 773 founder interviews, covering enthusiasm, openness, certainty, and whether you explain with data or stories. For example, more enthusiastic than 76% of founders.</dd></div>
+        <div><dt>Who you sound like</dt><dd>The well-known founders and CEOs whose public interviews are closest to yours, and the one least like you.</dd></div>
+        <div><dt>Habits that stand out</dt><dd>Things you do much more or much less often than most founders, such as putting dates on things or qualifying your claims.</dd></div>
+        <div><dt>Three takeaways</dt><dd>Two habits to try and one to keep, which Claude can explain in the chat using moments from your transcript.</dd></div>
+      </dl>
+      <figure class="demo" aria-label="Illustrative example of a result for a made-up founder"><p class="t">Illustrative example · made-up founder</p><p class="who">Leo Martin</p><p class="ty">The Candid Advocate</p><div class="row"><p class="l">Enthusiasm</p><p class="s">More enthusiastic than 94% of founders</p><div class="trk" aria-hidden="true"><i style="left:94%"></i></div><p class="ends"><span>Measured</span><span class="on">Enthusiastic</span></p></div><div class="row"><p class="l">Openness</p><p class="s">About as personal as most founders</p><div class="trk" aria-hidden="true"><i style="left:49%"></i></div><p class="ends"><span>Personal</span><span>Reserved</span></p></div><div class="row"><p class="l">Certainty</p><p class="s">Firmer claims than 91% of founders</p><div class="trk" aria-hidden="true"><i style="left:91%"></i></div><p class="ends"><span>Qualified</span><span class="on">Firm</span></p></div><div class="row"><p class="l">Explains with</p><p class="s">More analytical than 74% of founders</p><div class="trk" aria-hidden="true"><i style="left:26%"></i></div><p class="ends"><span class="on">Data</span><span>Stories</span></p></div><p class="match">Talks most like <b>Jensen Huang</b>, founder and CEO of Nvidia, 91% match</p><figcaption>FounderBrain compares you with public interviews. It is not affiliated with or endorsed by anyone it names.</figcaption></figure>
+    </div>
+  </section>
+
+  <section class="sec askline" aria-labelledby="h-ask">
+    <h2 id="h-ask">Things to ask Claude</h2>
+    <div class="strip"><div class="bubble">Here&#39;s the transcript of my seed pitch yesterday. How did I come across?<small>with a transcript attached</small></div><div class="bubble">I&#39;m Speaker 1 in this call with an investor. What should I work on before my next pitch?<small>with a transcript attached</small></div><div class="bubble">I have a Series A meeting tomorrow. Based on this last pitch, what should I keep doing?<small>with the text pasted in</small></div></div>
+  </section>
+
+  <div class="two">
+    <section class="sec" aria-labelledby="h-how">
+      <h2 id="h-how">How it works</h2>
+      <ol class="steps2">
+        <li>FounderBrain splits the chosen speaker&#39;s answers into short passages.</li>
+        <li>A small language model on FounderBrain&#39;s own server answers 100 fixed yes or no questions about each passage, such as whether it backs a point with a specific figure, like revenue or growth, or tells a story from experience.</li>
+        <li>A statistical model from psychometrics turns those answers into the four styles, compared with 773 public interviews of 266 guests of <a href="https://www.lennyspodcast.com">Lenny&#39;s Podcast</a>, 343 of <a href="https://mixergy.com">Mixergy</a> and 164 well-known founders and CEOs.</li>
+      </ol>
+      <div class="body">
+        <p>The same transcript always gives the same result. Neither end of a scale is better, and the result describes one conversation, not a personality. FounderBrain is meant for coaching, not for predicting success.</p>
+        <p>FounderBrain is the first pre-trained model built with <a href="https://thinkreasonlearn.com">Think, Reason, Learn</a>, Vela&#39;s open-source library.</p>
+      </div>
+    </section>
+
+    <section class="sec" aria-labelledby="h-data">
+      <h2 id="h-data">Your transcript is not stored</h2>
+      <div class="body">
+        <p>Claude sends the transcript to FounderBrain&#39;s server when it runs an analysis. The server scores it and deletes it as soon as the analysis finishes. It keeps no transcript or report, and nothing you send is used to train a model.</p>
+        <ul class="pl">
+          <li>Only the speaker you choose is analysed.</li>
+          <li>Our logs are designed to hold word counts, timings and errors, never text or names.</li>
+          <li>Your Claude conversation is kept by Anthropic under its own terms.</li>
+        </ul>
+        <p>The <a href="https://thinkreasonlearn.com/privacy">privacy policy</a> has the details.</p>
+      </div>
+    </section>
+  </div>
+
+  <section class="sec" aria-labelledby="h-help">
+    <h2 id="h-help">If an analysis does not work</h2>
+    <div class="two" style="margin-top:14px">
+      <div class="body" style="margin-top:0">
+        <p>A transcript needs one speaker turn per line, like this.</p>
+        <pre class="ex"><code>Ana: We started the company after running a freight yard.
+Tom: How did you find your first customers?</code></pre>
+        <p>Claude can reformat most exports from Zoom, Meet, Teams, Otter or caption files if you ask it to. FounderBrain needs at least 300 words from you and works best with a few thousand, and a transcript can be up to 15,000 words.</p>
+      </div>
+      <div class="body" style="margin-top:0">
+        <p>If FounderBrain says it is busy, the hourly limit has been reached, so try again a little later.</p>
+        <p>Questions and problems go to <a class="mono" href="mailto:support@thinkreasonlearn.com">support@thinkreasonlearn.com</a>. Please say what you asked Claude and when. There&#39;s no need to send the transcript.</p>
+        <p>Security reports go to <a class="mono" href="mailto:security@thinkreasonlearn.com">security@thinkreasonlearn.com</a>.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" aria-labelledby="h-faq">
+    <h2 id="h-faq">Frequently asked questions</h2>
+    <div class="faq">
+      <details><summary>Is FounderBrain free?</summary><p>Yes. FounderBrain is free and needs no account. There is an hourly limit on analyses so that the service stays available for everyone.</p></details>
+      <details><summary>Does FounderBrain store my transcript?</summary><p>No. The transcript is scored on FounderBrain&#39;s server and deleted as soon as the analysis finishes, and nothing you send is used to train a model. Your Claude conversation is kept by Anthropic under its own terms.</p></details>
+      <details><summary>How is it different from asking Claude for feedback on my pitch?</summary><p>Claude on its own gives an opinion. FounderBrain measures your answers against 773 public founder interviews with a fixed model, so the same transcript always gets the same result, and Claude then coaches you from those measurements.</p></details>
+      <details><summary>Which meetings work best?</summary><p>Pitches, investor calls, sales calls and interviews where you answer questions, with at least a few thousand words from you. It works with transcripts from Zoom, Google Meet, Teams, Otter, Granola and most other tools.</p></details>
+      <details><summary>Who makes FounderBrain?</summary><p>FounderBrain is made by Vela Research, the research arm of Vela Partners, with <a href="https://thinkreasonlearn.com">Think, Reason, Learn</a>, Vela&#39;s open-source library for models that show their reasoning.</p></details>
+    </div>
+  </section>
+  </main>
+
+  <footer class="foot">
+    <div><p>Think, Reason, Learn is open source under the MIT licence. FounderBrain is made with it by Vela Research, the research arm of Vela Partners.</p></div>
+    <div><h2>FounderBrain</h2><ul><li><a href="https://thinkreasonlearn.com/founderbrain">Add to Claude</a></li><li><a href="https://thinkreasonlearn.com/privacy">Privacy</a></li></ul></div>
+    <div><h2>Think, Reason, Learn</h2><ul><li><a href="https://thinkreasonlearn.com/docs/">Docs</a></li><li><a href="https://github.com/vela-research/think-reason-learn">GitHub</a></li><li><a href="https://vcbench.com">VCBench</a></li></ul></div>
+  </footer>
+  <p class="live" aria-live="polite" id="live"></p>
+</div>
+</div>
+
+<script>
+(function(){
+  var live=document.getElementById('live');
+  function done(btn){var t=btn.textContent;btn.textContent='Copied';live.textContent='Copied to clipboard';setTimeout(function(){btn.textContent=t;live.textContent='';},1800);}
+  function fallback(text,btn){var ta=document.createElement('textarea');ta.value=text;ta.setAttribute('readonly','');ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();try{document.execCommand('copy');done(btn);}catch(e){}document.body.removeChild(ta);}
+  document.querySelectorAll('.cmd code').forEach(function(c){function f(){c.classList.toggle('fits',c.scrollWidth<=c.clientWidth+1);}f();window.addEventListener('resize',f);});
+  document.querySelectorAll('.trl [data-copy]').forEach(function(btn){
+    btn.addEventListener('click',function(){
+      var text=btn.getAttribute('data-copy');
+      if(navigator.clipboard&&window.isSecureContext){navigator.clipboard.writeText(text).then(function(){done(btn);},function(){fallback(text,btn);});}
+      else{fallback(text,btn);}
+    });
+  });
+})();
+</script>

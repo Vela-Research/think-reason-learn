@@ -26,12 +26,15 @@ RUN pip install --no-cache-dir -e .
 WORKDIR /app/docs
 RUN sphinx-build -M html source build
 
+# Assemble the site: the home, FounderBrain, privacy and research pages at the root, the docs under /docs
+RUN python /app/site/build.py /app/docs/build/html /app/public
+
 
 FROM python:3.13-slim
 
-WORKDIR /srv/docs
+WORKDIR /srv/site
 
-COPY --from=builder /app/docs/build/html .
+COPY --from=builder /app/public .
 
 CMD ["python", "-m", "http.server", "9898", "--bind", "0.0.0.0"]
 

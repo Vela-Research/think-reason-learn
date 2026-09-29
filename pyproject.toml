@@ -23,9 +23,6 @@ dependencies = [
     "pandas>=2.3.2,<3",
     "orjson>=3.11.3,<4",
     "graphviz>=0.21,<0.22",
-    "furo (>=2025.7.19,<2026.0.0)",
-    "pydata-sphinx-theme (>=0.16.1,<0.17.0)",
-    "sphinx-design (>=0.6.1,<0.7.0)",
     "scikit-learn (>=1.7.2,<2.0.0)",
     "pyarrow (>=21.0.0,<22.0.0)",
     "tqdm (>=4.68.4,<5.0.0)",
@@ -34,6 +31,7 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://thinkreasonlearn.com/"
+Repository = "https://github.com/Vela-Research/think-reason-learn"
 Documentation = "https://thinkreasonlearn.com/modules.html"
 
 [tool.poetry]
@@ -55,6 +53,8 @@ ipywidgets = "^8.1.8"
 
 [tool.poetry.group.docs.dependencies]
 furo = "^2025.7.19"  # Latest version as specified
+pydata-sphinx-theme = "^0.16.1"
+sphinx-design = "^0.6.1"
 myst-parser = "^4.0.1"  # if you want Markdown docs
 
 [build-system]

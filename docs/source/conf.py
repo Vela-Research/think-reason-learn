@@ -122,7 +122,7 @@ source_suffix = {
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 html_theme = "pydata_sphinx_theme"
 html_static_path = ["_static"]
-html_css_files = ["custom.css"]
+html_css_files = ["custom.css", "trl-fonts.css", "trl-theme.css"]
 
 # Custom JavaScript to make external links open in new tabs
 html_js_files = [
@@ -133,10 +133,15 @@ html_title = "Think Reason Learn"
 html_short_title = "TRL"
 html_theme_options = {
     "logo": {
-        "image_light": "_static/logo-light.png",
-        "image_dark": "_static/logo-dark.png",
-        "alt_text": "Think Reason Learn",
+        "image_light": "_static/trl-mark.svg",
+        "image_dark": "_static/trl-mark-dark.svg",
+        "text": "Think, Reason, Learn",
+        "alt_text": "Think, Reason, Learn home",
+        "link": "https://thinkreasonlearn.com/",
     },
+    "external_links": [
+        {"name": "FounderBrain", "url": "https://thinkreasonlearn.com/founderbrain"},
+    ],
     "icon_links": [
         {
             "name": "GitHub",
@@ -147,4 +152,5 @@ html_theme_options = {
     ],
     "navbar_end": ["theme-switcher", "navbar-icon-links"],
     "navigation_depth": 3,
+    "header_links_before_dropdown": 5,
 }

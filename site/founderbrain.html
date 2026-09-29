@@ -87,6 +87,7 @@ body{background:var(--cream);color:var(--ink);margin:0}
 .copy:hover{background:rgba(246,241,230,.1)}
 .add :focus-visible{outline-color:var(--gold)}
 .add .note{font-size:14.5px;opacity:.8;margin-top:14px}
+.add .note code{font-size:13px;overflow-wrap:anywhere}
 
 /* what you get */
 .get{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:56px;margin-top:34px;align-items:start}
@@ -219,6 +220,7 @@ body{background:var(--cream);color:var(--ink);margin:0}
           <li><div>Point Claude at a transcript file and ask it to run FounderBrain.</div></li>
         </ol>
         <p class="note">In Claude Code you get the same results and coaching as text. The visual report, with charts and your closest matches, shows in the Claude app on the web and desktop.</p>
+        <p class="note">It works in Codex too. Run <code>codex mcp add founderbrain --url https://mcp.thinkreasonlearn.com/mcp</code> and you get the results and coaching as text.</p>
       </div>
     </div>
   </section>

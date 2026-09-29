@@ -41,6 +41,7 @@ def main(docs, out, local):
         shutil.rmtree(out)
     shutil.copytree(docs, out / "docs")
     shutil.copytree(HERE / "fonts", out / "fonts")
+    shutil.copytree(HERE / "img", out / "img")
     for src, dst in PAGES.items():
         text = (HERE / src).read_text()
         text = text.replace('href="fonts/fonts.css"', 'href="/fonts/fonts.css"')

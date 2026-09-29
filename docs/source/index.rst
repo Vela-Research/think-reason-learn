@@ -6,12 +6,15 @@
 Documentation
 =============
 
+.. meta::
+   :description: Documentation for Think, Reason, Learn, Vela Research's open-source Python library for prediction models that show their reasoning.
+
 Think, Reason, Learn is an open-source Python library for prediction models that show their reasoning. It keeps
 the shape of decision trees, rule forests and short policies, and asks a language model to reason at each step, so
 every prediction comes with the questions or rules behind it. It is built by Vela Research, the research arm of Vela
 Partners, with the University of Oxford.
 
-Start with the installation guide, then the quick start, which fits a first GPTree on your own labelled text.
+Start with the installation guide, then the quick start, which fits a small GPTree on six example founder profiles.
 
 .. grid:: 1 2 3 3
    :gutter: 3
@@ -19,7 +22,7 @@ Start with the installation guide, then the quick start, which fits a first GPTr
    .. grid-item-card:: Get started
 
       - :doc:`About <getting_started/about>`
-      - :doc:`Installation <getting_started/installation_guide>`
+      - :doc:`Installation guide <getting_started/installation_guide>`
       - :doc:`Quick start <getting_started/quick_start>`
 
    .. grid-item-card:: Reference
@@ -30,7 +33,7 @@ Start with the installation guide, then the quick start, which fits a first GPTr
 
       - :doc:`Contributing <contributing>`
       - :doc:`Changelog <changelog>`
-      - :doc:`Licence <license>`
+      - :doc:`License <license>`
 
 The papers behind the methods are on the `research page <https://thinkreasonlearn.com/research>`_.
 

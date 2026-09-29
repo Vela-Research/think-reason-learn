@@ -122,12 +122,11 @@ source_suffix = {
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 html_theme = "pydata_sphinx_theme"
 html_static_path = ["_static"]
-html_css_files = ["custom.css", "trl-fonts.css", "trl-theme.css"]
+html_css_files = ["trl-fonts.css", "trl-theme.css"]
 
 # Custom JavaScript to make external links open in new tabs
 html_js_files = [
     "external_links.js",
-    "api-detection.js",
 ]
 html_title = "Think, Reason, Learn docs"
 html_show_sourcelink = False
@@ -157,4 +156,7 @@ html_theme_options = {
     "secondary_sidebar_items": ["page-toc"],
     "show_toc_level": 2,
     "navigation_depth": 3,
+    "footer_start": ["trl-footer"],
+    "footer_center": [],
+    "footer_end": [],
 }

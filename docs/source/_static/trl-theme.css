@@ -49,3 +49,22 @@ a[href*="thinkreasonlearn.com"]::after{content:none!important}
 .docs-toc a:hover{color:var(--pst-color-text-base);background:var(--pst-color-surface)}
 .docs-toc li.current>a,.docs-toc a.current{color:var(--pst-color-primary);background:var(--pst-color-target);font-weight:600}
 .docs-toc ul ul{margin-left:12px;border-left:1px solid var(--pst-color-border);padding-left:6px}
+/* layout, headings, code and cards matched to the site pages */
+.bd-page-width{max-width:1132px}
+.bd-sidebar-primary{width:15rem;flex-basis:15rem}
+.bd-header .navbar-header-items__center{justify-content:flex-end;margin-left:auto}
+.site-nav{font-size:15px;gap:4px 18px}
+.bd-header .navbar-brand{font-size:18px}
+.bd-header .navbar-brand img{height:20px!important}
+.bd-content h1{font-family:'Fraunces',Georgia,serif;font-weight:300;font-size:clamp(40px,5.5vw,60px);line-height:1.04;letter-spacing:-.02em;text-wrap:balance}
+.bd-content h2{font-weight:400}
+html[data-theme="light"] div.highlight,html[data-theme="light"] div.highlight pre{background:#FFFDF8}
+html[data-theme="dark"] div.highlight,html[data-theme="dark"] div.highlight pre{background:#1B1F1C}
+div.highlight{border:1px solid var(--pst-color-border)}
+div.highlight pre{border:0;font-size:14px;line-height:1.55}
+.sd-card .sd-card-body{padding:1.1rem 1.25rem}
+.sd-card .sd-card-title{font-family:'Fraunces',Georgia,serif;font-weight:500;font-size:19px}
+.sd-card ul{margin:0;padding-left:1.1rem}
+.bd-sidebar-secondary .page-toc .onthispage{font-size:12.5px;letter-spacing:.08em}
+.trl-footer{margin:0;font-size:14px;color:var(--pst-color-text-muted)}
+.trl-footer a{color:var(--pst-color-text-muted)}

@@ -6,6 +6,7 @@ Prerequisites
 
 - Python 3.13 or higher
 - pip (latest version recommended)
+- Graphviz, to draw trees (``brew install graphviz`` or ``apt-get install graphviz``)
 
 Standard Installation
 ~~~~~~~~~~~~~~~~~~~~~

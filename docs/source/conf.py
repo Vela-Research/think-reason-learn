@@ -140,7 +140,6 @@ html_theme_options = {
         "alt_text": "Think, Reason, Learn home",
         "link": "https://thinkreasonlearn.com/",
     },
-
     "icon_links_label": "Links",
     "icon_links": [
         {

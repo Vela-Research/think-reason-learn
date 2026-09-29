@@ -12,6 +12,8 @@ RUN apt-get update \
 RUN pip install --no-cache-dir \
     sphinx==8.2.3 \
     furo==2025.7.19 \
+    pydata-sphinx-theme==0.16.1 \
+    sphinx-design==0.6.1 \
     myst-parser==4.0.1 \
     autodoc-pydantic==2.2.0 \
     sphinx-autodoc-typehints==3.2.0

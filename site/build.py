@@ -31,6 +31,7 @@ FORWARD = """<!doctype html>
 <meta charset="utf-8">
 <title>Moved</title>
 <link rel="canonical" href="https://thinkreasonlearn.com{0}">
+<script>location.replace("{0}" + location.hash)</script>
 <meta http-equiv="refresh" content="0; url={0}">
 </head>
 <body><p>This page has moved to <a href="{0}">{1}</a>.</p></body>
@@ -78,7 +79,7 @@ def main(docs, out, local):
         old = out / rel
         if old.exists() or rel.startswith("_"):
             continue
-        new = MOVED.get(rel, "/docs/" + rel.removesuffix("index.html"))
+        new = MOVED.get(rel, "/docs/" + re.sub(r"(^|/)index\.html$", r"\1", rel))
         old.parent.mkdir(parents=True, exist_ok=True)
         old.write_text(FORWARD.format(new, htmllib.escape(new)))
     print(f"built {out}")

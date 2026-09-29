@@ -1,0 +1,278 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FounderBrain Privacy</title>
+<meta name="description" content="How FounderBrain, the connector for Claude by Vela Partners, handles meeting transcripts: they are analysed on our server and not stored.">
+<link rel="canonical" href="https://thinkreasonlearn.com/privacy">
+<link rel="stylesheet" href="fonts/fonts.css">
+<style>
+:root{
+  --cream:#FAF7F0;--paper:#FFFDF8;--deep:#F2EDE2;--ink:#1E2321;--soft:#5E655F;--line:#DDD5C4;--dot:#B7AE9B;--mute:#E9E5DC;
+  --green:#1E6B43;--gt:#E4EFE7;--sage:#A9CDB6;--forest:#173F2B;--forest2:#1F4F37;--on-forest:#F6F1E6;--forest-edge:transparent;
+  --gold:#D9A94F;--clay:#9A6434;--clay-t:#F5EBDD;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --cream:#161917;--paper:#1B1F1C;--deep:#1F2320;--ink:#ECE7DB;--soft:#A5ACA6;--line:#343A36;--dot:#5E655F;--mute:#2A2E2B;
+    --green:#6DBB8C;--gt:#203326;--sage:#A9CDB6;--forest:#1A3B29;--forest2:#22503A;--on-forest:#F6F1E6;--forest-edge:rgba(169,205,182,.28);
+    --gold:#E3B560;--clay:#D9A66B;--clay-t:#372B1D;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --cream:#161917;--paper:#1B1F1C;--deep:#1F2320;--ink:#ECE7DB;--soft:#A5ACA6;--line:#343A36;--dot:#5E655F;--mute:#2A2E2B;
+  --green:#6DBB8C;--gt:#203326;--sage:#A9CDB6;--forest:#1A3B29;--forest2:#22503A;--on-forest:#F6F1E6;--forest-edge:rgba(169,205,182,.28);
+  --gold:#E3B560;--clay:#D9A66B;--clay-t:#372B1D;
+  color-scheme:dark;
+}
+html{background:var(--cream);-webkit-text-size-adjust:100%}
+body{background:var(--cream);color:var(--ink);margin:0}
+.trl,.trl *,.trl *::before,.trl *::after{box-sizing:border-box}
+.trl{font-family:'Source Serif 4',Georgia,'Times New Roman',serif;font-size:17px;line-height:1.6;color:var(--ink);background:var(--cream);-webkit-font-smoothing:antialiased}
+:where(.trl) :where(p,h1,h2,h3,ol,ul,dl,dd,figure,pre){margin:0;padding:0}
+.trl a{color:var(--green);text-underline-offset:3px;text-decoration-thickness:1px}
+.trl a:hover{text-decoration-thickness:2px}
+.trl :focus-visible{outline:2px solid var(--green);outline-offset:3px;border-radius:4px}
+.trl button{font:inherit;color:inherit;cursor:pointer}
+.trl code,.trl pre,.mono{font-family:'DM Mono',ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums}
+.wrap{max-width:1132px;margin:0 auto;padding:0 32px}
+.draft{margin-top:14px;font-size:14px;color:var(--clay);background:var(--clay-t);border-radius:8px;padding:8px 12px}
+.ph{font-family:'DM Mono',ui-monospace,monospace;font-size:.78em;color:var(--soft);border:1px dashed var(--line);border-radius:4px;padding:0 5px;overflow-wrap:anywhere}
+.live{position:absolute;left:-9999px}
+
+.bar{display:flex;justify-content:space-between;align-items:center;gap:10px 24px;flex-wrap:wrap;padding:18px 0 16px;border-bottom:1px solid var(--line)}
+.brand{display:inline-flex;align-items:center;gap:9px;font-family:'Fraunces',serif;font-weight:600;font-size:18px}
+.trl a.brand{color:var(--ink);text-decoration:none}
+.brand svg{width:20px;height:20px;flex:none}
+.nav{display:flex;flex-wrap:wrap;gap:4px 18px;font-size:15px}
+.trl .nav a{color:var(--soft);text-decoration:none;white-space:nowrap}
+.trl .nav a:hover,.trl .nav a[aria-current]{color:var(--ink)}
+.trl .nav a[aria-current]{text-decoration:underline}
+
+.mast{padding:60px 0 8px;max-width:860px}
+.eyebrow{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--soft)}
+.eyebrow b{font-weight:600;color:var(--green)}
+.mast h1{font-family:'Fraunces',serif;font-weight:300;font-size:clamp(48px,8vw,84px);line-height:1;letter-spacing:-.025em;margin-top:16px}
+.stand{font-family:'Fraunces',serif;font-weight:400;font-size:clamp(20px,2.3vw,25px);line-height:1.38;margin-top:22px;max-width:36em;text-wrap:pretty}
+.meta{margin-top:18px;font-size:15.5px;color:var(--soft)}
+
+.sec{padding:64px 0 0}
+.k{font-family:'DM Mono',monospace;font-size:13px;color:var(--green);letter-spacing:.06em;text-transform:uppercase}
+.sec h2{font-family:'Fraunces',serif;font-weight:400;font-size:clamp(28px,3.3vw,38px);line-height:1.14;letter-spacing:-.015em;max-width:24em;margin-top:10px;text-wrap:balance}
+.lede{margin-top:14px;max-width:40em;font-size:18px}
+.st{display:inline-block;font-size:13px;padding:2px 10px;border-radius:999px;vertical-align:.3em;margin-left:10px;font-family:'Source Serif 4',serif;letter-spacing:0;text-transform:none;background:var(--clay-t);color:var(--clay)}
+
+/* add to Claude */
+.add{margin-top:30px;background:var(--forest);color:var(--on-forest);border:1px solid var(--forest-edge);border-radius:22px;padding:40px 44px 38px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:40px}
+.add h3{font-family:'Fraunces',serif;font-weight:400;font-size:26px;line-height:1.15}
+.add .tag{font-size:12.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--gold);margin-bottom:10px}
+.steps{list-style:none;counter-reset:s;margin-top:16px}
+.steps li{counter-increment:s;display:grid;grid-template-columns:30px minmax(0,1fr);gap:10px;padding:10px 0;border-top:1px solid rgba(246,241,230,.16)}
+.steps li::before{content:counter(s);font-family:'DM Mono',monospace;font-size:13px;color:var(--gold);padding-top:3px}
+.steps b{font-weight:600}
+.cmd{display:flex;align-items:stretch;margin-top:8px;border:1px solid rgba(246,241,230,.35);background:var(--forest2);border-radius:10px;overflow:hidden}
+.cmd code{flex:1;min-width:0;padding:10px 12px;font-size:14px;white-space:nowrap;overflow-x:auto;color:var(--on-forest)}
+.copy{border:0;border-left:1px solid rgba(246,241,230,.25);background:transparent;padding:0 14px;font-size:14px;color:var(--on-forest);min-width:72px}
+.copy:hover{background:rgba(246,241,230,.1)}
+.add :focus-visible{outline-color:var(--gold)}
+.add .note{font-size:14.5px;opacity:.8;margin-top:14px}
+
+/* what you get */
+.get{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:56px;margin-top:34px;align-items:start}
+.parts{border-top:1px solid var(--line)}
+.parts div{padding:15px 0;border-bottom:1px solid var(--line)}
+.parts dt{font-family:'Fraunces',serif;font-weight:500;font-size:21px;line-height:1.25}
+.parts dd{margin-top:4px;max-width:34em}
+.prompts{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:20px 22px}
+.prompts h3{font-family:'Fraunces',serif;font-weight:500;font-size:19px}
+.prompts ul{list-style:none;margin-top:10px}
+.prompts li{padding:12px 0;border-top:1px solid var(--line);font-family:'Fraunces',serif;font-style:italic;font-size:18px;line-height:1.35}
+.prompts li small{display:block;font-family:'Source Serif 4',serif;font-style:normal;font-size:14px;color:var(--soft);margin-top:2px}
+
+/* facts */
+.facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px 36px;margin-top:30px;border-top:1px solid var(--ink);padding-top:18px}
+.facts .n{font-family:'DM Mono',monospace;font-size:26px;letter-spacing:-.01em}
+.facts p{font-size:15.5px;color:var(--soft);margin-top:4px;max-width:22em}
+
+.two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:56px;align-items:start}
+.two .body{margin-top:14px;max-width:36em}
+.two .body p + p{margin-top:12px}
+.two ul.pl{margin:12px 0 0 1.1em}
+.two ul.pl li{margin-top:6px}
+
+.foot{margin-top:88px;border-top:1px solid var(--line);padding:28px 0 44px;display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) minmax(0,1fr);gap:24px 40px;font-size:15px;color:var(--soft)}
+.foot h2{font-family:'Source Serif 4',serif;font-size:13px;letter-spacing:.08em;text-transform:uppercase;font-weight:400;margin-bottom:8px}
+.foot ul{list-style:none;margin:0;padding:0}
+.foot li{margin-top:4px}
+.trl .foot a{color:var(--soft)}
+.trl .foot a:hover{color:var(--ink)}
+
+@media (max-width:900px){
+  .add,.get,.two{grid-template-columns:minmax(0,1fr)}
+  .two{gap:0}
+  .facts{grid-template-columns:minmax(0,1fr)}
+  .foot{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+  .foot > div:first-child{grid-column:1 / 3}
+}
+@media (max-width:640px){
+  .wrap{padding:0 16px}
+  .trl{font-size:16.5px}
+  .mast{padding:40px 0 4px}
+  .sec{padding-top:48px}
+  .add{padding:28px 18px 26px;border-radius:16px;gap:26px}
+  .cmd code{font-size:12.5px}
+  .foot{grid-template-columns:minmax(0,1fr)}
+  .foot > div:first-child{grid-column:auto}
+}
+
+.pol{max-width:46em;padding:52px 0 0}
+.pol h1{font-family:'Fraunces',serif;font-weight:300;font-size:clamp(40px,6vw,64px);line-height:1.02;letter-spacing:-.02em;margin-top:12px}
+.pol .upd{margin-top:12px;color:var(--soft);font-size:15.5px}
+.pol h2{font-family:'Fraunces',serif;font-weight:500;font-size:24px;line-height:1.2;margin-top:44px;text-wrap:balance;scroll-margin-top:16px}
+.pol p{margin-top:12px}
+.pol ul{margin:12px 0 0 1.2em}
+.pol li{margin-top:6px}
+.pol .toc{list-style:none;margin:26px 0 0;padding:16px 20px;border:1px solid var(--line);border-radius:12px;background:var(--paper);columns:2;column-gap:32px;font-size:15.5px}
+.pol .toc li{margin:3px 0;break-inside:avoid}
+.pol .toc a{text-decoration:none}
+.pol .toc a:hover{text-decoration:underline}
+.pol .tw{margin-top:16px;overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--paper)}
+.pol table{width:100%;border-collapse:collapse;font-size:15.5px;line-height:1.5}
+.pol th,.pol td{text-align:left;vertical-align:top;padding:12px 16px;border-bottom:1px solid var(--line)}
+.pol tr:last-child td{border-bottom:0}
+.pol thead th{font-family:'Source Serif 4',serif;font-weight:600;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--soft);background:var(--deep)}
+.pol tbody td:first-child{font-weight:600;width:28%}
+.pol .obj{margin-top:18px;border-left:3px solid var(--green);background:var(--paper);border-radius:0 10px 10px 0;padding:14px 18px}
+@media (max-width:640px){.pol .toc{columns:1}.pol th,.pol td{padding:10px 12px}.pol tbody td:first-child{width:auto}}
+</style>
+
+<div class="trl">
+<div class="wrap">
+
+  <header class="bar">
+    <a class="brand" href="https://thinkreasonlearn.com">
+      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v5M10 8 5 13M10 8l5 5" fill="none" stroke="var(--green)" stroke-width="1.6" stroke-linecap="round"/><circle cx="10" cy="3" r="2" fill="var(--green)"/><circle cx="5" cy="15" r="2" fill="var(--green)"/><circle cx="15" cy="15" r="2" fill="none" stroke="var(--green)" stroke-width="1.4"/></svg>Think, Reason, Learn</a>
+    <nav class="nav" aria-label="Main">
+      <a href="https://thinkreasonlearn.com/">Home</a>
+      <a href="https://thinkreasonlearn.com/founderbrain">FounderBrain</a>
+      <a href="https://thinkreasonlearn.com/docs/">Docs</a>
+      <a href="https://thinkreasonlearn.com/research">Research</a>
+      <a href="https://github.com/vela-research/think-reason-learn">GitHub</a>
+    </nav>
+  </header>
+
+  <main class="pol" id="top">
+    <p class="eyebrow"><b>FounderBrain</b> · Privacy policy</p>
+    <h1>Privacy policy</h1>
+    <p class="upd">Last updated 29 September 2026</p>
+
+    <ul class="toc">
+      <li><a href="#who">Who we are</a></li>
+      <li><a href="#what">What FounderBrain does</a></li>
+      <li><a href="#receive">What we receive</a></li>
+      <li><a href="#why">How we use it, and why</a></li>
+      <li><a href="#keep">What we keep, and for how long</a></li>
+      <li><a href="#others">Who else handles it</a></li>
+      <li><a href="#transfers">Where it is processed</a></li>
+      <li><a href="#people">People in your transcript</a></li>
+      <li><a href="#reference">Well-known people in reports</a></li>
+      <li><a href="#rights">Your rights</a></li>
+      <li><a href="#security">Security</a></li>
+      <li><a href="#more">Everything else</a></li>
+    </ul>
+
+    <h2 id="who">Who we are</h2>
+    <p>FounderBrain is provided by Vela Partners Management LLC, a California limited liability company, of 1 Ferry Building, Suite 201, San Francisco, CA 94111, United States ("we"). We are the controller of the personal data described here. This policy covers the FounderBrain connector for Claude, including the report it shows in a chat. Pages on thinkreasonlearn.com, such as this one, are served by our web host, which receives your IP address and browser type when you visit. The FounderBrain pages load their fonts from the same host; other pages on the site may load fonts from Google Fonts.</p>
+    <p>Privacy questions and requests go to <a class="mono" href="mailto:support@thinkreasonlearn.com">support@thinkreasonlearn.com</a>. Security reports go to <a class="mono" href="mailto:security@thinkreasonlearn.com">security@thinkreasonlearn.com</a>. We have not appointed a data protection officer.</p>
+
+    <h2 id="what">What FounderBrain does</h2>
+    <p>FounderBrain analyses one speaker in a meeting transcript. It checks each of their answers against 100 fixed questions about how people speak, such as whether an answer gives a number or tells a story, and compares the result with 773 public interviews of founders and operators. It returns a short report about that one conversation, which Claude uses to coach you. The transcript is scored on our server and is not stored.</p>
+    <p>This is a form of profiling, because it describes how a person spoke. The report describes one conversation, not a person's ability, character or suitability for anything. FounderBrain makes no decisions about anyone, and its report should never be the only basis for a decision about a person, such as whether to hire them or invest in them.</p>
+
+    <h2 id="receive">What we receive</h2>
+    <p>When Claude runs FounderBrain, our server receives what the tool call carries.</p>
+    <ul>
+      <li>The transcript text, which Claude sends from your chat so that our server can score it. We use it only for that analysis and do not store it.</li>
+      <li>The speaker label you chose and whether they were mainly answering or asking questions.</li>
+      <li>A display name, if the transcript uses a generic label such as "Me" or "Speaker 2" and you gave Claude a name. It appears in the report.</li>
+      <li>Technical data that any web request carries, such as an IP address, the time, the size of the request and the client software. In Claude on the web and in the desktop app, tool calls come from Anthropic's servers, so we do not see your IP address. Tools that connect directly, such as Claude Code, send requests from your own device, so we see your address.</li>
+      <li>When Claude shows the report in a chat, your browser loads the report's script and fonts from our server. That request carries your IP address, your browser type and the address of the page showing the report.</li>
+    </ul>
+    <p>We do not ask for your name, email address or an account, and FounderBrain has no sign in. Using FounderBrain is optional. Without a transcript we cannot produce a report.</p>
+
+    <h2 id="why">How we use it, and why</h2>
+    <div class="tw"><table>
+      <thead><tr><th scope="col">What we do</th><th scope="col">Data used</th><th scope="col">Legal basis</th></tr></thead>
+      <tbody>
+        <tr><td>Produce the report you ask for</td><td>Transcript, speaker label, display name, role</td><td>Legitimate interests, ours and yours, in providing and using a free analysis tool</td></tr>
+        <tr><td>Run the service, keep it secure and prevent abuse</td><td>Technical data, service logs, hourly counts</td><td>Legitimate interests in operating a reliable, fair service</td></tr>
+        <tr><td>Compare your style with a reference set</td><td>Public interviews of well-known founders and operators</td><td>Legitimate interests in research and in explaining the result</td></tr>
+        <tr><td>Answer your emails</td><td>Your email address and message</td><td>Legitimate interests in supporting users</td></tr>
+      </tbody>
+    </table></div>
+    <p>We do not use transcripts or reports to train or tune any model. We do not sell personal data, share it for targeted advertising, or use it for any purpose other than those above.</p>
+    <p class="obj"><b>Your right to object.</b> Because we rely on legitimate interests, you can object at any time to our processing of your data, including the profiling described above, by writing to <a class="mono" href="mailto:support@thinkreasonlearn.com">support@thinkreasonlearn.com</a>.</p>
+
+    <h2 id="keep">What we keep, and for how long</h2>
+    <div class="tw"><table>
+      <thead><tr><th scope="col">Data</th><th scope="col">How long</th></tr></thead>
+      <tbody>
+        <tr><td>Transcript</td><td>Only while an analysis runs. It is held in the server's memory, including a temporary folder that is deleted when the analysis ends, whether or not it succeeds. We do not store it anywhere.</td></tr>
+        <tr><td>Report</td><td>Not kept by us. It is sent back to Claude.</td></tr>
+        <tr><td>Service logs</td><td>30 days. They record the type and duration of each request, the number of words sent for an analysis, how long scoring took and the kind of any unexpected error. They are designed to exclude transcript text, speaker names and report contents.</td></tr>
+        <tr><td>Request logs kept by our host</td><td>30 days. They record the time, the address requested, the IP address, the client or browser type, the referring page, and the response status, size and timing.</td></tr>
+        <tr><td>Hourly counts of analyses</td><td>Up to about a day. When a request comes directly from an individual address, rather than through Anthropic or a private network, we count analyses against a keyed hash of that address, not the address itself. A keyed hash is still personal data. Each count expires three hours after the last analysis it counted and is removed automatically, normally within a day.</td></tr>
+        <tr><td>Emails you send us</td><td>Until your question is resolved, and no longer than 24 months.</td></tr>
+        <tr><td>Reference data about well-known people</td><td>For as long as FounderBrain runs. See <a href="#reference">Well-known people in reports</a>.</td></tr>
+      </tbody>
+    </table></div>
+
+    <h2 id="others">Who else handles it</h2>
+    <div class="tw"><table>
+      <thead><tr><th scope="col">Who</th><th scope="col">What they do</th><th scope="col">Role</th></tr></thead>
+      <tbody>
+        <tr><td>Google Cloud (Google LLC)</td><td>Hosts the server, its logs and the hourly counts</td><td>Our processor, under Google's Cloud Data Processing Addendum</td></tr>
+        <tr><td>Google Workspace (Google LLC)</td><td>Delivers email sent to our support and security addresses</td><td>Our processor</td></tr>
+        <tr><td>Anthropic</td><td>Runs Claude, which sends the transcript to us and shows the report in a page on its own domain</td><td>A separate controller of your Claude conversation, under <a href="https://www.anthropic.com/legal/privacy">Anthropic's privacy policy</a></td></tr>
+      </tbody>
+    </table></div>
+    <p>No other AI service receives your transcript from us. The scoring model runs on our server in Google Cloud. Claude, which you are already using, sees the transcript as part of your chat, and Anthropic keeps that conversation under its own terms. We cannot see or delete it, but you can delete it in Claude.</p>
+    <p>We also receive daily usage figures by email, such as the number of analyses and the hosting cost. They are counts only and contain no personal data.</p>
+    <p>We disclose personal data to others only if the law requires it, for example in answer to a valid legal request. Because we keep so little, there is usually little to disclose.</p>
+
+    <h2 id="transfers">Where it is processed</h2>
+    <p>Our server runs in Google Cloud's us-central1 region in the United States, and our email is handled by Google Workspace. We are based in the United States and process your data there, so if you are in the UK or the European Economic Area your data is transferred to the United States. Our processor Google LLC is certified under the EU-US Data Privacy Framework and its UK Extension, and Google's Cloud Data Processing Addendum also includes the EU Standard Contractual Clauses and the UK Addendum. You can ask us for details of these safeguards.</p>
+
+    <h2 id="people">People in your transcript</h2>
+    <p>A transcript usually contains other people's words. Only the speaker you choose is scored. The questions put to them are used alongside their answers as context, and the labels of the other speakers are shown to Claude so that you can pick one. Nothing about anyone in the transcript is kept once the analysis ends.</p>
+    <p>Use FounderBrain to analyse yourself, or someone who knows about it and agrees. Please send only transcripts you have the right to share.</p>
+    <p>If you were in a meeting that someone analysed with FounderBrain, the rights below apply to you too. Because we keep no copy of the transcript and have no way to contact you, we cannot tell you when it happens.</p>
+
+    <h2 id="reference">Well-known people in reports</h2>
+    <p>Reports compare the speaker with well-known founders, CEOs and operators, and name those people. The comparison comes from public interviews, including Lenny's Podcast, Mixergy, and public podcast, television and stage interviews. For each person we hold style scores and habit rates derived from their public answers, and a short description of what they are known for. Only people whom most readers would recognise are named in reports.</p>
+    <p>If you are one of these people and want to object or be removed, write to <a class="mono" href="mailto:support@thinkreasonlearn.com">support@thinkreasonlearn.com</a>.</p>
+
+    <h2>Sensitive information</h2>
+    <p>Transcripts can mention health, politics, religion or other sensitive matters. FounderBrain measures how people speak, not what they speak about. It does not extract or keep what people say about sensitive matters, and one of its measures notes only whether a speaker shares a personal experience or emotion. Please remove anything you do not need analysed.</p>
+
+    <h2 id="rights">Your rights</h2>
+    <p>Depending on where you live, you can ask to access, correct, delete or restrict your personal data, to receive it in a portable form, and to object to our processing. Because we keep no transcripts or reports, and our logs and counts are not linked to names, we will usually hold nothing we can find about you. If you give us something that lets us find data about you, such as the IP address and time of a request, we will look and act on your request within one month. If a request is complex, we may take up to two further months, and we will tell you within the first month if we need to.</p>
+    <p>If you are unhappy with how we handle your data, write to <a class="mono" href="mailto:support@thinkreasonlearn.com">support@thinkreasonlearn.com</a>. We will acknowledge your complaint within 30 days and tell you the outcome. You can also complain to a data protection authority, such as the UK Information Commissioner's Office (<a href="https://ico.org.uk/make-a-complaint/">ico.org.uk</a>) or the authority where you live or work in the European Economic Area.</p>
+
+    <h2 id="security">Security</h2>
+    <p>FounderBrain is served only over HTTPS. Plain HTTP requests are redirected and never processed. The server runs under its own account, with access only to its own secrets and its own counts. Its secrets are held in Google's Secret Manager, addresses are only stored as keyed hashes, and transcripts never touch permanent storage. If a data breach affects you, we will tell the relevant authority and, where the law requires it, you.</p>
+
+    <h2 id="more">Everything else</h2>
+    <p>FounderBrain sets no cookies and uses no analytics or tracking. The report in a chat loads only from our own server.</p>
+    <p>FounderBrain analyses text only. It uses no audio, voice, images or other biometric data. It notes whether answers express emotion in words, such as enthusiasm or a flat tone, but it does not infer anyone's emotional state.</p>
+    <p>FounderBrain is not meant for anyone under 18, in line with Claude's own age requirement.</p>
+    <p>If we change this policy, we will post the new version here with a new date. For a change that affects how we use your data, we will post a notice on this page at least 14 days before it takes effect.</p>
+  </main>
+
+  <footer class="foot">
+    <div><p>Think, Reason, Learn is open source under the MIT licence. FounderBrain is made with it by Vela Research, the research arm of Vela Partners.</p></div>
+    <div><h2>FounderBrain</h2><ul><li><a href="https://thinkreasonlearn.com/founderbrain">Add to Claude</a></li><li><a href="https://thinkreasonlearn.com/privacy">Privacy</a></li></ul></div>
+    <div><h2>Think, Reason, Learn</h2><ul><li><a href="https://thinkreasonlearn.com/docs/">Docs</a></li><li><a href="https://github.com/vela-research/think-reason-learn">GitHub</a></li><li><a href="https://vcbench.com">VCBench</a></li></ul></div>
+  </footer>
+</div>
+</div>

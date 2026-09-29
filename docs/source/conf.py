@@ -122,21 +122,25 @@ source_suffix = {
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 html_theme = "pydata_sphinx_theme"
 html_static_path = ["_static"]
-html_css_files = ["custom.css"]
+html_css_files = ["trl-fonts.css", "trl-theme.css"]
 
 # Custom JavaScript to make external links open in new tabs
 html_js_files = [
     "external_links.js",
-    "api-detection.js",
 ]
-html_title = "Think Reason Learn"
+html_title = "Think, Reason, Learn docs"
+html_show_sourcelink = False
+html_sidebars = {"**": ["docs-toc.html"]}
 html_short_title = "TRL"
 html_theme_options = {
     "logo": {
-        "image_light": "_static/logo-light.png",
-        "image_dark": "_static/logo-dark.png",
-        "alt_text": "Think Reason Learn",
+        "image_light": "_static/trl-mark.svg",
+        "image_dark": "_static/trl-mark-dark.svg",
+        "text": "Think, Reason, Learn",
+        "alt_text": "Think, Reason, Learn home",
+        "link": "https://thinkreasonlearn.com/",
     },
+    "icon_links_label": "Links",
     "icon_links": [
         {
             "name": "GitHub",
@@ -145,6 +149,13 @@ html_theme_options = {
             "type": "fontawesome",
         }
     ],
-    "navbar_end": ["theme-switcher", "navbar-icon-links"],
+    "navbar_center": ["site-nav"],
+    "navbar_end": ["search-button", "theme-switcher"],
+    "navbar_persistent": [],
+    "secondary_sidebar_items": ["page-toc"],
+    "show_toc_level": 2,
     "navigation_depth": 3,
+    "footer_start": ["trl-footer"],
+    "footer_center": [],
+    "footer_end": [],
 }

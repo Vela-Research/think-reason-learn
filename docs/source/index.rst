@@ -3,37 +3,36 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-Think Reason Learn
-==================
+Documentation
+=============
 
-Think Reason Learn is an innovative, open-source Python library that fuses the power of
-large language models (LLMs) with interpretable machine learning. Developed at Vela
-Research in collaboration with Oxford University, it provides production-grade tools
-for building transparent decision-making systems—perfect for high-stakes domains like
-venture capital, healthcare, and law.
+Think, Reason, Learn is an open-source Python library for prediction models that show their reasoning. It keeps
+the shape of decision trees, rule forests and short policies, and asks a language model to reason at each step, so
+every prediction comes with the questions or rules behind it. It is built by Vela Research, the research arm of Vela
+Partners, with the University of Oxford.
 
-.. grid:: 1 2 2 2
+Start with the installation guide, then the quick start, which fits a first GPTree on your own labelled text.
+
+.. grid:: 1 2 3 3
    :gutter: 3
 
-   .. grid-item-card:: Getting Started
+   .. grid-item-card:: Get started
 
       - :doc:`About <getting_started/about>`
-      - :doc:`Installation Guide <getting_started/installation_guide>`
-      - :doc:`Quick Start <getting_started/quick_start>`
+      - :doc:`Installation <getting_started/installation_guide>`
+      - :doc:`Quick start <getting_started/quick_start>`
 
-   .. grid-item-card:: API Documentation
+   .. grid-item-card:: Reference
 
-      - :doc:`API Reference <modules>`
+      - :doc:`API reference <modules>`
 
-   .. grid-item-card:: Research
-
-      - :doc:`Research <research>`
-
-   .. grid-item-card:: Development
+   .. grid-item-card:: Project
 
       - :doc:`Contributing <contributing>`
       - :doc:`Changelog <changelog>`
-      - :doc:`License <license>`
+      - :doc:`Licence <license>`
+
+The papers behind the methods are on the `research page <https://thinkreasonlearn.com/research>`_.
 
 .. toctree::
    :maxdepth: 2
@@ -43,7 +42,6 @@ venture capital, healthcare, and law.
    getting_started/installation_guide
    getting_started/quick_start
    modules
-   research
    contributing
    changelog
    license

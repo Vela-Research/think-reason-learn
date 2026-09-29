@@ -29,3 +29,23 @@ pre,div.highlight{border-radius:10px;border-color:var(--pst-color-border)}
 .bd-header a.navbar-brand{margin:0!important;justify-content:flex-start!important}
 a[href*="thinkreasonlearn.com"]::after{content:none!important}
 .bd-header .navbar-nav .nav-link{white-space:nowrap}
+/* the site's own menu in the docs header, and the docs sections in a left sidebar */
+.site-nav{display:flex;gap:4px 22px;flex-wrap:wrap;align-items:center;font-family:'Source Serif 4',Georgia,serif;font-size:15.5px}
+.site-nav a{color:var(--pst-color-text-muted)!important;text-decoration:none}
+.site-nav a:hover{color:var(--pst-color-text-base)!important;text-decoration:underline}
+.site-nav a[aria-current]{color:var(--pst-color-text-base)!important;text-decoration:underline;text-underline-offset:4px}
+.site-nav a::after{content:none!important}
+.bd-sidebar-primary{display:flex!important;border-right:1px solid var(--pst-color-border);background:transparent}
+.bd-sidebar-primary .sidebar-primary-items__start{padding-top:1.4rem}
+.bd-sidebar-primary .nav-link{font-size:15px}
+.bd-sidebar-secondary .page-toc .onthispage{font-family:'Source Serif 4',serif;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--pst-color-text-muted)}
+.bd-sidebar-secondary .page-toc .onthispage i{display:none}
+.docs-toc{font-size:15px}
+.docs-toc-title{font-family:'Fraunces',serif;font-weight:500;font-size:17px;margin:0 0 .6rem}
+.docs-toc-title a{color:var(--pst-color-text-base)!important;text-decoration:none}
+.docs-toc ul{list-style:none;margin:0;padding:0}
+.docs-toc li{margin:0}
+.docs-toc a{display:block;padding:5px 10px;border-radius:8px;color:var(--pst-color-text-muted);text-decoration:none}
+.docs-toc a:hover{color:var(--pst-color-text-base);background:var(--pst-color-surface)}
+.docs-toc li.current>a,.docs-toc a.current{color:var(--pst-color-primary);background:var(--pst-color-target);font-weight:600}
+.docs-toc ul ul{margin-left:12px;border-left:1px solid var(--pst-color-border);padding-left:6px}

@@ -129,7 +129,9 @@ html_js_files = [
     "external_links.js",
     "api-detection.js",
 ]
-html_title = "Think Reason Learn"
+html_title = "Think, Reason, Learn docs"
+html_show_sourcelink = False
+html_sidebars = {"**": ["docs-toc.html"]}
 html_short_title = "TRL"
 html_theme_options = {
     "logo": {
@@ -139,9 +141,8 @@ html_theme_options = {
         "alt_text": "Think, Reason, Learn home",
         "link": "https://thinkreasonlearn.com/",
     },
-    "external_links": [
-        {"name": "FounderBrain", "url": "https://thinkreasonlearn.com/founderbrain"},
-    ],
+
+    "icon_links_label": "Links",
     "icon_links": [
         {
             "name": "GitHub",
@@ -150,7 +151,10 @@ html_theme_options = {
             "type": "fontawesome",
         }
     ],
-    "navbar_end": ["theme-switcher", "navbar-icon-links"],
+    "navbar_center": ["site-nav"],
+    "navbar_end": ["search-button", "theme-switcher"],
+    "navbar_persistent": [],
+    "secondary_sidebar_items": ["page-toc"],
+    "show_toc_level": 2,
     "navigation_depth": 3,
-    "header_links_before_dropdown": 5,
 }

@@ -38,7 +38,17 @@ from pydantic import BaseModel, Field
 from sklearn.linear_model import LogisticRegressionCV
 
 from think_reason_learn.core.exceptions import CorruptionError, DataError, LLMError
-from think_reason_learn.core.llms import LLMChoice, TokenCounter, llm
+from think_reason_learn.core.llms import (
+    JevBudget,
+    JevQuestion,
+    JevRequest,
+    LLMChoice,
+    NoulQuestion,
+    TokenCounter,
+    llm,
+)
+from think_reason_learn.core.llms._jev.client import new_run_budget
+from think_reason_learn.core.llms._jev.schemas import is_jev
 
 from ._cost_sensitive import CostSensitiveConfig
 from ._prompt_presets import PromptPreset, PROMPT_PRESETS
@@ -51,6 +61,14 @@ from ._prompts import (
 from ._types import AnsSimilarityFunc, EmbeddingModel
 
 logger = logging.getLogger(__name__)
+
+JEV_YES_THRESHOLD = 0.5
+"""A Jev probability at or above this is recorded as YES."""
+
+
+def _py_scalar(value: Any) -> Any:
+    """Turn numpy scalars into Python ones so checkpoints serialise."""
+    return value.item() if isinstance(value, np.generic) else value
 
 
 class Questions(BaseModel):
@@ -90,7 +108,10 @@ class RRF:
     Args:
         qgen_llmc: LLMs to use for question generation, in priority order.
         qanswer_llmc: LLMs to use for answering questions, in priority order.
-            If None, use qgen_llmc.
+            If None, use qgen_llmc. With Jev (``JevChoice``) first, each sample
+            is sent once with all its questions and Jev's probability of YES is
+            recorded as YES at or above 0.5 (see
+            ``get_answer_probabilities()`` for the probabilities).
         qgen_temperature: Sampling temperature for question generation.
         qanswer_temperature: Sampling temperature for answering questions.
         llm_semaphore_limit: Max concurrent LLM calls.
@@ -249,6 +270,8 @@ class RRF:
         self._task_description: str | None = None
         self._questions: pd.DataFrame = self._get_initial_questions_df()
         self._answers: pd.DataFrame = self._create_answers_df(index=None)
+        self._answer_probs: pd.DataFrame = self._create_answers_df(index=None)
+        self._run_budget: JevBudget | None = None
         self._last_emb_model: EmbeddingModel | None = None
         self._X_val: pd.DataFrame | None = None
         self._y_val: npt.NDArray[np.str_] | None = None
@@ -413,6 +436,19 @@ class RRF:
                 - Index as the samples indices from self._X.
         """
         return self._answers
+
+    def get_answer_probabilities(self) -> pd.DataFrame:
+        """Get Jev's probability of YES for each answered (sample, question).
+
+        Returns:
+            DataFrame shaped like ``get_answers()`` with floats in [0, 1].
+            Questions answered by a chat model have no column.
+        """
+        return self._answer_probs
+
+    @property
+    def _answers_with_jev(self) -> bool:
+        return bool(self.qanswer_llmc) and is_jev(self.qanswer_llmc[0])
 
     @property
     def question_gen_instructions_template(self) -> str | None:
@@ -1121,13 +1157,24 @@ class RRF:
         # Buffered updates: per-question updates applied in batches
         # (for both single-sample and batched modes)
         answers_buffer: Dict[str, Dict[Any, str]] = {}
+        probs_buffer: Dict[str, Dict[Any, float]] = {}
 
         try:
+            # ------------------------------------------------------------------
+            # 0) Jev: one request per sample carrying all its questions.
+            # ------------------------------------------------------------------
+            if self._answers_with_jev:
+                await self._answer_questions_jev(
+                    cast(Iterable[Tuple[Any, str]], not_answered),
+                    answers_buffer,
+                    probs_buffer,
+                )
+
             # ------------------------------------------------------------------
             # 1) Backwards-compatible path: no batching (or batch_size == 1)
             #    -> behaves exactly like the original implementation.
             # ------------------------------------------------------------------
-            if self.qanswer_batch_size is None or self.qanswer_batch_size == 1:
+            elif self.qanswer_batch_size is None or self.qanswer_batch_size == 1:
                 num_not_answered = not_answered.size  # type: ignore
                 single_completion_queue: asyncio.Queue[None] = asyncio.Queue()
 
@@ -1323,6 +1370,63 @@ class RRF:
                 series_update = pd.Series(mapping, dtype=object)
                 index_update = cast(pd.Index, series_update.index)
                 ansdf.loc[index_update, qid] = series_update
+            for qid, mapping in probs_buffer.items():
+                if qid not in self._answer_probs.columns:
+                    self._answer_probs[qid] = np.nan
+                probs_update = pd.Series(mapping, dtype=float)
+                self._answer_probs.loc[cast(pd.Index, probs_update.index), qid] = (
+                    probs_update
+                )
+
+    async def _answer_questions_jev(
+        self,
+        pairs: Iterable[Tuple[Any, str]],
+        answers_buffer: Dict[str, Dict[Any, str]],
+        probs_buffer: Dict[str, Dict[Any, float]],
+    ) -> None:
+        """Answer (sample, question) pairs with Jev, one request per sample."""
+        xdf = cast(pd.DataFrame, self._X)
+        by_sample: Dict[Any, List[str]] = {}
+        for sidx, qid in pairs:
+            by_sample.setdefault(sidx, []).append(qid)
+        if not by_sample:
+            return
+
+        sample_ids = list(by_sample)
+        requests: List[JevRequest] = []
+        for sidx in sample_ids:
+            sample = cast(pd.Series, xdf.iloc[sidx])  # type: ignore
+            requests.append(
+                JevRequest(
+                    state="\n".join(f"{col}: {val}" for col, val in sample.items()),
+                    questions={
+                        qid: NoulQuestion(
+                            instructions=cast(str, self._questions.at[qid, "question"])
+                        )
+                        for qid in by_sample[sidx]
+                    },
+                )
+            )
+        logger.info(
+            "Answering %d questions on %d samples with Jev",
+            sum(len(q) for q in by_sample.values()),
+            len(sample_ids),
+        )
+        results = await self._llm_instance.answer_many(
+            self.qanswer_llmc,
+            requests,
+            budget=self._run_budget,
+            token_counter=self._token_counter,
+            caller="RRF._answer_questions",
+        )
+        for sidx, result in zip(sample_ids, results):
+            for qid, value in result.answers.items():
+                if not isinstance(value, float):
+                    continue
+                answers_buffer.setdefault(qid, {})[sidx] = (
+                    "YES" if value >= JEV_YES_THRESHOLD else "NO"
+                )
+                probs_buffer.setdefault(qid, {})[sidx] = value
 
     def _set_questions_metrics(self, use_screening: bool = False) -> None:
         if self._y is None:
@@ -2082,6 +2186,7 @@ class RRF:
 
         self._questions = self._get_initial_questions_df()
         self._answers = self._create_answers_df(index=X.index)
+        self._answer_probs = self._create_answers_df(index=X.index)
 
     def _set_val_data(
         self, X_val: pd.DataFrame, y_val: Sequence[str], copy_data: bool
@@ -2170,7 +2275,11 @@ class RRF:
                 raise ValueError("Both X_val and y_val must be provided together")
             self._set_val_data(X_val, y_val, copy_data)
 
-        await self._build_rrf()
+        self._run_budget = new_run_budget(self.qanswer_llmc)
+        try:
+            await self._build_rrf()
+        finally:
+            self._run_budget = None
         logger.info("RRF built successfully")
         return self
 
@@ -2330,6 +2439,43 @@ class RRF:
                 # Filter to remaining questions
                 completed_set = set(completed_qids)
                 active_qids = [q for q in active_qids if q not in completed_set]
+
+        # --- Jev path: one request per sample carrying every question -----
+        if self._answers_with_jev:
+            if not active_qids:
+                return
+            questions: Dict[str, JevQuestion] = {
+                qid: NoulQuestion(
+                    instructions=cast(str, self._questions.at[qid, "question"])
+                )
+                for qid in active_qids
+            }
+            results = await self._llm_instance.answer_many(
+                self.qanswer_llmc,
+                [JevRequest(state=s, questions=questions) for _, s in all_samples],
+                budget=new_run_budget(self.qanswer_llmc),
+                token_counter=token_counter,
+                caller="RRF.predict",
+            )
+            for qid in active_qids:
+                for (sample_index, _), result in zip(all_samples, results):
+                    value = result.answers.get(qid)
+                    if not isinstance(value, float):
+                        continue
+                    label = "YES" if value >= JEV_YES_THRESHOLD else "NO"
+                    accumulated_results.append((_py_scalar(sample_index), qid, label))
+                    yield (
+                        sample_index,
+                        qid,
+                        cast(Literal["YES", "NO"], label),
+                        token_counter,
+                    )
+                completed_qids.append(qid)
+            if checkpoint_path is not None:
+                self._save_predict_checkpoint(
+                    checkpoint_path, completed_qids, accumulated_results, token_counter
+                )
+            return
 
         # --- sequential path (max_concurrent is None) ---------------------
         if max_concurrent is None:
@@ -2571,6 +2717,8 @@ class RRF:
             qdf.to_parquet(base / "questions.parquet")  # type: ignore
 
             self._answers.to_parquet(base / "answers.parquet")  # type: ignore
+            if len(self._answer_probs.columns) > 0:
+                self._answer_probs.to_parquet(base / "answer_probs.parquet")  # type: ignore
 
             if sum([self._X is not None, self._y is not None]) == 1:
                 raise CorruptionError(
@@ -2721,6 +2869,11 @@ class RRF:
         a_path = base / "answers.parquet"
         if a_path.exists():
             inst._answers = pd.read_parquet(a_path)  # type: ignore
+        p_path = base / "answer_probs.parquet"
+        if p_path.exists():
+            inst._answer_probs = pd.read_parquet(p_path)  # type: ignore
+        else:
+            inst._answer_probs = inst._create_answers_df(index=inst._answers.index)
 
         training_data_path = base / "data.parquet"
         if training_data_path.exists():

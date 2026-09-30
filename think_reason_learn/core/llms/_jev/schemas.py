@@ -1,4 +1,5 @@
-from typing import Annotated, List, Literal, NotRequired, TypeAlias, TypedDict
+from typing import Annotated, List, Literal, NotRequired, Sequence, TypeAlias
+from typing import TypedDict
 
 from pydantic import BaseModel, Field
 
@@ -58,3 +59,20 @@ JevQuestion: TypeAlias = Annotated[
 ]
 AnswerValue: TypeAlias = float | str
 """A noul probability (float) or a choice label (str)."""
+
+
+def is_jev(choice: object) -> bool:
+    """Whether an LLM choice (model or dict) is Jev."""
+    if isinstance(choice, dict):
+        return choice.get("provider") == "jev"
+    return getattr(choice, "provider", None) == "jev"
+
+
+def first_jev_choice(llm_priority: Sequence[object]) -> JevChoice | None:
+    """The first Jev choice in a priority list, as a ``JevChoice``."""
+    for choice in llm_priority:
+        if isinstance(choice, dict) and is_jev(choice):
+            return JevChoice(**choice)
+        if isinstance(choice, JevChoice):
+            return choice
+    return None

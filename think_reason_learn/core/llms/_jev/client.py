@@ -25,6 +25,7 @@ import httpx
 from think_reason_learn.core.exceptions import JevAuthError, JevCostCapError
 
 from .schemas import AnswerValue, ChoiceQuestion, JevQuestion, NoulQuestion
+from .schemas import first_jev_choice
 
 logger = logging.getLogger(__name__)
 
@@ -455,3 +456,9 @@ class JevClient:
 def get_jev_client(api_key: str) -> JevClient | None:
     """Return a Jev client, or None when no TYPESAFE_API_KEY is set."""
     return JevClient(api_key) if api_key else None
+
+
+def new_run_budget(llm_priority: Sequence[object]) -> JevBudget | None:
+    """A fresh budget with the cap of the first Jev choice, if there is one."""
+    choice = first_jev_choice(llm_priority)
+    return JevBudget(choice.max_cost_usd) if choice is not None else None

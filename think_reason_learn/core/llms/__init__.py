@@ -33,6 +33,7 @@ from ._jev.schemas import (
     JevQuestion,
     NoulQuestion,
 )
+from ._jev.client import JevBudget, JevRequest, JevResult
 from ._ask import LLM
 
 
@@ -71,5 +72,8 @@ __all__ = [
     "NoulQuestion",
     "ChoiceQuestion",
     "AnswerValue",
+    "JevBudget",
+    "JevRequest",
+    "JevResult",
     "llm",
 ]

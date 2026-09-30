@@ -450,3 +450,8 @@ class JevClient:
                     raise exc from None
             raise
         return results
+
+
+def get_jev_client(api_key: str) -> JevClient | None:
+    """Return a Jev client, or None when no TYPESAFE_API_KEY is set."""
+    return JevClient(api_key) if api_key else None

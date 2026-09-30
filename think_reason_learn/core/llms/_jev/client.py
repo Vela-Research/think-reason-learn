@@ -41,8 +41,14 @@ USD_PER_INPUT_TOKEN = 42 / 1e9
 Output tokens are reported but not priced at this rate.
 """
 MAX_QUESTIONS_PER_REQUEST = 50
-BYTES_PER_TOKEN_ESTIMATE = 3
-"""Request bytes per input token used for estimates; errs towards overestimating."""
+REQUEST_OVERHEAD_TOKENS = 250
+BYTES_PER_TOKEN_ESTIMATE = 4.2
+"""Estimate: 250 input tokens per request plus request bytes / 4.2.
+
+Calibrated on billed usage (jev-1.13.0, 30 September 2026): 2,194 ECHR requests
+used 188 + bytes / 4.42 tokens on average, and a 410-byte request used 342. The
+estimate runs about 9% above the ECHR total and covers small requests.
+"""
 
 _RETRY_STATUSES = {429, 500, 502, 503, 504, 529}
 _AUTH_STATUSES = {401, 403}
@@ -135,7 +141,9 @@ class _Chunk:
 
     @property
     def estimated_tokens(self) -> int:
-        return math.ceil(len(self.body) / BYTES_PER_TOKEN_ESTIMATE)
+        return math.ceil(
+            REQUEST_OVERHEAD_TOKENS + len(self.body) / BYTES_PER_TOKEN_ESTIMATE
+        )
 
 
 def _wire_question(question: JevQuestion) -> Dict[str, Any]:

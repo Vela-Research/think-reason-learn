@@ -432,3 +432,40 @@ async def test_failed_requests_are_not_cached(tmp_path: Path) -> None:
 
     assert len(server.bodies) == 2
     assert second.answers == {"q0": 0.8}
+
+
+# Billed by Typesafe on 30 September 2026 (jev-1.13.0): this 410-byte request
+# used 342 input tokens; 2,194 ECHR requests used 188 + bytes / 4.42 on average.
+SMOKE = JevRequest(
+    state="text: The applicant waited nine years for the domestic courts to rule "
+    "on his claim.",
+    questions={
+        "q0": NoulQuestion(
+            instructions="Was there a delay in the judicial proceedings "
+            "attributable to the State?"
+        ),
+        "q1": ChoiceQuestion(
+            instructions="How long did the proceedings last?",
+            labels=["under 1 year", "1 to 5 years", "over 5 years"],
+        ),
+    },
+)
+
+
+def test_estimate_covers_a_small_request_as_billed(tmp_path: Path) -> None:
+    client, _ = _client(FakeJevServer(), tmp_path)
+
+    estimate = client.estimate([SMOKE], "jev-latest")
+
+    assert estimate.input_tokens >= 342
+
+
+def test_estimate_for_long_samples_stays_close_to_billing(tmp_path: Path) -> None:
+    client, _ = _client(FakeJevServer(), tmp_path)
+    request = _noul_request(14, state="x" * 20_000)
+    [chunk] = client._chunks([request], "jev-latest")
+    billed = 188 + len(chunk.body) / 4.42
+
+    estimate = client.estimate([request], "jev-latest")
+
+    assert billed <= estimate.input_tokens <= 1.15 * billed

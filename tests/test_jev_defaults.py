@@ -82,7 +82,7 @@ def test_missing_key_raises_naming_the_key_and_the_way_out(
 
 
 @pytest.mark.parametrize("name,make,param,attr", METHODS)
-def test_jev_anywhere_in_the_priority_needs_the_key(
+def test_jev_with_a_chat_fallback_needs_the_key(
     tmp_path: Path,
     no_typesafe_key: None,
     name: str,
@@ -91,6 +91,19 @@ def test_jev_anywhere_in_the_priority_needs_the_key(
     attr: str,
 ) -> None:
     with pytest.raises(MissingAPIKeyError):
+        make(tmp_path, **{param: [JevChoice(), *CHAT]})
+
+
+@pytest.mark.parametrize("name,make,param,attr", METHODS)
+def test_jev_after_a_chat_model_is_rejected(
+    tmp_path: Path,
+    typesafe_key: None,
+    name: str,
+    make: Callable[..., Any],
+    param: str,
+    attr: str,
+) -> None:
+    with pytest.raises(ValueError, match=f"JevChoice first in {param}"):
         make(tmp_path, **{param: [*CHAT, JevChoice()]})
 
 

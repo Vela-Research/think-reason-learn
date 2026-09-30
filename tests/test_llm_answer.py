@@ -10,7 +10,7 @@ import httpx
 import pytest
 from pydantic import BaseModel
 
-from think_reason_learn.core.exceptions import JevCostCapError
+from think_reason_learn.core.exceptions import JevCostCapError, LLMError
 from think_reason_learn.core.llms import (
     LLM,
     ChoiceQuestion,
@@ -234,3 +234,37 @@ async def test_respond_refuses_jev_for_generation() -> None:
         await LLM().respond(
             query="Write questions", llm_priority=[JevChoice()], response_format=Out
         )
+
+
+@pytest.mark.asyncio
+async def test_every_request_failing_raises(
+    llm_with_fakes: tuple[LLM, FakeChatProvider, Any],
+) -> None:
+    llm, _, _ = llm_with_fakes
+
+    with pytest.raises(LLMError, match="HTTP 413"):
+        await llm.answer_many(
+            [JevChoice()],
+            [JevRequest("too long", QUESTIONS), JevRequest("too long", QUESTIONS)],
+        )
+
+
+@pytest.mark.asyncio
+async def test_some_requests_failing_does_not_raise(
+    llm_with_fakes: tuple[LLM, FakeChatProvider, Any],
+) -> None:
+    llm, _, _ = llm_with_fakes
+
+    results = await llm.answer_many(
+        [JevChoice()],
+        [JevRequest("fine", QUESTIONS), JevRequest("too long", QUESTIONS)],
+    )
+
+    assert results[0].answers == {"a": 0.3, "b": "junior"}
+    assert results[1].answers == {"a": None, "b": None}
+
+
+@pytest.mark.asyncio
+async def test_suite_cannot_reach_typesafe() -> None:
+    with pytest.raises(LLMError, match="HTTP 599"):
+        await LLM().answer([JevChoice(cache=False)], "offline check", QUESTIONS)

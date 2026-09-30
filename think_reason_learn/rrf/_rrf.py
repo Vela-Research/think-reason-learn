@@ -448,7 +448,9 @@ class RRF:
 
         Returns:
             DataFrame shaped like ``get_answers()`` with floats in [0, 1].
-            Questions answered by a chat model have no column.
+            When a chat model answers, as the only answerer, it adds no
+            column; as a fallback after Jev, its YES/NO answers appear as 1.0
+            and 0.0.
         """
         return self._answer_probs
 
@@ -2191,8 +2193,10 @@ class RRF:
             self._y = y_array
 
         self._questions = self._get_initial_questions_df()
-        self._answers = self._create_answers_df(index=X.index)
-        self._answer_probs = self._create_answers_df(index=X.index)
+        # Rows are addressed by position in the reset frame, so the answers
+        # tables share its 0..n-1 index whatever index X came with.
+        self._answers = self._create_answers_df(index=self._X.index)
+        self._answer_probs = self._create_answers_df(index=self._X.index)
 
     def _set_val_data(
         self, X_val: pd.DataFrame, y_val: Sequence[str], copy_data: bool

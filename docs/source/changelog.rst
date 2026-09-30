@@ -10,8 +10,13 @@ Unreleased
   ``MissingAPIKeyError`` with a message showing how to answer with a chat model instead. Saved models keep the
   answering model they were saved with.
 - Jev sends each sample once with all its questions. Random Rule Forest records Jev's probability of YES as YES at or
-  above 0.5 and keeps the probabilities (``get_answer_probabilities()``); Policy Induction does the same for policy
-  scores; GPTree asks Jev multiple-choice questions whose labels are the question's choices.
+  above 0.5 and keeps the probabilities (``get_answer_probabilities()``); Policy Induction records its policy scores
+  as YES/NO at 0.5 the same way, without keeping the probabilities; GPTree asks Jev multiple-choice questions whose
+  labels are the question's choices.
+- Jev must come first in the answering models when it is used; chat models may follow it as fallbacks. A Jev run in
+  which every request fails raises ``LLMError`` instead of fitting on no answers.
+- Random Rule Forest keeps answers aligned with their samples when ``X`` has an index other than ``0..n-1``; the
+  answers tables are indexed by position.
 - Every ``fit()`` and ``predict()`` prints its estimated Jev cost before spending and stops if the estimate or the
   actual spend passes ``JevChoice(max_cost_usd=10)``. Paid answers are cached in ``~/.cache/think_reason_learn/jev``;
   ``JevChoice(cache=False)`` turns the cache off.

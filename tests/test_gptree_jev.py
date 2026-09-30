@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any, List
 
@@ -209,3 +210,134 @@ async def test_chat_answerer_keeps_the_chat_path(
 
     assert fake.answer_requests == []
     assert any(c["response_format"] is not Questions for c in fake.calls)
+
+
+ONE_CHOICE = Question(
+    value="Is the founder a person?", choices=["yes"], question_type="INFERENCE"
+)
+
+
+class FakeTreeLLMWith(FakeTreeLLM):
+    """Generates the given questions instead of TECH and STAGE."""
+
+    def __init__(self, questions: List[Question], **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.questions = questions
+
+    async def respond(
+        self,
+        query: str,
+        llm_priority: List[Any],
+        response_format: Any,
+        instructions: Any = None,
+        temperature: Any = None,
+        **kwargs: Any,
+    ) -> LLMResponse[Any]:
+        if response_format is Questions:
+            self.calls.append({"query": query, "response_format": response_format})
+            return LLMResponse(
+                response=Questions(questions=self.questions, cumulative_memory="m"),
+                logprobs=[],
+                total_tokens=10,
+                provider_model=OpenAIChoice(model="gpt-4.1-nano"),
+            )
+        return await super().respond(query, llm_priority, response_format)
+
+
+@pytest.mark.asyncio
+async def test_single_choice_question_is_skipped_not_a_crash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = FakeTreeLLMWith([ONE_CHOICE, TECH], choose=_choose)
+    monkeypatch.setattr(gptree_module, "llm", fake)
+
+    tree = await _fit(_tree(tmp_path, max_depth=1))
+
+    root = tree.get_node(0)
+    assert root is not None and root.question is not None
+    assert root.question.value == TECH.value
+
+
+@pytest.mark.asyncio
+async def test_question_jev_never_answers_is_skipped_not_a_crash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def choose(state: str, question: ChoiceQuestion) -> str | None:
+        return (
+            None if question.instructions == STAGE.value else _choose(state, question)
+        )
+
+    fake = FakeTreeLLM(choose=choose)
+    monkeypatch.setattr(gptree_module, "llm", fake)
+
+    tree = await _fit(_tree(tmp_path, max_depth=1))
+
+    root = tree.get_node(0)
+    assert root is not None and root.question is not None
+    assert root.question.value == TECH.value
+
+
+class SuspendingTreeLLM(FakeTreeLLM):
+    """Suspends like a real network call, so abandoned generators get closed."""
+
+    async def respond(self, *args: Any, **kwargs: Any) -> LLMResponse[Any]:
+        await asyncio.sleep(0.001)
+        return await super().respond(*args, **kwargs)
+
+    async def answer_many(self, *args: Any, **kwargs: Any) -> Any:
+        await asyncio.sleep(0.001)
+        return await super().answer_many(*args, **kwargs)
+
+
+@pytest.mark.asyncio
+async def test_resumed_fit_keeps_one_run_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = SuspendingTreeLLM(choose=_choose)
+    monkeypatch.setattr(gptree_module, "llm", fake)
+    tree = _tree(tmp_path, max_depth=2)
+    await tree.set_tasks(
+        instructions_template=f"Ask {num_questions_tag} questions about founders."
+    )
+    async for _ in tree.fit(pd.DataFrame({"text": ROWS}), LABELS):
+        break  # stop after the first node
+    before = len(fake.answer_calls)
+
+    async for _ in tree.fit():  # resume from the frontier
+        pass
+
+    resumed = fake.answer_calls[before:]
+    assert resumed
+    assert all(isinstance(c["budget"], JevBudget) for c in resumed)
+    assert len({id(c["budget"]) for c in resumed}) == 1
+
+
+@pytest.mark.asyncio
+async def test_prune_and_resume_send_feature_columns_only(
+    tmp_path: Path, fake: FakeTreeLLM
+) -> None:
+    tree = await _fit(_tree(tmp_path, max_depth=1))
+    fake.answer_requests.clear()
+
+    tree.prune_tree(0)
+    async for _ in tree.resume_fit(0):
+        pass
+
+    assert fake.answer_requests
+    assert {r.state for r in fake.answer_requests} == {f"text: {r}" for r in ROWS}
+
+
+@pytest.mark.asyncio
+async def test_feature_columns_survive_save_and_load(
+    tmp_path: Path, fake: FakeTreeLLM
+) -> None:
+    tree = await _fit(_tree(tmp_path, max_depth=1))
+    tree.save()
+
+    loaded = GPTree.load(tmp_path / "jev_tree")
+    fake.answer_requests.clear()
+    loaded.prune_tree(0)
+    async for _ in loaded.resume_fit(0):
+        pass
+
+    assert {r.state for r in fake.answer_requests} == {f"text: {r}" for r in ROWS}

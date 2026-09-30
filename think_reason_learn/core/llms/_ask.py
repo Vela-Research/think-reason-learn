@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Literal, Sequence, Tuple, Type, cast
 from pydantic import BaseModel, ValidationError, create_model
 
 from think_reason_learn.core._config import settings
+from think_reason_learn.core.exceptions import LLMError
 from think_reason_learn.core._singleton import SingletonMeta
 
 from ._anthropic.ask import AnthropicLLM, get_anthropic_llm
@@ -415,6 +416,8 @@ class LLM(metaclass=SingletonMeta):
 
         Raises:
             ValueError: A model's API key is not set.
+            ~think_reason_learn.core.exceptions.LLMError: No question in any
+                request was answered.
             ~think_reason_learn.core.exceptions.JevCostCapError: The run's Jev
                 cost cap would be or was passed.
             ~think_reason_learn.core.exceptions.JevAuthError: Typesafe rejected
@@ -513,6 +516,17 @@ class LLM(metaclass=SingletonMeta):
         for result in results:
             if all(v is not None for v in result.answers.values()):
                 result.error = None
+        asked = sum(len(result.answers) for result in results)
+        answered = sum(
+            v is not None for result in results for v in result.answers.values()
+        )
+        if asked and not answered:
+            errors = [result.error for result in results if result.error]
+            raise LLMError(
+                f"No answers from {[m.model for m in models]}: every one of "
+                f"{len(results)} requests failed. First error: "
+                f"{errors[0] if errors else 'unknown'}"
+            )
         return results
 
     async def answer(

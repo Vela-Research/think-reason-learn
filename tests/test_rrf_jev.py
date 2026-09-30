@@ -196,3 +196,28 @@ async def test_chat_answerer_keeps_the_chat_path(tmp_path: Path) -> None:
 
     assert fake.answer_requests == []
     assert any(c["response_format"] is Answer for c in fake.calls)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("index", [[5, 4, 3, 2, 1, 0], [10, 11, 12, 13, 14, 15]])
+async def test_answers_line_up_with_rows_for_any_index(
+    tmp_path: Path, index: list[int]
+) -> None:
+    fake = FakeJevLLM(prob=_prob)
+    rrf = _rrf(tmp_path, fake)
+    await rrf.set_tasks(task_description="Classify founders")
+    await rrf.fit(pd.DataFrame({"data": PEOPLE}, index=pd.Index(index)), LABELS)
+
+    probs = rrf.get_answer_probabilities()
+    for qid in _active_questions(rrf):
+        assert list(probs[qid]) == [PROBS[p[0]] for p in PEOPLE]
+
+
+@pytest.mark.asyncio
+async def test_chat_answers_any_index(tmp_path: Path) -> None:
+    fake = FakeJevLLM(prob=_prob)
+    rrf = _rrf(tmp_path, fake, qanswer_llmc=LLM_CHOICE)
+    await rrf.set_tasks(task_description="Classify founders")
+    await rrf.fit(pd.DataFrame({"data": PEOPLE}, index=range(10, 16)), LABELS)
+
+    assert bool(rrf.get_answers().notna().to_numpy().all())

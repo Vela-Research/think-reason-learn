@@ -289,6 +289,7 @@ class GPTree:
 
         self._token_counter: TokenCounter = TokenCounter()
         self._run_budget: JevBudget | None = None
+        self._feature_columns: List[Any] | None = None
         self._class_weights: Dict[str, float] | None = None
 
         self._classes: List[str] | None = None
@@ -924,14 +925,28 @@ class GPTree:
                 columns.add(node.question.df_column)
         return columns
 
+    def _jev_columns(self, columns: Sequence[Any]) -> List[Any]:
+        """Columns to show Jev: the features fit on, never answers or labels.
+
+        Trees saved before feature columns were recorded fall back to every
+        column that is not an answer column of a current node.
+        """
+        if self._feature_columns is not None:
+            features = set(self._feature_columns)
+            return [c for c in columns if c in features]
+        skip = self._question_columns()
+        return [c for c in columns if c not in skip]
+
     @staticmethod
-    def _jev_state(items: Any, skip: Set[str]) -> str:
-        """Sample text from feature columns only (never answers or labels)."""
-        return "\n".join(
-            f"{col}: {val}"
-            for col, val in items
-            if col not in skip and pd.notna(val) and val is not None
-        )
+    def _jev_state(row: pd.Series, columns: Sequence[Any]) -> str:
+        """Sample text from the given columns, skipping empty values."""
+        lines: List[str] = []
+        for col in columns:
+            val = row[col]
+            if val is None or (pd.api.types.is_scalar(val) and bool(pd.isna(val))):
+                continue
+            lines.append(f"{col}: {val}")
+        return "\n".join(lines)
 
     @staticmethod
     def _jev_question(question: NodeQuestion) -> ChoiceQuestion:
@@ -953,7 +968,8 @@ class GPTree:
             return
 
         X = cast(pd.DataFrame, self._X.iloc[sample_indices])
-        skip = self._question_columns() | {q.df_column for q in questions}
+        own = {q.df_column for q in questions}
+        columns = [c for c in self._jev_columns(list(X.columns)) if c not in own]
         jev_questions: Dict[str, JevQuestion] = {
             f"q{i}": self._jev_question(q) for i, q in enumerate(usable)
         }
@@ -961,9 +977,7 @@ class GPTree:
         results = await llm.answer_many(
             self.qanswer_llmc,
             [
-                JevRequest(
-                    state=self._jev_state(row.items(), skip), questions=jev_questions
-                )
+                JevRequest(state=self._jev_state(row, columns), questions=jev_questions)
                 for _, row in rows
             ],
             budget=self._run_budget,
@@ -1223,6 +1237,12 @@ class GPTree:
             if node_question.question_type == "INFERENCE":
                 if not self._answers_with_jev:
                     await self._answer_question(node_question, sample_indices)
+                if node_question.df_column not in self._X.columns:  # type: ignore
+                    logger.warning(
+                        f"No answers for question (Node {id}): "
+                        f"{node_question.value}. Skipping..."
+                    )
+                    continue
                 groups = X.groupby(node_question.df_column).indices  # type: ignore
                 df_split_indices = [
                     np.array(groups.get(val, []), dtype=np.intp)
@@ -1445,6 +1465,7 @@ class GPTree:
         else:
             self._X = X.reset_index(drop=True)  # type: ignore
             self._y = y_array
+        self._feature_columns = list(self._X.columns)
 
         self._compute_class_weights()
 
@@ -1496,7 +1517,10 @@ class GPTree:
             )
 
         self._stop_training = False
-        self._run_budget = new_run_budget(self.qanswer_llmc)
+        # Held locally: a fit() abandoned early is closed later, possibly while
+        # a newer fit() runs, and must not clear that run's budget.
+        budget = new_run_budget(self.qanswer_llmc)
+        self._run_budget = budget
 
         try:
             if len(self._nodes) == 0:  # train from scratch
@@ -1527,7 +1551,8 @@ class GPTree:
                     yield updated_node
             return
         finally:
-            self._run_budget = None
+            if self._run_budget is budget:
+                self._run_budget = None
 
     async def _predict(
         self,
@@ -1577,11 +1602,12 @@ class GPTree:
             raise ValueError("Tree is empty. Fit or load a tree before predicting.")
 
         budget = new_run_budget(self.qanswer_llmc)
+        columns = self._jev_columns(list(samples.columns))
         frontier: List[Tuple[Node, List[Tuple[Any, str]]]] = [
             (
                 root,
                 [
-                    (idx, self._jev_state(row.items(), set()))
+                    (idx, self._jev_state(row, columns))
                     for idx, row in samples.iterrows()
                 ],
             )
@@ -1872,6 +1898,7 @@ class GPTree:
         inst._llm_semaphore = asyncio.Semaphore(inst.llm_semaphore_limit)
 
         inst._node_counter = int(manifest["node_counter"])
+        inst._feature_columns = manifest.get("feature_columns")
 
         id_to_node: Dict[int, Node] = {}
         for nd in manifest["nodes"]:
@@ -2004,6 +2031,7 @@ class GPTree:
             "expert_advice": self._expert_advice,
             "task_description": self._task_description,
             "node_counter": self._node_counter,
+            "feature_columns": self._feature_columns,
             "nodes": [_serialize_node(node) for node in self._nodes.values()],
             "frontier": [task.to_dict() for task in self._frontier],
             "token_counter": None if for_production else self._token_counter.to_dict(),

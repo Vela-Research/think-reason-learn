@@ -30,7 +30,7 @@ from think_reason_learn.core.exceptions import (
 )
 
 from .schemas import AnswerValue, ChoiceQuestion, JevQuestion, NoulQuestion
-from .schemas import first_jev_choice
+from .schemas import first_jev_choice, is_jev
 
 logger = logging.getLogger(__name__)
 
@@ -480,9 +480,18 @@ def require_typesafe_key(
         param: The argument that picks the answerers, e.g. ``"qanswer_llmc"``.
 
     Raises:
+        ValueError: Jev is chosen but not first. A chat model ahead of Jev would
+            answer on the chat path, which cannot hand questions on to Jev.
         MissingAPIKeyError: Jev is chosen and the key is missing.
     """
-    if settings.TYPESAFE_API_KEY or first_jev_choice(llm_priority) is None:
+    if first_jev_choice(llm_priority) is None:
+        return
+    if not is_jev(llm_priority[0]):
+        raise ValueError(
+            f"{method}: put JevChoice first in {param}, or leave it out. Chat "
+            "models can follow Jev as fallbacks, but cannot come before it."
+        )
+    if settings.TYPESAFE_API_KEY:
         return
     raise MissingAPIKeyError(
         f"{method} answers questions with Jev (Typesafe's System One model), "

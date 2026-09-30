@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import itertools
 import logging
+import math
 import os
 import re
 import time
@@ -47,10 +48,24 @@ from sklearn.model_selection import StratifiedKFold
 from tqdm.auto import tqdm
 
 from think_reason_learn.core.exceptions import DataError, LLMError
-from think_reason_learn.core.llms import LLMChoice, TokenCounter, llm
+from think_reason_learn.core.llms import (
+    JevBudget,
+    JevQuestion,
+    JevRequest,
+    LLMChoice,
+    NoulQuestion,
+    TokenCounter,
+    llm,
+)
+from think_reason_learn.core.llms._jev.client import (
+    MAX_QUESTIONS_PER_REQUEST,
+    new_run_budget,
+)
+from think_reason_learn.core.llms._jev.schemas import is_jev
 from ._prompts import (
     POLICY_GEN_INSTRUCTIONS,
     POLICY_PREDICT_INSTRUCTIONS,
+    POLICY_PREDICT_JEV_TEMPLATE,
     max_policy_num_tag,
 )
 
@@ -59,6 +74,10 @@ logger = logging.getLogger(__name__)
 # Compact terminal-style progress bar: "[TAG] ████░░░░ n/total · rate/s · eta MM:SS"
 _BAR_FORMAT = "{desc} {bar} {n_fmt}/{total_fmt} · {rate_fmt} · eta {remaining}"
 _BAR_ASCII = "░█"
+
+
+JEV_YES_THRESHOLD = 0.5
+"""A Jev probability at or above this counts as the policy saying YES."""
 
 
 # ── Schemas ────────────────────────────────────────────────────────────────────
@@ -110,7 +129,9 @@ class PolicyInduction:
 
     Args:
         gen_llmc: LLMs for policy generation, in priority order.
-        predict_llmc: LLMs for prediction. Defaults to gen_llmc.
+        predict_llmc: LLMs for prediction. Defaults to gen_llmc. With Jev
+            (``JevChoice``) first, each sample is sent once with every policy
+            to score, and Jev's probability counts as YES at or above 0.5.
         config: Weight training configuration.
         gen_temperature: Sampling temperature for generation.
         predict_temperature: Sampling temperature for prediction.
@@ -173,6 +194,7 @@ class PolicyInduction:
 
         self._token_counter: TokenCounter = TokenCounter()
         self._llm_semaphore = asyncio.Semaphore(llm_semaphore_limit)
+        self._run_budget: JevBudget | None = None
         self._pgen_instructions_template: str | None = None
         self._task_description: str | None = None
 
@@ -411,6 +433,21 @@ class PolicyInduction:
 
     # ── Request confirmation ────────────────────────────────────────────────────
 
+    @property
+    def _scores_with_jev(self) -> bool:
+        return bool(self.predict_llmc) and is_jev(self.predict_llmc[0])
+
+    def _jev_question(self, policy: str) -> NoulQuestion:
+        return NoulQuestion(
+            instructions=POLICY_PREDICT_JEV_TEMPLATE.format(
+                task_description=self._task_description, policy=policy
+            )
+        )
+
+    @staticmethod
+    def _jev_requests_per_sample(n_policies: int) -> int:
+        return math.ceil(n_policies / MAX_QUESTIONS_PER_REQUEST)
+
     @staticmethod
     def _llmc_label(llmc: LLMChoice) -> str:
         return llmc["model"] if isinstance(llmc, dict) else llmc.model
@@ -453,6 +490,8 @@ class PolicyInduction:
             else:
                 score_remaining += sum(1 for v in existing.values() if v is None)
                 score_remaining += max(n_samples - len(existing), 0)
+        if self._scores_with_jev and score_remaining:
+            score_remaining = n_samples * self._jev_requests_per_sample(n_policies)
 
         return {
             f"{self._llmc_label(self.gen_llmc[0])} (generation)": gen_remaining,
@@ -473,6 +512,8 @@ class PolicyInduction:
         else:
             n_policies = self.max_policy_length
         label = self._llmc_label(self.predict_llmc[0])
+        if self._scores_with_jev:
+            n_policies = self._jev_requests_per_sample(n_policies)
         return {f"{label} (predict)": remaining_samples * n_policies}
 
     # ── Checkpointing ───────────────────────────────────────────────────────────
@@ -788,6 +829,11 @@ class PolicyInduction:
         already_done = len(self._policy_memory) - total
         logger.info(f"Scoring {total} policies.")
 
+        if self._scores_with_jev:
+            await self._score_policies_jev(unscored)
+            logger.info("Scoring complete.")
+            return
+
         for i, policy_idx in enumerate(
             tqdm(
                 unscored,
@@ -816,6 +862,49 @@ class PolicyInduction:
                 logger.info(f"Scored {i + 1}/{total} policies.")
 
         logger.info("Scoring complete.")
+
+    async def _score_policies_jev(self, policy_ids: List[Any]) -> None:
+        """Score policies with Jev: one request per sample, all its open policies."""
+        X = cast(pd.DataFrame, self._X)
+        series: Dict[Any, pd.Series] = {}
+        for pid in policy_ids:
+            existing = self._policy_memory.at[pid, "predictions"]
+            series[pid] = (
+                existing.copy()
+                if isinstance(existing, pd.Series)
+                else pd.Series([None] * len(X), index=X.index, dtype="object")
+            )
+        qid_to_pid = {f"p{pid}": pid for pid in policy_ids}
+
+        requests: List[JevRequest] = []
+        sample_ids: List[Any] = []
+        for idx, row in X.iterrows():
+            questions: Dict[str, JevQuestion] = {
+                qid: self._jev_question(str(self._policy_memory.at[pid, "policy"]))
+                for qid, pid in qid_to_pid.items()
+                if pd.isna(series[pid].at[idx])
+            }
+            if questions:
+                sample_str = "\n".join(f"{col}: {row[col]}" for col in row.index)
+                requests.append(JevRequest(state=sample_str, questions=questions))
+                sample_ids.append(idx)
+
+        results = await llm.answer_many(
+            self.predict_llmc,
+            requests,
+            budget=self._run_budget,
+            token_counter=self._token_counter,
+            caller="PolicyInduction.score_policy",
+        )
+        for idx, result in zip(sample_ids, results):
+            for qid, value in result.answers.items():
+                if isinstance(value, float):
+                    series[qid_to_pid[qid]].at[idx] = (
+                        "YES" if value >= JEV_YES_THRESHOLD else "NO"
+                    )
+        for pid, scored in series.items():
+            self._policy_memory.at[pid, "predictions"] = scored  # type: ignore
+        self._save_scoring_ckpt()
 
     # ── Weight fitting ──────────────────────────────────────────────────────────
 
@@ -1029,6 +1118,44 @@ class PolicyInduction:
 
         return sample_index, results, self._lr_predict(results)
 
+    async def _predict_many_jev(
+        self, samples: pd.DataFrame, token_counter: TokenCounter
+    ) -> List[Tuple[Any, NDArray, Literal["YES", "NO"]]]:
+        """Predict samples with Jev: one request per sample, weighted policies."""
+        if not hasattr(self, "_feature_order_") or self._lr is None:
+            raise RuntimeError("Model not fitted. Call fit() first.")
+        policies = self._policy_memory["policy"].copy()
+        policies.index = policies.index.map(str)
+        policies = policies.reindex(self._feature_order_)
+        weights = self._lr.coef_[0]
+        questions: Dict[str, JevQuestion] = {
+            f"p{pos}": self._jev_question(pt)
+            for pos, pt in enumerate(policies.fillna("").astype(str).values)
+            if pt.strip() and weights[pos] != 0
+        }
+        rows = list(samples.iterrows())
+        results = await llm.answer_many(
+            self.predict_llmc,
+            [
+                JevRequest(
+                    state="\n".join(f"{col}: {val}" for col, val in row.items()),
+                    questions=questions,
+                )
+                for _, row in rows
+            ],
+            budget=new_run_budget(self.predict_llmc),
+            token_counter=token_counter,
+            caller="PolicyInduction.predict_single",
+        )
+        records: List[Tuple[Any, NDArray, Literal["YES", "NO"]]] = []
+        for (idx, _), result in zip(rows, results):
+            vec = np.zeros(len(self._feature_order_), dtype=float)
+            for qid, value in result.answers.items():
+                if isinstance(value, float) and value >= JEV_YES_THRESHOLD:
+                    vec[int(qid[1:])] = 1.0
+            records.append((idx, vec, self._lr_predict(vec)))
+        return records
+
     # ── Public API ──────────────────────────────────────────────────────────────
 
     def get_memory(self) -> pd.DataFrame:
@@ -1059,7 +1186,11 @@ class PolicyInduction:
         start = time.monotonic()
 
         await self._generate_policies()
-        await self._score_policies()
+        self._run_budget = new_run_budget(self.predict_llmc)
+        try:
+            await self._score_policies()
+        finally:
+            self._run_budget = None
         self._fit_weights()
         self._fit_duration_seconds = time.monotonic() - start
         self._fit_completed_at = datetime.now(timezone.utc).isoformat()
@@ -1125,6 +1256,19 @@ class PolicyInduction:
                     "token_counter": token_counter.to_dict(),
                 },
             )
+
+        if self._scores_with_jev:
+            if len(remaining_samples):
+                records = await self._predict_many_jev(
+                    cast(pd.DataFrame, remaining_samples), token_counter
+                )
+                for sidx, vec, pred in records:
+                    completed[str(sidx)] = (vec.tolist(), pred)
+                save_ckpt()
+                for record in records:
+                    yield record + (token_counter,)
+            self._del_ckpt(self._PREDICT_CKPT_NAME)
+            return
 
         queue: asyncio.Queue = asyncio.Queue()
         sem = asyncio.Semaphore(self.llm_semaphore_limit)

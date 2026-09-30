@@ -176,12 +176,13 @@ class RRF:
         prompt_preset: Optional prompt preset (``PromptPreset`` instance or
             registered name string). When provided, bypasses the meta-prompt
             step and uses domain-specific prompts for generation and answering.
-        answer_features: What the founder-level combiners (vote and
-            elastic-net) see for each answer from Jev: ``"probability"``
-            (default), Jev's probability of YES, or ``"binary"``, 1 for YES
-            and 0 for NO at 0.5. Answers from chat models are always 1/0.
-            Question metrics (precision, recall, F-beta) and similarity
-            filters always use YES/NO.
+        answer_features: What the elastic-net combiner
+            (``aggregation_method="elasticnet"``) sees for each answer from
+            Jev: ``"probability"`` (default), Jev's probability of YES, or
+            ``"binary"``, 1 for YES and 0 for NO at 0.5. The vote combiner
+            always counts YES answers, answers from chat models are always
+            1/0, and question metrics (precision, recall, F-beta) and
+            similarity filters always use YES/NO.
         _llm: LLM instance for testing (dependency injection). If None, uses global llm.
     """
 
@@ -472,7 +473,16 @@ class RRF:
 
     @property
     def _probability_features(self) -> bool:
-        return self.answer_features == "probability" and self._answers_with_jev
+        """Whether the combiner in use takes Jev's probabilities as features.
+
+        Only elastic-net does: the vote's integer threshold T counts YES
+        answers, and a sum of probabilities below 1 can never reach T = K.
+        """
+        return (
+            self.answer_features == "probability"
+            and self.aggregation_method == "elasticnet"
+            and self._answers_with_jev
+        )
 
     def _feature_matrix(self, qids: List[str]) -> pd.DataFrame:
         """Combiner features on the training answers, one column per question.
@@ -1578,16 +1588,14 @@ class RRF:
         k: int,
         t: int,
     ) -> pd.Series:
-        """Aggregate per-question responses into founder-level labels.
+        """Aggregate per-question binary responses into founder-level labels.
 
         Selects the top-K questions by score (descending) and predicts YES
-        for a founder if the responses to those K questions sum to at least
-        T: the number of YES answers, or the expected number when the
-        responses are Jev's probabilities.
+        for a founder if at least T of those K questions are answered YES.
 
         Args:
-            response_matrix: DataFrame (n_samples x n_questions) with values
-                0 (NO) or 1 (YES), or probabilities of YES in [0, 1].
+            response_matrix: Binary DataFrame (n_samples x n_questions)
+                with values 0 (NO) or 1 (YES).
             question_scores: Float scores indexed by question ID.
             k: Number of top-scoring questions to use.
             t: Minimum YES count to predict "YES".
@@ -1793,8 +1801,9 @@ class RRF:
 
         Returns:
             DataFrame of shape (n_samples, n_active_questions): Jev's
-            probabilities of YES with ``answer_features="probability"``,
-            otherwise 1 (YES) or 0 (NO). Unanswered cells are 0.
+            probabilities of YES when the elastic-net combiner uses them
+            (``answer_features="probability"``), otherwise 1 (YES) or 0 (NO).
+            Unanswered cells are 0.
         """
         active_qids = [
             cast(str, qid)
@@ -1804,23 +1813,24 @@ class RRF:
 
         if self._probability_features:
             samples = [
-                (idx, "\n".join(f"{col}: {val}" for col, val in row.items()))
-                for idx, row in X.iterrows()
+                (position, "\n".join(f"{col}: {val}" for col, val in row.items()))
+                for position, (_, row) in enumerate(X.iterrows())
             ]
             results = await self._answer_samples_jev(
                 samples, active_qids, TokenCounter()
             )
-            probs = pd.DataFrame(
-                0.0,
-                index=X.index,
-                columns=active_qids,  # type: ignore[arg-type]
-                dtype=float,
-            )
-            for (idx, _), result in zip(samples, results):
+            # Filled by position, so repeated index labels keep their own rows.
+            values = np.zeros((len(X), len(active_qids)), dtype=float)
+            column = {qid: j for j, qid in enumerate(active_qids)}
+            for position, result in enumerate(results):
                 for qid, value in result.answers.items():
                     if isinstance(value, float):
-                        probs.at[idx, qid] = value
-            return probs
+                        values[position, column[qid]] = value
+            return pd.DataFrame(
+                values,
+                index=X.index,
+                columns=active_qids,  # type: ignore[arg-type]
+            )
 
         matrix = pd.DataFrame(
             0,
@@ -1876,9 +1886,8 @@ class RRF:
         Returns:
             DataFrame indexed by ``X.index``. For ``aggregation_method="vote"``
             (default) the columns are ``prediction`` ("YES"/"NO"),
-            ``yes_count`` (YES answers among the top-K questions, or the sum
-            of Jev's probabilities of YES with
-            ``answer_features="probability"``), ``k`` and ``t``. For
+            ``yes_count`` (YES answers among the top-K questions), ``k`` and
+            ``t``. For
             ``aggregation_method="elasticnet"`` the columns are
             ``prediction``, ``probability`` (learned P(YES)) and ``threshold``;
             the ``k``/``t`` arguments are ignored in that mode.

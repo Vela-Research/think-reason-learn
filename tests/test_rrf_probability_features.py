@@ -57,29 +57,16 @@ async def _fit(rrf: RRF) -> RRF:
 X = pd.DataFrame({"data": PEOPLE})
 
 
-@pytest.mark.asyncio
-async def test_vote_counts_probabilities(tmp_path: Path) -> None:
-    rrf = await _fit(_rrf(tmp_path))
-
-    result = await rrf.predict_founder_level(X)
-
-    assert list(result["prediction"]) == LABELS
-    k = int(result["k"].iloc[0])
-    assert list(result["yes_count"]) == pytest.approx(
-        [k * PROB[label] for label in LABELS]
-    )
+ELASTICNET: dict[str, Any] = {
+    "aggregation_method": "elasticnet",
+    "elasticnet_cs": (10.0, 100.0),
+    "elasticnet_cv": 2,
+}
 
 
 @pytest.mark.asyncio
 async def test_elasticnet_learns_from_probabilities(tmp_path: Path) -> None:
-    rrf = await _fit(
-        _rrf(
-            tmp_path,
-            aggregation_method="elasticnet",
-            elasticnet_cs=(10.0, 100.0),
-            elasticnet_cv=2,
-        )
-    )
+    rrf = await _fit(_rrf(tmp_path, **ELASTICNET))
 
     result = await rrf.predict_founder_level(X)
 
@@ -89,23 +76,69 @@ async def test_elasticnet_learns_from_probabilities(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_binary_setting_keeps_yes_no_features(tmp_path: Path) -> None:
-    rrf = await _fit(_rrf(tmp_path, answer_features="binary"))
+    rrf = await _fit(_rrf(tmp_path, answer_features="binary", **ELASTICNET))
 
     result = await rrf.predict_founder_level(X)
 
-    assert set(result["prediction"]) == {"YES"}
-    assert set(result["yes_count"]) == {int(result["k"].iloc[0])}
+    assert all(w == 0 for w in (rrf._aggregation_weights or {}).values())
+    assert result["prediction"].nunique() == 1
 
 
 @pytest.mark.asyncio
-async def test_response_matrix_holds_probabilities(tmp_path: Path) -> None:
+async def test_vote_keeps_counting_yes_answers(tmp_path: Path) -> None:
     rrf = await _fit(_rrf(tmp_path))
+
+    result = await rrf.predict_founder_level(X)
+
+    k = int(result["k"].iloc[0])
+    assert set(result["prediction"]) == {"YES"}
+    assert list(result["yes_count"]) == [k] * len(PEOPLE)
+
+
+@pytest.mark.asyncio
+async def test_vote_with_one_question_can_still_say_yes(tmp_path: Path) -> None:
+    probs = {"A": 0.9, "B": 0.3, "C": 0.6, "D": 0.8, "E": 0.2, "F": 0.95}
+
+    def prob(state: str, instructions: str) -> float:
+        return probs[state.split(": ", 1)[1][0]]
+
+    rrf = await _fit(_rrf(tmp_path, aggregation_max_k=1, _llm=FakeJevLLM(prob=prob)))
+
+    result = await rrf.predict_founder_level(X)
+
+    assert list(result["prediction"]) == ["YES", "NO", "YES", "YES", "NO", "YES"]
+
+
+@pytest.mark.asyncio
+async def test_response_matrix_holds_probabilities_for_elasticnet(
+    tmp_path: Path,
+) -> None:
+    rrf = await _fit(_rrf(tmp_path, **ELASTICNET))
 
     matrix = await rrf._build_response_matrix(X)
 
     expected = np.array([PROB[label] for label in LABELS])
     for qid in matrix.columns:
         assert matrix[qid].to_numpy() == pytest.approx(expected)
+
+
+@pytest.mark.asyncio
+async def test_response_matrix_holds_yes_no_for_the_vote(tmp_path: Path) -> None:
+    rrf = await _fit(_rrf(tmp_path))
+
+    matrix = await rrf._build_response_matrix(X)
+
+    assert set(np.unique(matrix.to_numpy())) == {1}
+
+
+@pytest.mark.asyncio
+async def test_duplicate_index_labels_keep_rows_apart(tmp_path: Path) -> None:
+    rrf = await _fit(_rrf(tmp_path, **ELASTICNET))
+    X_dup = pd.DataFrame({"data": PEOPLE}, index=pd.Index([0, 0, 1, 1, 2, 2]))
+
+    result = await rrf.predict_founder_level(X_dup)
+
+    assert list(result["prediction"]) == LABELS
 
 
 @pytest.mark.asyncio

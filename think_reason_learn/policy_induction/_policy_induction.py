@@ -50,6 +50,7 @@ from tqdm.auto import tqdm
 from think_reason_learn.core.exceptions import DataError, LLMError
 from think_reason_learn.core.llms import (
     JevBudget,
+    JevChoice,
     JevQuestion,
     JevRequest,
     LLMChoice,
@@ -60,6 +61,7 @@ from think_reason_learn.core.llms import (
 from think_reason_learn.core.llms._jev.client import (
     MAX_QUESTIONS_PER_REQUEST,
     new_run_budget,
+    require_typesafe_key,
 )
 from think_reason_learn.core.llms._jev.schemas import is_jev
 from ._prompts import (
@@ -129,8 +131,9 @@ class PolicyInduction:
 
     Args:
         gen_llmc: LLMs for policy generation, in priority order.
-        predict_llmc: LLMs for prediction. Defaults to gen_llmc. With Jev
-            (``JevChoice``) first, each sample is sent once with every policy
+        predict_llmc: LLMs for prediction. Defaults to Jev (``[JevChoice()]``),
+            which needs ``TYPESAFE_API_KEY``; pass a chat model here to predict
+            with it instead. With Jev first, each sample is sent once with every policy
             to score, and Jev's probability counts as YES at or above 0.5.
         config: Weight training configuration.
         gen_temperature: Sampling temperature for generation.
@@ -178,7 +181,10 @@ class PolicyInduction:
             predict_temperature=predict_temperature,
         )
         self.gen_llmc = gen_llmc
-        self.predict_llmc = predict_llmc or gen_llmc
+        self.predict_llmc: List[LLMChoice] = predict_llmc or [JevChoice()]
+        require_typesafe_key(
+            self.predict_llmc, method="PolicyInduction", param="predict_llmc"
+        )
         self.gen_temperature = gen_temperature
         self.predict_temperature = predict_temperature
         self._llm_semaphore_limit = llm_semaphore_limit

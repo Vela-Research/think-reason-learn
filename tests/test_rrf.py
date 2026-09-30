@@ -1,4 +1,8 @@
-"""Offline tests for RRF using FakeLLM -- no real API calls."""
+"""Offline tests for RRF using FakeLLM -- no real API calls.
+
+These tests exercise chat-model answering, so every RRF pins
+``qanswer_llmc`` to the chat model (the default answerer is Jev).
+"""
 
 from __future__ import annotations
 
@@ -53,6 +57,7 @@ def fake_llm() -> FakeLLM:
 def rrf_with_fake(fake_llm: FakeLLM) -> RRF:
     return RRF(
         qgen_llmc=LLM_CHOICE,
+        qanswer_llmc=LLM_CHOICE,
         name="test_rrf",
         max_samples_as_context=5,
         max_generated_questions=6,
@@ -158,6 +163,7 @@ class TestFitBatch:
         fake = FakeLLM()
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_batch",
             max_samples_as_context=5,
             max_generated_questions=6,
@@ -192,6 +198,7 @@ class TestFiltering:
         fake = FakeLLM(default_answer="YES")
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_filter",
             max_samples_as_context=8,
             max_generated_questions=6,
@@ -213,6 +220,7 @@ class TestFiltering:
         fake = FakeLLM()
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_sem",
             max_samples_as_context=8,
             max_generated_questions=6,
@@ -232,6 +240,7 @@ class TestFiltering:
         fake = FakeLLM()
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_clear",
             max_samples_as_context=8,
             max_generated_questions=6,
@@ -264,6 +273,7 @@ class TestPredict:
         fake = FakeLLM()
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_pred",
             max_samples_as_context=8,
             max_generated_questions=3,
@@ -289,6 +299,7 @@ class TestPredictBatch:
         fake = FakeLLM()
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_pred_batch",
             max_samples_as_context=8,
             max_generated_questions=3,
@@ -335,6 +346,7 @@ class TestPredictBatch:
         fake = FakeLLM()
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_pred_batch_small",
             max_samples_as_context=8,
             max_generated_questions=3,
@@ -377,6 +389,7 @@ class TestPredictBatch:
         fake_single = FakeLLM()
         rrf_single = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_pred_single",
             max_samples_as_context=8,
             max_generated_questions=3,
@@ -393,6 +406,7 @@ class TestPredictBatch:
         fake_batch = FakeLLM()
         rrf_batch = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_pred_match",
             max_samples_as_context=8,
             max_generated_questions=3,
@@ -421,6 +435,7 @@ class TestPredictBatch:
         fake = FakeLLM()
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_pred_default_batch",
             max_samples_as_context=8,
             max_generated_questions=3,
@@ -461,24 +476,36 @@ class TestPredictBatch:
 class TestValidation:
     def test_invalid_max_questions(self) -> None:
         with pytest.raises(ValueError):
-            RRF(qgen_llmc=LLM_CHOICE, max_generated_questions=0)
+            RRF(
+                qgen_llmc=LLM_CHOICE, qanswer_llmc=LLM_CHOICE, max_generated_questions=0
+            )
 
     def test_invalid_class_ratio(self) -> None:
         with pytest.raises(ValueError):
-            RRF(qgen_llmc=LLM_CHOICE, class_ratio=(-1, 1))
+            RRF(qgen_llmc=LLM_CHOICE, qanswer_llmc=LLM_CHOICE, class_ratio=(-1, 1))
 
     def test_invalid_similarity_func(self) -> None:
         with pytest.raises(ValueError):
-            RRF(qgen_llmc=LLM_CHOICE, answer_similarity_func="cosine")
+            RRF(
+                qgen_llmc=LLM_CHOICE,
+                qanswer_llmc=LLM_CHOICE,
+                answer_similarity_func="cosine",
+            )
 
     def test_correlation_similarity_func_accepted(self) -> None:
-        rrf = RRF(qgen_llmc=LLM_CHOICE, answer_similarity_func="correlation")
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
+            answer_similarity_func="correlation",
+        )
         assert rrf.answer_similarity_func == "correlation"
 
     @pytest.mark.asyncio
     async def test_mismatched_xy_raises(self) -> None:
         fake = FakeLLM()
-        rrf = RRF(qgen_llmc=LLM_CHOICE, name="test_val", _llm=fake)
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE, qanswer_llmc=LLM_CHOICE, name="test_val", _llm=fake
+        )
         X = pd.DataFrame({"data": ["a", "b"]})
         y = ["YES"]
         await rrf.set_tasks(task_description="Test")
@@ -488,7 +515,9 @@ class TestValidation:
     @pytest.mark.asyncio
     async def test_invalid_labels_raises(self) -> None:
         fake = FakeLLM()
-        rrf = RRF(qgen_llmc=LLM_CHOICE, name="test_val2", _llm=fake)
+        rrf = RRF(
+            qgen_llmc=LLM_CHOICE, qanswer_llmc=LLM_CHOICE, name="test_val2", _llm=fake
+        )
         X = pd.DataFrame({"data": ["a", "b"]})
         y = ["YES", "MAYBE"]
         await rrf.set_tasks(task_description="Test")
@@ -509,6 +538,7 @@ class TestQuestionManagement:
         fake = FakeLLM()
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_add",
             max_samples_as_context=8,
             max_generated_questions=3,
@@ -529,6 +559,7 @@ class TestQuestionManagement:
         fake = FakeLLM()
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_excl",
             max_samples_as_context=8,
             max_generated_questions=3,
@@ -561,6 +592,7 @@ class TestFBetaScoring:
         fake = FakeLLM(default_answer="ALTERNATE")
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_fbeta_default",
             max_samples_as_context=8,
             max_generated_questions=3,
@@ -586,6 +618,7 @@ class TestFBetaScoring:
         fake = FakeLLM(default_answer="ALTERNATE")
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_fbeta_half",
             max_samples_as_context=8,
             max_generated_questions=3,
@@ -615,6 +648,7 @@ class TestFBetaScoring:
         fake = FakeLLM(default_answer="ALTERNATE")
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_fbeta_two",
             max_samples_as_context=8,
             max_generated_questions=3,
@@ -632,12 +666,20 @@ class TestFBetaScoring:
     def test_beta_zero_raises(self) -> None:
         """beta <= 0 raises ValueError."""
         with pytest.raises(ValueError, match="question_scoring_f_beta"):
-            RRF(qgen_llmc=LLM_CHOICE, question_scoring_f_beta=0.0)
+            RRF(
+                qgen_llmc=LLM_CHOICE,
+                qanswer_llmc=LLM_CHOICE,
+                question_scoring_f_beta=0.0,
+            )
 
     def test_beta_negative_raises(self) -> None:
         """beta < 0 raises ValueError."""
         with pytest.raises(ValueError, match="question_scoring_f_beta"):
-            RRF(qgen_llmc=LLM_CHOICE, question_scoring_f_beta=-1.0)
+            RRF(
+                qgen_llmc=LLM_CHOICE,
+                qanswer_llmc=LLM_CHOICE,
+                question_scoring_f_beta=-1.0,
+            )
 
     @pytest.mark.asyncio
     async def test_fbeta_zero_precision_recall(
@@ -647,6 +689,7 @@ class TestFBetaScoring:
         fake = FakeLLM(default_answer="NO")
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_fbeta_zero",
             max_samples_as_context=8,
             max_generated_questions=3,
@@ -674,6 +717,7 @@ class TestFBetaScoring:
         fake = FakeLLM(default_answer="ALTERNATE")
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_fbeta_sl",
             max_samples_as_context=8,
             max_generated_questions=3,
@@ -714,6 +758,7 @@ class TestSaveLoad:
         fake = FakeLLM()
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_sl",
             max_samples_as_context=8,
             max_generated_questions=3,
@@ -744,6 +789,7 @@ class TestExclusionReport:
         fake = FakeLLM()
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_excl_empty",
             max_samples_as_context=8,
             max_generated_questions=3,
@@ -773,6 +819,7 @@ class TestExclusionReport:
         fake = FakeLLM(default_answer="YES")
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_excl_pred",
             max_samples_as_context=8,
             max_generated_questions=6,
@@ -800,6 +847,7 @@ class TestExclusionReport:
         fake = FakeLLM(default_answer="YES")
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_corr",
             max_samples_as_context=8,
             max_generated_questions=6,
@@ -822,6 +870,7 @@ class TestExclusionReport:
         fake = FakeLLM()
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_corr_report",
             max_samples_as_context=8,
             max_generated_questions=6,
@@ -846,6 +895,7 @@ class TestExclusionReport:
         fake = FakeLLM()
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_excl_sem",
             max_samples_as_context=8,
             max_generated_questions=6,
@@ -876,6 +926,7 @@ class TestExclusionReport:
         fake = FakeLLM()
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_excl_expert",
             max_samples_as_context=8,
             max_generated_questions=3,
@@ -907,6 +958,7 @@ class TestExclusionReport:
         fake = FakeLLM(default_answer="YES")
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_excl_dict",
             max_samples_as_context=8,
             max_generated_questions=6,
@@ -931,6 +983,7 @@ class TestExclusionReport:
         fake = FakeLLM(default_answer="YES")
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_excl_clear",
             max_samples_as_context=8,
             max_generated_questions=6,
@@ -954,6 +1007,7 @@ class TestExclusionReport:
         fake = FakeLLM(default_answer="YES")
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_excl_sl",
             max_samples_as_context=8,
             max_generated_questions=6,
@@ -988,6 +1042,7 @@ class TestEarlySemanticFiltering:
         fake = FakeLLM()
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_early_off",
             max_samples_as_context=8,
             max_generated_questions=6,
@@ -1010,6 +1065,7 @@ class TestEarlySemanticFiltering:
         fake = FakeLLM()
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_early_low",
             max_samples_as_context=8,
             max_generated_questions=6,
@@ -1034,6 +1090,7 @@ class TestEarlySemanticFiltering:
         fake = FakeLLM()
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_early_high",
             max_samples_as_context=8,
             max_generated_questions=6,
@@ -1058,6 +1115,7 @@ class TestEarlySemanticFiltering:
         fake = FakeLLM()
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_early_log",
             max_samples_as_context=8,
             max_generated_questions=6,
@@ -1089,6 +1147,7 @@ class TestEarlySemanticFiltering:
         fake = FakeLLM()
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_early_sl",
             max_samples_as_context=8,
             max_generated_questions=3,
@@ -1114,6 +1173,7 @@ class TestEarlySemanticFiltering:
         fake = FakeLLM()
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_early_summary",
             max_samples_as_context=8,
             max_generated_questions=6,
@@ -1144,6 +1204,7 @@ class TestEarlySemanticFiltering:
         fake_base = FakeLLM()
         rrf_base = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_early_calls_base",
             max_samples_as_context=8,
             max_generated_questions=6,
@@ -1157,6 +1218,7 @@ class TestEarlySemanticFiltering:
         fake_early = FakeLLM()
         rrf_early = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_early_calls_early",
             max_samples_as_context=8,
             max_generated_questions=6,
@@ -1194,6 +1256,7 @@ class TestPredictConcurrent:
         fake_seq = FakeLLM()
         rrf_seq = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_conc_seq",
             max_samples_as_context=8,
             max_generated_questions=3,
@@ -1211,6 +1274,7 @@ class TestPredictConcurrent:
         fake_conc = FakeLLM()
         rrf_conc = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_conc_conc",
             max_samples_as_context=8,
             max_generated_questions=3,
@@ -1237,6 +1301,7 @@ class TestPredictConcurrent:
             fake = FakeLLM()
             rrf = RRF(
                 qgen_llmc=LLM_CHOICE,
+                qanswer_llmc=LLM_CHOICE,
                 name="test_conc_order",
                 max_samples_as_context=8,
                 max_generated_questions=3,
@@ -1283,6 +1348,7 @@ class TestPredictConcurrent:
         fake = TrackingFakeLLM()
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_conc_limit",
             max_samples_as_context=8,
             max_generated_questions=6,
@@ -1375,6 +1441,7 @@ class TestFounderPredictions:
         fake = FakeLLM(default_answer="ALTERNATE")
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_fit_tunes",
             max_samples_as_context=8,
             max_generated_questions=6,
@@ -1397,6 +1464,7 @@ class TestFounderPredictions:
         fake = FakeLLM()
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_pf_after_fit",
             max_samples_as_context=8,
             max_generated_questions=3,
@@ -1420,6 +1488,7 @@ class TestFounderPredictions:
         fake = FakeLLM()
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_pf_explicit",
             max_samples_as_context=8,
             max_generated_questions=3,
@@ -1440,6 +1509,7 @@ class TestFounderPredictions:
         fake = FakeLLM()
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_pf_no_fit",
             max_samples_as_context=8,
             max_generated_questions=3,
@@ -1458,6 +1528,7 @@ class TestFounderPredictions:
         fake = FakeLLM(default_answer="YES")
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_pf_all_yes",
             max_samples_as_context=8,
             max_generated_questions=3,
@@ -1487,6 +1558,7 @@ class TestFounderPredictions:
         fake = FakeLLM()
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_ckpt_save",
             max_samples_as_context=8,
             max_generated_questions=3,
@@ -1520,6 +1592,7 @@ class TestFounderPredictions:
         fake_full = FakeLLM()
         rrf_full = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_ckpt_match",
             max_samples_as_context=8,
             max_generated_questions=3,
@@ -1538,6 +1611,7 @@ class TestFounderPredictions:
         fake_resume = FakeLLM()
         rrf_resume = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_ckpt_match",
             max_samples_as_context=8,
             max_generated_questions=3,
@@ -1567,6 +1641,7 @@ class TestFounderPredictions:
         fake1 = FakeLLM()
         rrf1 = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_ckpt_noresume",
             max_samples_as_context=8,
             max_generated_questions=3,
@@ -1586,6 +1661,7 @@ class TestFounderPredictions:
         fake2 = FakeLLM()
         rrf2 = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_ckpt_noresume",
             max_samples_as_context=8,
             max_generated_questions=3,
@@ -1615,6 +1691,7 @@ class TestFounderPredictions:
         fake_full = FakeLLM()
         rrf_full = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_ckpt_skip",
             max_samples_as_context=8,
             max_generated_questions=3,
@@ -1633,6 +1710,7 @@ class TestFounderPredictions:
         fake_resume = FakeLLM()
         rrf_resume = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_ckpt_skip",
             max_samples_as_context=8,
             max_generated_questions=3,
@@ -1653,6 +1731,7 @@ class TestFounderPredictions:
         fake = FakeLLM()
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_agg_sl",
             max_samples_as_context=8,
             max_generated_questions=3,
@@ -1679,6 +1758,7 @@ class TestFounderPredictions:
         fake = FakeLLM()
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_pf_contract",
             max_samples_as_context=8,
             max_generated_questions=3,
@@ -1723,6 +1803,7 @@ async def test_standard_mode_baseline(
 
     rrf = RRF(
         qgen_llmc=LLM_CHOICE,
+        qanswer_llmc=LLM_CHOICE,
         max_generated_questions=3,
         random_state=42,
         cost_sensitive=False,
@@ -1754,6 +1835,7 @@ async def test_cost_sensitive_reduces_calls(
     fake_llm_std = FakeLLM(questions_per_call=6)
     rrf_std = RRF(
         qgen_llmc=LLM_CHOICE,
+        qanswer_llmc=LLM_CHOICE,
         max_generated_questions=6,
         random_state=42,
         cost_sensitive=False,
@@ -1772,6 +1854,7 @@ async def test_cost_sensitive_reduces_calls(
     )
     rrf_cs = RRF(
         qgen_llmc=LLM_CHOICE,
+        qanswer_llmc=LLM_CHOICE,
         max_generated_questions=6,
         random_state=42,
         cost_sensitive=True,
@@ -1806,6 +1889,7 @@ async def test_screening_baseline_majority(
 
     rrf = RRF(
         qgen_llmc=LLM_CHOICE,
+        qanswer_llmc=LLM_CHOICE,
         max_generated_questions=5,
         random_state=42,
         cost_sensitive=True,
@@ -1843,6 +1927,7 @@ async def test_screening_baseline_float(
 
     rrf = RRF(
         qgen_llmc=LLM_CHOICE,
+        qanswer_llmc=LLM_CHOICE,
         max_generated_questions=4,
         random_state=42,
         cost_sensitive=True,
@@ -1877,6 +1962,7 @@ async def test_top_n_selection(
 
     rrf = RRF(
         qgen_llmc=LLM_CHOICE,
+        qanswer_llmc=LLM_CHOICE,
         max_generated_questions=10,
         random_state=42,
         cost_sensitive=True,
@@ -1914,6 +2000,7 @@ async def test_val_set_support(
 
     rrf = RRF(
         qgen_llmc=LLM_CHOICE,
+        qanswer_llmc=LLM_CHOICE,
         max_generated_questions=3,
         random_state=42,
         cost_sensitive=True,
@@ -1948,6 +2035,7 @@ async def test_deterministic_screening_split(
 
     rrf1 = RRF(
         qgen_llmc=LLM_CHOICE,
+        qanswer_llmc=LLM_CHOICE,
         max_generated_questions=3,
         random_state=42,
         cost_sensitive=True,
@@ -1957,6 +2045,7 @@ async def test_deterministic_screening_split(
 
     rrf2 = RRF(
         qgen_llmc=LLM_CHOICE,
+        qanswer_llmc=LLM_CHOICE,
         max_generated_questions=3,
         random_state=42,
         cost_sensitive=True,
@@ -1985,6 +2074,7 @@ async def test_cost_sensitive_false_unchanged(
 
     rrf = RRF(
         qgen_llmc=LLM_CHOICE,
+        qanswer_llmc=LLM_CHOICE,
         max_generated_questions=4,
         random_state=42,
         cost_sensitive=False,  # Explicitly false
@@ -2020,6 +2110,7 @@ async def test_semantic_filtering_auto_applied(
 
     rrf = RRF(
         qgen_llmc=LLM_CHOICE,
+        qanswer_llmc=LLM_CHOICE,
         max_generated_questions=8,
         random_state=42,
         cost_sensitive=True,
@@ -2052,6 +2143,7 @@ async def test_semantic_filtering_disabled(
 
     rrf = RRF(
         qgen_llmc=LLM_CHOICE,
+        qanswer_llmc=LLM_CHOICE,
         max_generated_questions=6,
         random_state=42,
         cost_sensitive=True,
@@ -2079,6 +2171,7 @@ async def test_val_set_validation(
     fake_llm1 = FakeLLM()
     rrf1 = RRF(
         qgen_llmc=LLM_CHOICE,
+        qanswer_llmc=LLM_CHOICE,
         random_state=42,
         _llm=fake_llm1,
     )
@@ -2089,6 +2182,7 @@ async def test_val_set_validation(
     fake_llm2 = FakeLLM()
     rrf2 = RRF(
         qgen_llmc=LLM_CHOICE,
+        qanswer_llmc=LLM_CHOICE,
         random_state=42,
         _llm=fake_llm2,
     )
@@ -2135,6 +2229,7 @@ class TestFBetaAggregation:
         fake = FakeLLM(default_answer="ALTERNATE")
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_fbeta_agg",
             max_samples_as_context=8,
             max_generated_questions=6,
@@ -2155,6 +2250,7 @@ class TestFBetaAggregation:
         """'f_beta' is accepted as a valid aggregation_metric value."""
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_fbeta_valid",
             aggregation_metric="f_beta",
         )
@@ -2165,6 +2261,7 @@ class TestFBetaAggregation:
         with pytest.raises(ValueError, match="aggregation_metric"):
             RRF(
                 qgen_llmc=LLM_CHOICE,
+                qanswer_llmc=LLM_CHOICE,
                 name="test_invalid",
                 aggregation_metric="f_beta_invalid",  # type: ignore[arg-type]
             )
@@ -2310,6 +2407,7 @@ class TestPromptPresets:
         fake = FakeLLM()
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_preset_skip",
             max_samples_as_context=8,
             max_generated_questions=3,
@@ -2334,6 +2432,7 @@ class TestPromptPresets:
         fake = FakeLLM()
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_preset_gen",
             max_samples_as_context=8,
             max_generated_questions=3,
@@ -2359,6 +2458,7 @@ class TestPromptPresets:
         fake = FakeLLM()
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_preset_ans",
             max_samples_as_context=8,
             max_generated_questions=3,
@@ -2382,6 +2482,7 @@ class TestPromptPresets:
         fake = FakeLLM()
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_preset_excl",
             max_generated_questions=3,
             prompt_preset=VC_FOUNDER_PRESET,
@@ -2399,6 +2500,7 @@ class TestPromptPresets:
         fake = FakeLLM()
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_preset_name",
             max_samples_as_context=8,
             max_generated_questions=3,
@@ -2427,6 +2529,7 @@ class TestPromptPresets:
         fake = FakeLLM()
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             name="test_custom_preset",
             max_samples_as_context=8,
             max_generated_questions=3,
@@ -2463,6 +2566,7 @@ def _enet_rrf(n: int = 40, seed: int = 0) -> tuple[RRF, np.ndarray]:
     )
     rrf = RRF(
         qgen_llmc=LLM_CHOICE,
+        qanswer_llmc=LLM_CHOICE,
         aggregation_method="elasticnet",
         elasticnet_cv=3,
         random_state=42,
@@ -2491,20 +2595,35 @@ def _enet_rrf(n: int = 40, seed: int = 0) -> tuple[RRF, np.ndarray]:
 
 class TestElasticNetAggregation:
     def test_default_method_is_vote(self) -> None:
-        rrf = RRF(qgen_llmc=LLM_CHOICE, _llm=FakeLLM())
+        rrf = RRF(qgen_llmc=LLM_CHOICE, qanswer_llmc=LLM_CHOICE, _llm=FakeLLM())
         assert rrf.aggregation_method == "vote"
 
     def test_bad_method_raises(self) -> None:
         with pytest.raises(ValueError, match="aggregation_method"):
-            RRF(qgen_llmc=LLM_CHOICE, aggregation_method="bogus", _llm=FakeLLM())  # type: ignore[arg-type]
+            RRF(
+                qgen_llmc=LLM_CHOICE,
+                qanswer_llmc=LLM_CHOICE,
+                aggregation_method="bogus",  # type: ignore[arg-type]
+                _llm=FakeLLM(),
+            )
 
     def test_bad_elasticnet_cv_raises(self) -> None:
         with pytest.raises(ValueError, match="elasticnet_cv"):
-            RRF(qgen_llmc=LLM_CHOICE, elasticnet_cv=1, _llm=FakeLLM())
+            RRF(
+                qgen_llmc=LLM_CHOICE,
+                qanswer_llmc=LLM_CHOICE,
+                elasticnet_cv=1,
+                _llm=FakeLLM(),
+            )
 
     def test_bad_l1_ratios_raises(self) -> None:
         with pytest.raises(ValueError, match="l1_ratio"):
-            RRF(qgen_llmc=LLM_CHOICE, elasticnet_l1_ratios=(1.5,), _llm=FakeLLM())
+            RRF(
+                qgen_llmc=LLM_CHOICE,
+                qanswer_llmc=LLM_CHOICE,
+                elasticnet_l1_ratios=(1.5,),
+                _llm=FakeLLM(),
+            )
 
     def test_tune_learns_signed_weights(self) -> None:
         rrf, _ = _enet_rrf()

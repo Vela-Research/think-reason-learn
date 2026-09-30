@@ -19,3 +19,7 @@ class JevAuthError(LLMError):
 
 class JevCostCapError(LLMError):
     """A Jev run would pass, or has passed, its cost cap (``max_cost_usd``)."""
+
+
+class MissingAPIKeyError(ValueError):
+    """A model was chosen whose API key is not set."""

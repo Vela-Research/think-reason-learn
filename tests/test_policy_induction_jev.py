@@ -24,6 +24,8 @@ from think_reason_learn.policy_induction._policy_induction import (
 )
 from tests.fake_jev import FakeJevLLM
 
+pytestmark = pytest.mark.usefixtures("typesafe_key")
+
 POLICIES = [
     "Strong technical background predicts success.",
     "Prior exits predict success.",

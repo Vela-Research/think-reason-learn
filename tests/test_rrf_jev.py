@@ -19,6 +19,8 @@ from think_reason_learn.rrf import RRF
 from think_reason_learn.rrf._rrf import Answer
 from tests.fake_jev import FakeJevLLM
 
+pytestmark = pytest.mark.usefixtures("typesafe_key")
+
 LLM_CHOICE: list[LLMChoice] = [OpenAIChoice(model="gpt-4.1-nano")]
 PEOPLE = [
     "A: 30yo woman, CS Stanford, 6yr Google, AI healthcare startup, $2M seed.",

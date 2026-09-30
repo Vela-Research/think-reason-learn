@@ -27,13 +27,17 @@ import pandas as pd
 from think_reason_learn.core.llms import (
     ChoiceQuestion,
     JevBudget,
+    JevChoice,
     JevQuestion,
     JevRequest,
     LLMChoice,
     TokenCounter,
     llm,
 )
-from think_reason_learn.core.llms._jev.client import new_run_budget
+from think_reason_learn.core.llms._jev.client import (
+    new_run_budget,
+    require_typesafe_key,
+)
 from think_reason_learn.core.llms._jev.schemas import is_jev
 from think_reason_learn.core.exceptions import DataError, LLMError, CorruptionError
 from ._types import QuestionType, Criterion
@@ -199,9 +203,11 @@ class GPTree:
         critic_llmc: LLMs to use for question critique, in priority order.
         qgen_instr_llmc: LLMs for generating instructions.
         qanswer_llmc: LLMs to use for answering questions, in priority order.
-            If None, use qgen_llmc. With Jev (``JevChoice``) first, each sample
-            at a node is sent once with all the node's candidate questions as
-            multiple-choice questions whose labels are the question's choices.
+            If None, Jev (``[JevChoice()]``), which needs ``TYPESAFE_API_KEY``;
+            pass a chat model here to answer with it instead. With Jev first,
+            each sample at a node is sent once with all the node's candidate
+            questions as multiple-choice questions whose labels are the
+            question's choices.
         qgen_temperature: Sampling temperature for question generation.
         critic_temperature: Sampling temperature for critique.
         qgen_instr_gen_temperature: Sampling temperature for generating
@@ -260,7 +266,8 @@ class GPTree:
         self.qgen_llmc = qgen_llmc
         self.critic_llmc = critic_llmc
         self.qgen_instr_llmc = qgen_instr_llmc
-        self.qanswer_llmc = qanswer_llmc or qgen_llmc
+        self.qanswer_llmc: List[LLMChoice] = qanswer_llmc or [JevChoice()]
+        require_typesafe_key(self.qanswer_llmc, method="GPTree", param="qanswer_llmc")
         self.qgen_temperature = qgen_temperature
         self.qanswer_temperature = qanswer_temperature
         self.critic_temperature = critic_temperature

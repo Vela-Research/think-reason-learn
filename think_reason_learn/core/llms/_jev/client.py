@@ -22,7 +22,12 @@ from typing import Any, Awaitable, Callable, Dict, List, Sequence, Tuple
 
 import httpx
 
-from think_reason_learn.core.exceptions import JevAuthError, JevCostCapError
+from think_reason_learn.core._config import settings
+from think_reason_learn.core.exceptions import (
+    JevAuthError,
+    JevCostCapError,
+    MissingAPIKeyError,
+)
 
 from .schemas import AnswerValue, ChoiceQuestion, JevQuestion, NoulQuestion
 from .schemas import first_jev_choice
@@ -462,3 +467,26 @@ def new_run_budget(llm_priority: Sequence[object]) -> JevBudget | None:
     """A fresh budget with the cap of the first Jev choice, if there is one."""
     choice = first_jev_choice(llm_priority)
     return JevBudget(choice.max_cost_usd) if choice is not None else None
+
+
+def require_typesafe_key(
+    llm_priority: Sequence[object], *, method: str, param: str
+) -> None:
+    """Raise if Jev is among the answerers and TYPESAFE_API_KEY is not set.
+
+    Args:
+        llm_priority: The method's answering models.
+        method: The class name shown in the message, e.g. ``"RRF"``.
+        param: The argument that picks the answerers, e.g. ``"qanswer_llmc"``.
+
+    Raises:
+        MissingAPIKeyError: Jev is chosen and the key is missing.
+    """
+    if settings.TYPESAFE_API_KEY or first_jev_choice(llm_priority) is None:
+        return
+    raise MissingAPIKeyError(
+        f"{method} answers questions with Jev (Typesafe's System One model), "
+        "which needs TYPESAFE_API_KEY, and TYPESAFE_API_KEY is not set. Set it "
+        "in your environment or in a .env file, or answer with a chat model "
+        f'instead: {method}(..., {param}=[OpenAIChoice(model="gpt-4.1-mini")]).'
+    )

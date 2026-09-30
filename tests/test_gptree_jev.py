@@ -22,6 +22,8 @@ from think_reason_learn.gptree._gptree import Question, Questions
 from think_reason_learn.gptree._prompts import num_questions_tag
 from tests.fake_jev import FakeJevLLM
 
+pytestmark = pytest.mark.usefixtures("typesafe_key")
+
 CHAT: list[LLMChoice] = [OpenAIChoice(model="gpt-4.1-nano")]
 ROWS = [f"strong founder {i}" for i in range(4)] + [
     f"weak founder {i}" for i in range(4)

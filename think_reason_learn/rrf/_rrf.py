@@ -40,6 +40,7 @@ from sklearn.linear_model import LogisticRegressionCV
 from think_reason_learn.core.exceptions import CorruptionError, DataError, LLMError
 from think_reason_learn.core.llms import (
     JevBudget,
+    JevChoice,
     JevQuestion,
     JevRequest,
     LLMChoice,
@@ -47,7 +48,10 @@ from think_reason_learn.core.llms import (
     TokenCounter,
     llm,
 )
-from think_reason_learn.core.llms._jev.client import new_run_budget
+from think_reason_learn.core.llms._jev.client import (
+    new_run_budget,
+    require_typesafe_key,
+)
 from think_reason_learn.core.llms._jev.schemas import is_jev
 
 from ._cost_sensitive import CostSensitiveConfig
@@ -108,9 +112,10 @@ class RRF:
     Args:
         qgen_llmc: LLMs to use for question generation, in priority order.
         qanswer_llmc: LLMs to use for answering questions, in priority order.
-            If None, use qgen_llmc. With Jev (``JevChoice``) first, each sample
-            is sent once with all its questions and Jev's probability of YES is
-            recorded as YES at or above 0.5 (see
+            If None, Jev (``[JevChoice()]``), which needs ``TYPESAFE_API_KEY``;
+            pass a chat model here to answer with it instead. With Jev first,
+            each sample is sent once with all its questions and Jev's
+            probability of YES is recorded as YES at or above 0.5 (see
             ``get_answer_probabilities()`` for the probabilities).
         qgen_temperature: Sampling temperature for question generation.
         qanswer_temperature: Sampling temperature for answering questions.
@@ -213,7 +218,8 @@ class RRF:
         self._verify_input_data(**locals_dict)
 
         self.qgen_llmc = qgen_llmc
-        self.qanswer_llmc = qanswer_llmc or qgen_llmc
+        self.qanswer_llmc: List[LLMChoice] = qanswer_llmc or [JevChoice()]
+        require_typesafe_key(self.qanswer_llmc, method="RRF", param="qanswer_llmc")
         self.qgen_temperature = qgen_temperature
         self.qanswer_temperature = qanswer_temperature
         self._llm_semaphore_limit = llm_semaphore_limit

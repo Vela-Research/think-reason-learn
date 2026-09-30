@@ -1,6 +1,24 @@
 Changelog
 =========
 
+Unreleased
+----------
+- Jev, Typesafe's System One model, is the default answering model: ``qanswer_llmc`` in Random Rule Forest and
+  GPTree and ``predict_llmc`` in Policy Induction default to ``[JevChoice()]`` instead of the generation model.
+  Question and policy generation, critics and instructions still use chat models.
+- Jev answers need ``TYPESAFE_API_KEY``. Without it, constructing a method that answers with Jev raises
+  ``MissingAPIKeyError`` with a message showing how to answer with a chat model instead. Saved models keep the
+  answering model they were saved with.
+- Jev sends each sample once with all its questions. Random Rule Forest records Jev's probability of YES as YES at or
+  above 0.5 and keeps the probabilities (``get_answer_probabilities()``); Policy Induction does the same for policy
+  scores; GPTree asks Jev multiple-choice questions whose labels are the question's choices.
+- Every ``fit()`` and ``predict()`` prints its estimated Jev cost before spending and stops if the estimate or the
+  actual spend passes ``JevChoice(max_cost_usd=10)``. Paid answers are cached in ``~/.cache/think_reason_learn/jev``;
+  ``JevChoice(cache=False)`` turns the cache off.
+- New ``LLM.answer`` and ``LLM.answer_many`` answer typed questions (``NoulQuestion``, ``ChoiceQuestion``) with Jev,
+  falling back to chat models.
+- ``httpx`` is now a direct dependency.
+
 0.1.0
 -----
 - Initial public release of Think Reason Learn.

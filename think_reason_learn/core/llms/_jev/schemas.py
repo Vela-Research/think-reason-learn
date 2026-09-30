@@ -1,4 +1,4 @@
-from typing import Annotated, List, Literal, NotRequired, Sequence, TypeAlias
+from typing import List, Literal, NotRequired, Sequence, TypeAlias
 from typing import TypedDict
 
 from pydantic import BaseModel, Field
@@ -54,9 +54,7 @@ class ChoiceQuestion(BaseModel):
     labels: List[str] = Field(min_length=2)
 
 
-JevQuestion: TypeAlias = Annotated[
-    NoulQuestion | ChoiceQuestion, Field(discriminator="type")
-]
+JevQuestion: TypeAlias = NoulQuestion | ChoiceQuestion
 AnswerValue: TypeAlias = float | str
 """A noul probability (float) or a choice label (str)."""
 

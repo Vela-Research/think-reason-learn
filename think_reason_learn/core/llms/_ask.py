@@ -415,8 +415,10 @@ class LLM(metaclass=SingletonMeta):
 
         Raises:
             ValueError: A model's API key is not set.
-            JevCostCapError: The run's Jev cost cap would be or was passed.
-            JevAuthError: Typesafe rejected the key.
+            ~think_reason_learn.core.exceptions.JevCostCapError: The run's Jev
+                cost cap would be or was passed.
+            ~think_reason_learn.core.exceptions.JevAuthError: Typesafe rejected
+                the key.
         """
         assert len(llm_priority) > 0, "llm_priority must be a non-empty list"
         models = self._val_llm_priority_and_api_keys(llm_priority)

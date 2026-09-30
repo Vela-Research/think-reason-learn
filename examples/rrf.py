@@ -11,8 +11,9 @@ A quick walkthrough of the Random Rule Forest (RRF) workflow:
   7. Save / load and verify predictions match
   8. Founder-level prediction with train/test split
 
-Prerequisites:
+Prerequisites (questions are written by OpenAI and answered by Jev, the default):
   export OPENAI_API_KEY="sk-..."
+  export TYPESAFE_API_KEY="..."
   python examples/rrf.py
 """
 

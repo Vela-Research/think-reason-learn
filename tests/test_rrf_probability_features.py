@@ -196,10 +196,12 @@ def test_unknown_setting_raises(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_default_rrf_learns_from_jev_probabilities(tmp_path: Path) -> None:
-    rrf = await _fit(_rrf(tmp_path, elasticnet_cs=(10.0, 100.0), elasticnet_cv=2))
+    # All defaults: Jev answers, elastic-net combiner, default Cs and CV folds.
+    # The earlier Cs grid (0.05, 0.1, 0.5) zeroed every weight on this data.
+    rrf = await _fit(_rrf(tmp_path))
 
     result = await rrf.predict_founder_level(X)
 
     assert rrf.aggregation_method == "elasticnet"
-    assert "probability" in result.columns
+    assert any(w != 0 for w in (rrf._aggregation_weights or {}).values())
     assert list(result["prediction"]) == LABELS

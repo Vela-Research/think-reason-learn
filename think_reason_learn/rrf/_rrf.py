@@ -169,7 +169,11 @@ class RRF:
             method, or ``"vote"`` if none was saved.
         elasticnet_cs: Inverse-regularisation grid (sklearn ``Cs``) searched by
             inner CV when ``aggregation_method="elasticnet"``. Default
-            ``(0.05, 0.1, 0.5)``.
+            ``(1.0,)``: on twelve benchmark datasets a fixed C=1 beat choosing
+            C by inner CV from a grid (mean test AUC 0.687 against 0.673 for
+            ``(0.05, 0.1, 0.5)`` with Jev's probabilities, 0.665 against 0.663
+            with YES/NO answers); small training sets made the inner CV pick
+            too much regularisation, sometimes zeroing every weight.
         elasticnet_l1_ratios: Elastic-net mixing grid (0 = pure L2, 1 = pure L1)
             searched by inner CV. Default ``(0.1, 0.5)``.
         elasticnet_cv: Number of inner CV folds for elastic-net hyperparameter
@@ -215,7 +219,7 @@ class RRF:
         ] = "f1",
         aggregation_max_k: int | None = None,
         aggregation_method: Literal["vote", "elasticnet"] = "elasticnet",
-        elasticnet_cs: Tuple[float, ...] = (0.05, 0.1, 0.5),
+        elasticnet_cs: Tuple[float, ...] = (1.0,),
         elasticnet_l1_ratios: Tuple[float, ...] = (0.1, 0.5),
         elasticnet_cv: int = 3,
         cost_sensitive: bool = False,

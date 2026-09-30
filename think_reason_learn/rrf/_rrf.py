@@ -154,15 +154,19 @@ class RRF:
             during (K, T) grid search. ``None`` means use all active
             questions. Default ``None`` (vote method only).
         aggregation_method: How per-question answers are combined into a
-            founder-level label. ``"vote"`` (default) uses the unit-weight
-            top-(K, T) scheme tuned by grid search. ``"elasticnet"`` instead
-            fits an elastic-net logistic regression over all active questions,
-            learning a signed weight per question plus a decision threshold.
-            Learned weights are usually more accurate (they down-weight noisy
-            questions and exploit correlations) but trade away the simple
-            "N of K rules fired" interpretation for inspectable logistic
-            coefficients. ``aggregation_max_k`` and the ``k``/``t`` overrides on
-            ``predict_founder_level`` apply to ``"vote"`` only.
+            founder-level label. ``"elasticnet"`` (default) fits an
+            elastic-net logistic regression over all active questions,
+            learning a signed weight per question plus a decision threshold;
+            with Jev answering it uses Jev's probabilities (see
+            ``answer_features``). ``"vote"`` uses the unit-weight top-(K, T)
+            scheme tuned by grid search. Learned weights are usually more
+            accurate (they down-weight noisy questions and exploit
+            correlations) but trade away the simple "N of K rules fired"
+            interpretation for inspectable logistic coefficients.
+            ``aggregation_max_k`` and the ``k``/``t`` overrides on
+            ``predict_founder_level`` apply to ``"vote"`` only. Models saved
+            before elastic-net became the default load with their saved
+            method, or ``"vote"`` if none was saved.
         elasticnet_cs: Inverse-regularisation grid (sklearn ``Cs``) searched by
             inner CV when ``aggregation_method="elasticnet"``. Default
             ``(0.05, 0.1, 0.5)``.
@@ -210,7 +214,7 @@ class RRF:
             "f1", "f_beta", "accuracy", "precision", "recall"
         ] = "f1",
         aggregation_max_k: int | None = None,
-        aggregation_method: Literal["vote", "elasticnet"] = "vote",
+        aggregation_method: Literal["vote", "elasticnet"] = "elasticnet",
         elasticnet_cs: Tuple[float, ...] = (0.05, 0.1, 0.5),
         elasticnet_l1_ratios: Tuple[float, ...] = (0.1, 0.5),
         elasticnet_cv: int = 3,
@@ -1851,19 +1855,22 @@ class RRF:
         k: int | None = None,
         t: int | None = None,
     ) -> pd.DataFrame:
-        """Founder-level binary predictions using top-K / threshold-T.
+        """Founder-level binary predictions from the fitted combiner.
 
-        Calls ``predict()`` internally to get per-question answers, then
-        aggregates using the top-K questions (ranked by f_beta_score) and
-        a YES-count threshold T.
+        Answers every active question for each sample, then combines the
+        answers with the method chosen by ``aggregation_method``: the
+        elastic-net model learned during ``fit()`` (default), or the vote,
+        which predicts YES when at least T of the top-K questions (ranked by
+        f_beta_score) are answered YES.
 
-        K and T are learned during ``fit()`` via grid search on training
-        data. You can override them with explicit arguments.
+        The elastic-net weights and threshold, or K and T, are learned during
+        ``fit()``. In vote mode you can override K and T with explicit
+        arguments.
 
         Note:
-            K/T are tuned on training data (same data used for question
-            scoring). For stricter separation, pass explicit ``k`` and
-            ``t`` values tuned on a held-out validation set.
+            They are tuned on training data (same data used for question
+            scoring). For stricter separation in vote mode, pass explicit
+            ``k`` and ``t`` values tuned on a held-out validation set.
 
         Example::
 
@@ -1874,7 +1881,7 @@ class RRF:
 
             # Predict on new data
             results = await rrf.predict_founder_level(X_test)
-            print(results[["prediction", "yes_count"]])
+            print(results[["prediction", "probability"]])
 
         Args:
             X: Samples to predict (same format as fit input).

@@ -1442,6 +1442,7 @@ class TestFounderPredictions:
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
             qanswer_llmc=LLM_CHOICE,
+            aggregation_method="vote",
             name="test_fit_tunes",
             max_samples_as_context=8,
             max_generated_questions=6,
@@ -1465,6 +1466,7 @@ class TestFounderPredictions:
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
             qanswer_llmc=LLM_CHOICE,
+            aggregation_method="vote",
             name="test_pf_after_fit",
             max_samples_as_context=8,
             max_generated_questions=3,
@@ -1489,6 +1491,7 @@ class TestFounderPredictions:
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
             qanswer_llmc=LLM_CHOICE,
+            aggregation_method="vote",
             name="test_pf_explicit",
             max_samples_as_context=8,
             max_generated_questions=3,
@@ -1529,6 +1532,7 @@ class TestFounderPredictions:
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
             qanswer_llmc=LLM_CHOICE,
+            aggregation_method="vote",
             name="test_pf_all_yes",
             max_samples_as_context=8,
             max_generated_questions=3,
@@ -1759,6 +1763,7 @@ class TestFounderPredictions:
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
             qanswer_llmc=LLM_CHOICE,
+            aggregation_method="vote",
             name="test_pf_contract",
             max_samples_as_context=8,
             max_generated_questions=3,
@@ -2230,6 +2235,7 @@ class TestFBetaAggregation:
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
             qanswer_llmc=LLM_CHOICE,
+            aggregation_method="vote",
             name="test_fbeta_agg",
             max_samples_as_context=8,
             max_generated_questions=6,
@@ -2594,9 +2600,9 @@ def _enet_rrf(n: int = 40, seed: int = 0) -> tuple[RRF, np.ndarray]:
 
 
 class TestElasticNetAggregation:
-    def test_default_method_is_vote(self) -> None:
+    def test_default_method_is_elasticnet(self) -> None:
         rrf = RRF(qgen_llmc=LLM_CHOICE, qanswer_llmc=LLM_CHOICE, _llm=FakeLLM())
-        assert rrf.aggregation_method == "vote"
+        assert rrf.aggregation_method == "elasticnet"
 
     def test_bad_method_raises(self) -> None:
         with pytest.raises(ValueError, match="aggregation_method"):

@@ -354,9 +354,11 @@ async def main() -> None:  # noqa: D103
 
     # Fit: generates questions, answers them, computes metrics,
     # and tunes (K, T) for founder-level aggregation — all on train.
+    # The default combiner is elastic-net; this section shows the vote.
     rrf_fl = RRF(
         qgen_llmc=llm_choices,
         name="example_founder_level",
+        aggregation_method="vote",
         max_samples_as_context=8,
         max_generated_questions=8,
         question_scoring_f_beta=0.5,

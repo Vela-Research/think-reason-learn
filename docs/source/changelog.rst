@@ -17,9 +17,14 @@ Unreleased
   which every request fails raises ``LLMError`` instead of fitting on no answers.
 - Random Rule Forest keeps answers aligned with their samples when ``X`` has an index other than ``0..n-1``; the
   answers tables are indexed by position.
-- Every ``fit()`` and ``predict()`` prints its estimated Jev cost before spending and stops if the estimate or the
-  actual spend passes ``JevChoice(max_cost_usd=10)``. Paid answers are cached in ``~/.cache/think_reason_learn/jev``;
+- Every ``fit()`` and ``predict()`` prints its estimated Jev cost before spending (250 tokens per request plus request
+  bytes / 4.2, calibrated on billed usage) and stops if the estimate or the actual spend passes
+  ``JevChoice(max_cost_usd=10)``. Paid answers are cached in ``~/.cache/think_reason_learn/jev``;
   ``JevChoice(cache=False)`` turns the cache off.
+- Random Rule Forest's default combiner is now elastic-net (``aggregation_method="elasticnet"``) instead of the
+  top-K / T vote, so by default the founder-level model is learned from Jev's probabilities.
+  ``aggregation_method="vote"`` keeps the vote; saved models load with their saved method, or ``"vote"`` if none was
+  saved.
 - Random Rule Forest's elastic-net combiner (``aggregation_method="elasticnet"``) uses Jev's probability of YES as
   each question's feature (``answer_features="probability"``, the default); ``answer_features="binary"`` keeps
   YES/NO at 0.5. The vote combiner still counts YES answers, question metrics and similarity filters still use

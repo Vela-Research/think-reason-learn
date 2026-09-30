@@ -86,7 +86,7 @@ async def test_binary_setting_keeps_yes_no_features(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_vote_keeps_counting_yes_answers(tmp_path: Path) -> None:
-    rrf = await _fit(_rrf(tmp_path))
+    rrf = await _fit(_rrf(tmp_path, aggregation_method="vote"))
 
     result = await rrf.predict_founder_level(X)
 
@@ -102,7 +102,14 @@ async def test_vote_with_one_question_can_still_say_yes(tmp_path: Path) -> None:
     def prob(state: str, instructions: str) -> float:
         return probs[state.split(": ", 1)[1][0]]
 
-    rrf = await _fit(_rrf(tmp_path, aggregation_max_k=1, _llm=FakeJevLLM(prob=prob)))
+    rrf = await _fit(
+        _rrf(
+            tmp_path,
+            aggregation_method="vote",
+            aggregation_max_k=1,
+            _llm=FakeJevLLM(prob=prob),
+        )
+    )
 
     result = await rrf.predict_founder_level(X)
 
@@ -124,7 +131,7 @@ async def test_response_matrix_holds_probabilities_for_elasticnet(
 
 @pytest.mark.asyncio
 async def test_response_matrix_holds_yes_no_for_the_vote(tmp_path: Path) -> None:
-    rrf = await _fit(_rrf(tmp_path))
+    rrf = await _fit(_rrf(tmp_path, aggregation_method="vote"))
 
     matrix = await rrf._build_response_matrix(X)
 
@@ -185,3 +192,14 @@ async def test_models_saved_before_the_setting_load_as_binary(tmp_path: Path) ->
 def test_unknown_setting_raises(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="answer_features"):
         _rrf(tmp_path, answer_features="logits")
+
+
+@pytest.mark.asyncio
+async def test_default_rrf_learns_from_jev_probabilities(tmp_path: Path) -> None:
+    rrf = await _fit(_rrf(tmp_path, elasticnet_cs=(10.0, 100.0), elasticnet_cv=2))
+
+    result = await rrf.predict_founder_level(X)
+
+    assert rrf.aggregation_method == "elasticnet"
+    assert "probability" in result.columns
+    assert list(result["prediction"]) == LABELS

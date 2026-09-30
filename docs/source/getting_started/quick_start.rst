@@ -66,8 +66,8 @@ model:
    tree = GPTree(qgen_llmc=llm, critic_llmc=llm, qgen_instr_llmc=llm, qanswer_llmc=llm, max_depth=2)
 
 Why Jev: on twelve benchmark datasets we had studied before, with the same Random Rule Forest questions and the same
-logistic combiner, Jev's answers gave a mean test AUC of 0.660 when recorded as YES/NO at 0.5, as this release
-records them, against 0.630 for Gemini's YES/NO answers; Jev's probabilities gave 0.686. For Policy Induction, Jev's
-probabilities gave 0.695 against Gemini's 0.683. Answering the 53,057 samples of that comparison, with 14 to 16
+logistic combiner, Jev's probabilities, which Random Rule Forest's combiners use by default, gave a mean test AUC of
+0.686, against 0.630 for Gemini's YES/NO answers and 0.660 for Jev's answers recorded as YES/NO at 0.5
+(``answer_features="binary"``). For Policy Induction, Jev's probabilities gave 0.695 against Gemini's 0.683. Answering the 53,057 samples of that comparison, with 14 to 16
 questions each, cost about $2 at Jev's list price of $42 per billion input tokens (checked 22 September 2026). This
 is a development comparison, not an independent evaluation.

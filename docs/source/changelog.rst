@@ -20,6 +20,10 @@ Unreleased
 - Every ``fit()`` and ``predict()`` prints its estimated Jev cost before spending and stops if the estimate or the
   actual spend passes ``JevChoice(max_cost_usd=10)``. Paid answers are cached in ``~/.cache/think_reason_learn/jev``;
   ``JevChoice(cache=False)`` turns the cache off.
+- Random Rule Forest's combiners (vote and elastic-net) use Jev's probability of YES as each question's feature
+  (``answer_features="probability"``, the default); the vote then compares the sum of the top-K probabilities with
+  T. ``answer_features="binary"`` keeps YES/NO at 0.5. Question metrics and similarity filters still use YES/NO,
+  ``predict()`` still yields YES/NO, and models saved before this setting load with ``"binary"``.
 - New ``LLM.answer`` and ``LLM.answer_many`` answer typed questions (``NoulQuestion``, ``ChoiceQuestion``) with Jev,
   falling back to chat models.
 - ``httpx`` is now a direct dependency.

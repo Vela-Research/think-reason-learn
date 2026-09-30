@@ -43,6 +43,7 @@ from think_reason_learn.core.llms import (
     JevChoice,
     JevQuestion,
     JevRequest,
+    JevResult,
     LLMChoice,
     NoulQuestion,
     TokenCounter,
@@ -175,6 +176,12 @@ class RRF:
         prompt_preset: Optional prompt preset (``PromptPreset`` instance or
             registered name string). When provided, bypasses the meta-prompt
             step and uses domain-specific prompts for generation and answering.
+        answer_features: What the founder-level combiners (vote and
+            elastic-net) see for each answer from Jev: ``"probability"``
+            (default), Jev's probability of YES, or ``"binary"``, 1 for YES
+            and 0 for NO at 0.5. Answers from chat models are always 1/0.
+            Question metrics (precision, recall, F-beta) and similarity
+            filters always use YES/NO.
         _llm: LLM instance for testing (dependency injection). If None, uses global llm.
     """
 
@@ -209,6 +216,7 @@ class RRF:
         cost_sensitive: bool = False,
         cost_sensitive_config: CostSensitiveConfig | None = None,
         prompt_preset: str | PromptPreset | None = None,
+        answer_features: Literal["probability", "binary"] = "probability",
         _llm: Any = None,
     ):
         locals_dict = deepcopy(locals())
@@ -244,6 +252,7 @@ class RRF:
         self.elasticnet_cv = elasticnet_cv
         self.cost_sensitive = cost_sensitive
         self.cost_sensitive_config = cost_sensitive_config or CostSensitiveConfig()
+        self.answer_features = answer_features
 
         # Resolve prompt preset (string name → PromptPreset object).
         if isinstance(prompt_preset, str):
@@ -370,6 +379,9 @@ class RRF:
         val = kwargs["elasticnet_cv"]
         if not (isinstance(val, int) and val >= 2):
             raise ValueError("elasticnet_cv must be an integer >= 2")
+        val = kwargs["answer_features"]
+        if val not in ("probability", "binary"):
+            raise ValueError("answer_features must be 'probability' or 'binary'")
 
     def _get_name(self, name: str | None) -> str:
         if name is None:
@@ -457,6 +469,25 @@ class RRF:
     @property
     def _answers_with_jev(self) -> bool:
         return bool(self.qanswer_llmc) and is_jev(self.qanswer_llmc[0])
+
+    @property
+    def _probability_features(self) -> bool:
+        return self.answer_features == "probability" and self._answers_with_jev
+
+    def _feature_matrix(self, qids: List[str]) -> pd.DataFrame:
+        """Combiner features on the training answers, one column per question.
+
+        1/0 for YES/NO (0 when unanswered), replaced by Jev's probability of
+        YES where one was recorded and ``answer_features="probability"``.
+        """
+        features = cast(
+            pd.DataFrame,
+            self._answers[qids].apply(lambda col: (col == "YES").astype(float)),
+        )
+        if self._probability_features:
+            probs = self._answer_probs.reindex(index=features.index, columns=qids)
+            features = cast(pd.DataFrame, probs.where(probs.notna(), features))
+        return features.astype(float)
 
     @property
     def question_gen_instructions_template(self) -> str | None:
@@ -1547,14 +1578,16 @@ class RRF:
         k: int,
         t: int,
     ) -> pd.Series:
-        """Aggregate per-question binary responses into founder-level labels.
+        """Aggregate per-question responses into founder-level labels.
 
         Selects the top-K questions by score (descending) and predicts YES
-        for a founder if at least T of those K questions are answered YES.
+        for a founder if the responses to those K questions sum to at least
+        T: the number of YES answers, or the expected number when the
+        responses are Jev's probabilities.
 
         Args:
-            response_matrix: Binary DataFrame (n_samples x n_questions)
-                with values 0 (NO) or 1 (YES).
+            response_matrix: DataFrame (n_samples x n_questions) with values
+                0 (NO) or 1 (YES), or probabilities of YES in [0, 1].
             question_scores: Float scores indexed by question ID.
             k: Number of top-scoring questions to use.
             t: Minimum YES count to predict "YES".
@@ -1602,9 +1635,7 @@ class RRF:
         if not active_qids:
             return
 
-        binary = self._answers[active_qids].apply(
-            lambda col: (col == "YES").astype(int)
-        )
+        binary = self._feature_matrix(active_qids)
         scores = self._questions.loc[active_qids, "f_beta_score"].astype(float)
         sorted_qids = scores.sort_values(ascending=False).index
         sorted_binary = binary[sorted_qids].values  # type: ignore[union-attr]
@@ -1667,10 +1698,7 @@ class RRF:
         if not active_qids:
             return
 
-        binary = self._answers[active_qids].apply(
-            lambda col: (col == "YES").astype(int)
-        )
-        x = binary.to_numpy(dtype=float)
+        x = self._feature_matrix(active_qids).to_numpy(dtype=float)
         y_true = np.array([1 if yi == "YES" else 0 for yi in self._y])
         if len(np.unique(y_true)) < 2:
             logger.warning(
@@ -1761,17 +1789,38 @@ class RRF:
         )
 
     async def _build_response_matrix(self, X: pd.DataFrame) -> pd.DataFrame:
-        """Run predict() on X and build a binary response matrix.
+        """Answer X and build the combiners' response matrix.
 
         Returns:
-            DataFrame of shape (n_samples, n_active_questions) with int
-            values 1 (YES) or 0 (NO).
+            DataFrame of shape (n_samples, n_active_questions): Jev's
+            probabilities of YES with ``answer_features="probability"``,
+            otherwise 1 (YES) or 0 (NO). Unanswered cells are 0.
         """
         active_qids = [
             cast(str, qid)
             for qid in self._questions.index
             if self._questions.at[qid, "exclusion"] is None
         ]
+
+        if self._probability_features:
+            samples = [
+                (idx, "\n".join(f"{col}: {val}" for col, val in row.items()))
+                for idx, row in X.iterrows()
+            ]
+            results = await self._answer_samples_jev(
+                samples, active_qids, TokenCounter()
+            )
+            probs = pd.DataFrame(
+                0.0,
+                index=X.index,
+                columns=active_qids,  # type: ignore[arg-type]
+                dtype=float,
+            )
+            for (idx, _), result in zip(samples, results):
+                for qid, value in result.answers.items():
+                    if isinstance(value, float):
+                        probs.at[idx, qid] = value
+            return probs
 
         matrix = pd.DataFrame(
             0,
@@ -1827,8 +1876,10 @@ class RRF:
         Returns:
             DataFrame indexed by ``X.index``. For ``aggregation_method="vote"``
             (default) the columns are ``prediction`` ("YES"/"NO"),
-            ``yes_count`` (YES answers among the top-K questions), ``k`` and
-            ``t``. For ``aggregation_method="elasticnet"`` the columns are
+            ``yes_count`` (YES answers among the top-K questions, or the sum
+            of Jev's probabilities of YES with
+            ``answer_features="probability"``), ``k`` and ``t``. For
+            ``aggregation_method="elasticnet"`` the columns are
             ``prediction``, ``probability`` (learned P(YES)) and ``threshold``;
             the ``k``/``t`` arguments are ignored in that mode.
 
@@ -2454,18 +2505,8 @@ class RRF:
         if self._answers_with_jev:
             if not active_qids:
                 return
-            questions: Dict[str, JevQuestion] = {
-                qid: NoulQuestion(
-                    instructions=cast(str, self._questions.at[qid, "question"])
-                )
-                for qid in active_qids
-            }
-            results = await self._llm_instance.answer_many(
-                self.qanswer_llmc,
-                [JevRequest(state=s, questions=questions) for _, s in all_samples],
-                budget=new_run_budget(self.qanswer_llmc),
-                token_counter=token_counter,
-                caller="RRF.predict",
+            results = await self._answer_samples_jev(
+                all_samples, active_qids, token_counter
             )
             for qid in active_qids:
                 for (sample_index, _), result in zip(all_samples, results):
@@ -2590,6 +2631,29 @@ class RRF:
                             token_counter,
                         )
                         questions_since_checkpoint = 0
+
+    async def _answer_samples_jev(
+        self,
+        samples: List[Tuple[Any, str]],
+        qids: List[str],
+        token_counter: TokenCounter,
+    ) -> List[JevResult]:
+        """Ask Jev every question in ``qids`` about each (index, text) sample."""
+        if not qids or not samples:
+            return [JevResult(answers={}) for _ in samples]
+        questions: Dict[str, JevQuestion] = {
+            qid: NoulQuestion(
+                instructions=cast(str, self._questions.at[qid, "question"])
+            )
+            for qid in qids
+        }
+        return await self._llm_instance.answer_many(
+            self.qanswer_llmc,
+            [JevRequest(state=s, questions=questions) for _, s in samples],
+            budget=new_run_budget(self.qanswer_llmc),
+            token_counter=token_counter,
+            caller="RRF.predict",
+        )
 
     async def update_question_exclusion(
         self,
@@ -2779,6 +2843,7 @@ class RRF:
             "aggregation_k": self._aggregation_k,
             "aggregation_t": self._aggregation_t,
             "aggregation_method": self.aggregation_method,
+            "answer_features": self.answer_features,
             "elasticnet_cs": list(self.elasticnet_cs),
             "elasticnet_l1_ratios": list(self.elasticnet_l1_ratios),
             "elasticnet_cv": self.elasticnet_cv,
@@ -2840,6 +2905,8 @@ class RRF:
                 manifest.get("elasticnet_l1_ratios", (0.1, 0.5))
             ),
             elasticnet_cv=manifest.get("elasticnet_cv", 3),
+            # Models saved before this setting existed were fit on YES/NO.
+            answer_features=manifest.get("answer_features", "binary"),
         )
 
         inst._task_description = manifest["task_description"]

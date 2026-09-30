@@ -1,4 +1,4 @@
-"""Unified interface for using LLMs from OpenAI, Google, Anthropic, and XAI."""
+"""Unified interface for chat LLMs (OpenAI, Google, Anthropic, xAI) and Jev."""
 
 from ._schemas import (
     NotGiven,
@@ -23,6 +23,15 @@ from ._schemas import (
     xAIChatModel,
     TokenCounter,
     TokenCount,
+)
+from ._jev.schemas import (
+    AnswerValue,
+    ChoiceQuestion,
+    JevChoice,
+    JevChoiceDict,
+    JevModel,
+    JevQuestion,
+    NoulQuestion,
 )
 from ._ask import LLM
 
@@ -55,5 +64,12 @@ __all__ = [
     "AnthropicChatModel",
     "xAIChatModel",
     "TokenCounter",
+    "JevChoice",
+    "JevChoiceDict",
+    "JevModel",
+    "JevQuestion",
+    "NoulQuestion",
+    "ChoiceQuestion",
+    "AnswerValue",
     "llm",
 ]

@@ -30,6 +30,7 @@ dependencies = [
     "pyarrow (>=21.0.0,<22.0.0)",
     "tqdm (>=4.68.4,<5.0.0)",
     "torch (>=2.2.0,<3.0.0)",
+    "httpx (>=0.28.1,<1.0.0)",
 ]
 
 [project.urls]

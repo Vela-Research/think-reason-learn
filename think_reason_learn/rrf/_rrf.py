@@ -1910,18 +1910,21 @@ class RRF:
                 dtype=float,
             ).fillna(0.0)
 
+        # Filled by position, so repeated index labels keep their own rows.
+        positional = X.reset_index(drop=True)
         matrix = pd.DataFrame(
             0,
-            index=X.index,
+            index=positional.index,
             columns=active_qids,  # type: ignore[arg-type]
             dtype=int,
         )
 
         async for sample_idx, qid, answer, _tc in self.predict(
-            X, _question_ids=active_qids
+            positional, _question_ids=active_qids
         ):
             matrix.at[sample_idx, qid] = 1 if answer == "YES" else 0
 
+        matrix.index = X.index
         return matrix
 
     async def predict_founder_level(
@@ -2204,9 +2207,6 @@ class RRF:
 
         logger.info("Setting questions metrics")
         self._set_questions_metrics()
-
-        logger.info("Tuning founder-level aggregation")
-        self._tune_aggregation()
 
     async def _build_rrf_cost_sensitive(self) -> None:
         """Cost-sensitive pipeline with screening and early pruning."""

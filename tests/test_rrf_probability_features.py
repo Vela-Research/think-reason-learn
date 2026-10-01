@@ -361,3 +361,69 @@ async def test_threshold_can_predict_all_no(tmp_path: Path) -> None:
     proba = rrf._elasticnet_proba(features)
 
     assert not (proba >= (rrf._aggregation_threshold or 0)).any()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method", ["elasticnet", "vote"])
+async def test_fit_tunes_the_combiner_once(
+    tmp_path: Path, method: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rrf = _rrf(tmp_path, aggregation_method=method)
+    original = rrf._tune_aggregation
+    calls: list[str] = []
+
+    def counting() -> None:
+        calls.append(method)
+        original()
+
+    monkeypatch.setattr(rrf, "_tune_aggregation", counting)
+
+    await _fit(rrf)
+
+    assert calls == [method]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "config",
+    [
+        {"aggregation_method": "vote"},
+        {"aggregation_method": "elasticnet", "answer_features": "binary"},
+    ],
+)
+async def test_yes_no_paths_keep_rows_apart_with_repeated_index_labels(
+    tmp_path: Path, config: dict[str, Any]
+) -> None:
+    def prob(state: str, instructions: str) -> float:
+        label = LABELS["ABCDEF".index(state.split(": ", 1)[1][0])]
+        return 0.9 if label == "YES" else 0.3
+
+    rrf = await _fit(_rrf(tmp_path, _llm=FakeJevLLM(prob=prob), **config))
+    X_dup = pd.DataFrame({"data": PEOPLE}, index=pd.Index([0, 0, 1, 1, 2, 2]))
+
+    plain = await rrf.predict_founder_level(X)
+    repeated = await rrf.predict_founder_level(X_dup)
+
+    assert list(repeated.index) == list(X_dup.index)
+    score = "yes_count" if config["aggregation_method"] == "vote" else "probability"
+    for column in ("prediction", score):
+        assert list(repeated[column]) == list(plain[column])
+
+
+@pytest.mark.asyncio
+async def test_chat_answerer_predicts_with_a_string_index(tmp_path: Path) -> None:
+    from tests.fake_llm import FakeLLM
+
+    rrf = await _fit(
+        _rrf(
+            tmp_path,
+            qanswer_llmc=CHAT,
+            aggregation_method="vote",
+            _llm=FakeLLM("ALTERNATE"),
+        )
+    )
+    X_named = pd.DataFrame({"data": PEOPLE}, index=pd.Index(list("abcdef")))
+
+    result = await rrf.predict_founder_level(X_named)
+
+    assert list(result.index) == list("abcdef")

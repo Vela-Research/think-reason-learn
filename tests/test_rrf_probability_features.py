@@ -302,3 +302,62 @@ async def test_prediction_asks_only_the_questions_the_model_weighs(
     weighted = {q for q, w in (rrf._aggregation_weights or {}).items() if w != 0}
     assert weighted
     assert all(set(r.questions) == weighted for r in fake.answer_requests)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("features", ["probability", "binary"])
+async def test_excluding_a_question_after_fit_keeps_the_model(
+    tmp_path: Path, features: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    from think_reason_learn.rrf import QuestionExclusion
+
+    def prob(state: str, instructions: str) -> float:
+        return (
+            0.9 if LABELS["ABCDEF".index(state.split(": ", 1)[1][0])] == "YES" else 0.3
+        )
+
+    fake = FakeJevLLM(prob=prob)
+    rrf = await _fit(_rrf(tmp_path, answer_features=features, _llm=fake))
+    before = await rrf.predict_founder_level(X)
+    weights = rrf._aggregation_weights or {}
+    weighted = {q for q, w in weights.items() if w != 0}
+    top = max(weights, key=lambda q: abs(weights[q]))
+    await rrf.update_question_exclusion(top, QuestionExclusion.EXPERT)
+    fake.answer_requests.clear()
+
+    with caplog.at_level("WARNING"):
+        after = await rrf.predict_founder_level(X)
+
+    assert list(after["prediction"]) == list(before["prediction"])
+    assert {q for r in fake.answer_requests for q in r.questions} == weighted
+    assert "questions changed after fit" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_threshold_can_predict_all_no(tmp_path: Path) -> None:
+    # With accuracy as the metric and 2 positives in 100, predicting NO for
+    # everyone (0.98) beats any cut, because 9 negatives look like positives.
+    n = 100
+
+    def prob(state: str, instructions: str) -> float:
+        i = int(state.split("sample ")[1])
+        return 0.9 if i < 11 else 0.1
+
+    rrf = RRF(
+        qgen_llmc=CHAT,
+        name="all_no",
+        save_path=tmp_path,
+        aggregation_metric="accuracy",
+        max_generated_questions=1,
+        _llm=FakeJevLLM(prob=prob, questions_per_call=1),
+    )
+    await rrf.set_tasks(task_description="Classify founders")
+    await rrf.fit(
+        pd.DataFrame({"data": [f"sample {i}" for i in range(n)]}),
+        ["YES"] * 2 + ["NO"] * (n - 2),
+    )
+
+    features = rrf._feature_matrix(list(rrf._aggregation_feature_order or []))
+    proba = rrf._elasticnet_proba(features)
+
+    assert not (proba >= (rrf._aggregation_threshold or 0)).any()

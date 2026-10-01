@@ -18,7 +18,7 @@ Unreleased
 - Random Rule Forest keeps answers aligned with their samples when ``X`` has an index other than ``0..n-1``; the
   answers tables are indexed by position.
 - Every ``fit()`` and ``predict()`` prints its estimated Jev cost before spending (250 tokens per request plus request
-  bytes / 4.2, calibrated on billed usage) and stops if the estimate or the actual spend passes
+  bytes / 4.2, with each non-ASCII character counted as a token; calibrated on billed usage) and stops if the estimate or the actual spend passes
   ``JevChoice(max_cost_usd=10)``. Paid answers are cached in ``~/.cache/think_reason_learn/jev``;
   ``JevChoice(cache=False)`` turns the cache off.
 - Random Rule Forest's default combiner is now elastic-net (``aggregation_method="elasticnet"``) instead of the
@@ -27,7 +27,9 @@ Unreleased
   saved. ``predict_founder_level()`` on an elastic-net model returns ``prediction``, ``probability`` and
   ``threshold``; ``yes_count``, ``k`` and ``t`` belong to the vote, and passing ``k`` or ``t`` to an elastic-net model
   raises. Its decision threshold is now chosen among the fitted probabilities, so rare positives are not all predicted
-  NO, and inner CV uses no more folds than the smaller class has samples.
+  NO, and inner CV uses no more folds than the smaller class has samples. Prediction asks only the questions the
+  fitted model weighs, so questions added, filtered or excluded after ``fit()`` change nothing until the model is
+  refitted; a warning says so.
 - Elastic-net's default ``elasticnet_cs`` is now ``(1.0,)`` instead of ``(0.05, 0.1, 0.5)``. On twelve benchmark
   datasets a fixed C=1 gave a mean test AUC of 0.687 with Jev's probabilities against 0.673 (better on 10 of 12) and
   0.665 against 0.663 with YES/NO answers; the inner CV over the old grid chose too much regularisation on small

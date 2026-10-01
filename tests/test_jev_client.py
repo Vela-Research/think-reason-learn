@@ -490,3 +490,30 @@ async def test_cap_message_says_received_answers_are_cached(tmp_path: Path) -> N
             model="jev-latest",
             budget=JevBudget(0.05),
         )
+
+
+@pytest.mark.asyncio
+async def test_cap_message_without_cache_says_nothing_is_kept(tmp_path: Path) -> None:
+    server = FakeJevServer(input_tokens=1_000_000)
+    client, _ = _client(server, tmp_path, concurrency=1)
+
+    with pytest.raises(JevCostCapError, match="not cached"):
+        await client.answer_many(
+            [_noul_request(state=f"sample {i}") for i in range(3)],
+            model="jev-latest",
+            budget=JevBudget(0.05),
+            use_cache=False,
+        )
+
+
+@pytest.mark.asyncio
+async def test_an_unreadable_200_counts_against_the_cap(tmp_path: Path) -> None:
+    server = FakeJevServer([lambda b: httpx.Response(200, text="not json")])
+    client, _ = _client(server, tmp_path)
+    budget = JevBudget(10.0)
+    [chunk] = client._chunks([_noul_request()], "jev-latest")
+
+    await client.answer_many([_noul_request()], model="jev-latest", budget=budget)
+
+    billed = (chunk.estimated_tokens + server.input_tokens) * 42 / 1e9
+    assert budget.spent_usd == pytest.approx(billed)

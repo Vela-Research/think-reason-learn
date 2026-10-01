@@ -1496,6 +1496,8 @@ class GPTree:
         Raises:
             ValueError: If data requirements aren't met or invalid reset usage.
         """
+        # A model loaded without the key must not spend on generation first.
+        require_typesafe_key(self.qanswer_llmc, method="GPTree", param="qanswer_llmc")
         if reset:
             if X is None or y is None:
                 raise ValueError("reset=True requires X and y")

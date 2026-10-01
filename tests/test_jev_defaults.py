@@ -134,3 +134,24 @@ def test_saved_jev_models_load_without_the_key(
     assert [
         c if isinstance(c, dict) else c.model_dump() for c in getattr(loaded, param)
     ] == [JevChoice().model_dump()]
+
+
+@pytest.mark.asyncio
+async def test_a_loaded_jev_model_checks_the_key_before_spending_on_chat(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import pandas as pd
+
+    from tests.fake_llm import FakeLLM
+
+    monkeypatch.setattr(settings, "TYPESAFE_API_KEY", "test-key")
+    _rrf(tmp_path).save(tmp_path / "saved")
+    monkeypatch.setattr(settings, "TYPESAFE_API_KEY", "")
+    loaded = RRF.load(tmp_path / "saved")
+    fake = FakeLLM()
+    loaded._llm_instance = fake
+
+    with pytest.raises(MissingAPIKeyError):
+        await loaded.fit(pd.DataFrame({"data": ["a", "b"]}), ["YES", "NO"], reset=True)
+
+    assert fake.calls == []

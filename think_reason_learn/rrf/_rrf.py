@@ -206,7 +206,8 @@ class RRF:
             registered name string). When provided, bypasses the meta-prompt
             step and uses domain-specific prompts for generation and answering.
             Jev receives the question text only, so the answering prompts
-            apply when a chat model answers.
+            apply when a chat model is the first answerer (a chat fallback
+            after Jev uses generic prompts).
         answer_features: What the elastic-net combiner
             (``aggregation_method="elasticnet"``) sees for each answer from
             Jev: ``"probability"`` (default), Jev's probability of YES, or
@@ -1783,12 +1784,15 @@ class RRF:
 
         # Candidate thresholds come from the fitted probabilities: with rare
         # positives every P(YES) can sit far below any fixed grid. Each cut lies
-        # halfway between neighbouring values (0 means all YES), so recomputing
+        # halfway between neighbouring values (0 means all YES, a cut above the
+        # largest means all NO), so recomputing
         # a probability at predict time cannot round it onto the wrong side.
         cuts = np.unique(proba)
         if len(cuts) > 2001:
             cuts = np.unique(np.quantile(proba, np.linspace(0, 1, 2001)))
-        thresholds = np.concatenate(([0.0], (cuts[:-1] + cuts[1:]) / 2))
+        thresholds = np.concatenate(
+            ([0.0], (cuts[:-1] + cuts[1:]) / 2, [np.nextafter(cuts[-1], 2.0)])
+        )
         best_score, best_thr = -1.0, 0.5
         for thr in thresholds:
             preds = (proba >= thr).astype(int)
@@ -1863,7 +1867,10 @@ class RRF:
         """Answer X and build the combiners' response matrix.
 
         Returns:
-            DataFrame of shape (n_samples, n_active_questions): Jev's
+            DataFrame with a row per sample and a column per question: the
+            active questions for the vote, or for elastic-net the questions the
+            fitted model weighs (so questions added or excluded after fit()
+            change nothing until it is refitted). Values are Jev's
             probabilities of YES when the elastic-net combiner uses them
             (``answer_features="probability"``), otherwise 1 (YES) or 0 (NO).
             Unanswered cells are 0.
@@ -1873,8 +1880,7 @@ class RRF:
             for qid in self._questions.index
             if self._questions.at[qid, "exclusion"] is None
         ]
-
-        if self._probability_features:
+        if self.aggregation_method == "elasticnet":
             # Only the questions the fitted model weighs can change its output.
             weights = self._aggregation_weights or {}
             active_qids = [
@@ -1882,6 +1888,8 @@ class RRF:
             ]
             if not active_qids:
                 return pd.DataFrame(index=X.index)
+
+        if self._probability_features:
             questions = self._jev_questions(active_qids)
             results = await self._llm_instance.answer_many(
                 self.qanswer_llmc,
@@ -1908,7 +1916,9 @@ class RRF:
             dtype=int,
         )
 
-        async for sample_idx, qid, answer, _tc in self.predict(X):
+        async for sample_idx, qid, answer, _tc in self.predict(
+            X, _question_ids=active_qids
+        ):
             matrix.at[sample_idx, qid] = 1 if answer == "YES" else 0
 
         return matrix
@@ -2410,6 +2420,8 @@ class RRF:
         Raises:
             ValueError: If data requirements aren't met or invalid reset usage.
         """
+        # A model loaded without the key must not spend on generation first.
+        require_typesafe_key(self.qanswer_llmc, method="RRF", param="qanswer_llmc")
         if reset:
             if X is None or y is None:
                 raise ValueError("reset=True requires X and y")
@@ -2527,6 +2539,7 @@ class RRF:
         checkpoint_path: str | PathLike[str] | None = None,
         checkpoint_every: int | None = None,
         resume: bool = False,
+        _question_ids: List[str] | None = None,
     ) -> AsyncGenerator[Tuple[Any, str, Literal["YES", "NO"], TokenCounter], None]:
         """Predict labels for samples.
 
@@ -2578,11 +2591,15 @@ class RRF:
             all_samples.append((sample_index, sample_str))
 
         # Get active (non-excluded) question IDs
-        active_qids: list[str] = [
-            cast(str, qid)
-            for qid in self._questions.index
-            if self._questions.at[qid, "exclusion"] is None
-        ]
+        active_qids: list[str] = (
+            list(_question_ids)
+            if _question_ids is not None
+            else [
+                cast(str, qid)
+                for qid in self._questions.index
+                if self._questions.at[qid, "exclusion"] is None
+            ]
+        )
 
         # --- resume from checkpoint ---------------------------------------
         completed_qids: list[str] = []
@@ -2621,7 +2638,14 @@ class RRF:
                     if not isinstance(value, float):
                         continue
                     label = yes_no(value)
-                    accumulated_results.append((sample_index, qid, label))
+                    # Checkpoints are JSON: numpy scalars (e.g. from a nullable
+                    # Int64 index) become Python ones.
+                    plain = (
+                        sample_index.item()
+                        if isinstance(sample_index, np.generic)
+                        else sample_index
+                    )
+                    accumulated_results.append((plain, qid, label))
                     yield sample_index, qid, label, token_counter
                 completed_qids.append(qid)
             if checkpoint_path is not None:

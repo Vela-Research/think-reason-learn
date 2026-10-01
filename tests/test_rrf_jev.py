@@ -220,3 +220,16 @@ async def test_chat_answers_any_index(tmp_path: Path) -> None:
     await rrf.fit(pd.DataFrame({"data": PEOPLE}, index=range(10, 16)), LABELS)
 
     assert bool(rrf.get_answers().notna().to_numpy().all())
+
+
+@pytest.mark.asyncio
+async def test_predict_checkpoint_with_a_nullable_integer_index(tmp_path: Path) -> None:
+    fake = FakeJevLLM(prob=_prob)
+    rrf = await _fit(_rrf(tmp_path, fake))
+    X_new = pd.DataFrame(
+        {"data": PEOPLE[:3]}, index=pd.Index([10, 11, 12], dtype="Int64")
+    )
+
+    rows = [r async for r in rrf.predict(X_new, checkpoint_path=tmp_path / "ckpt")]
+
+    assert len(rows) == 3 * len(_active_questions(rrf))

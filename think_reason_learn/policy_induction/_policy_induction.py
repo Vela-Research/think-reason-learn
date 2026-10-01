@@ -1181,6 +1181,10 @@ class PolicyInduction:
         Returns:
             Self.
         """
+        # A model loaded without the key must not spend on generation first.
+        require_typesafe_key(
+            self.predict_llmc, method="PolicyInduction", param="predict_llmc"
+        )
         self._set_data(X, y)
         self._confirm_requests(self._estimate_fit_requests())
         start = time.monotonic()

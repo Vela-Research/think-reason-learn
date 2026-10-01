@@ -95,6 +95,7 @@ class JevBudget:
         self.max_cost_usd = max_cost_usd
         self.spent_usd = 0.0
         self._reserved_usd = 0.0
+        self._caching = True
 
     @property
     def remaining_usd(self) -> float:
@@ -126,12 +127,16 @@ class JevBudget:
             f"stopped. {self._resume_hint()}"
         )
 
-    @staticmethod
-    def _resume_hint() -> str:
+    def _resume_hint(self) -> str:
+        if self._caching:
+            return (
+                "Answers received so far are cached: rerun with a higher cap, "
+                "e.g. JevChoice(max_cost_usd=...), to continue without paying for "
+                "them again."
+            )
         return (
-            "Answers received so far are cached: rerun with a higher cap, e.g. "
-            "JevChoice(max_cost_usd=...), to continue without paying for them "
-            "again."
+            "Answers are not cached (cache=False), so a rerun pays for them "
+            "again; raise the cap with JevChoice(max_cost_usd=...)."
         )
 
 
@@ -146,11 +151,11 @@ class _Chunk:
     def estimated_tokens(self) -> int:
         # Non-Latin scripts take about a token per character or more, which
         # bytes / 4.2 would under-count; count those characters one each.
-        non_ascii = [ch for ch in self.body.decode() if ord(ch) > 127]
-        ascii_bytes = len(self.body) - len("".join(non_ascii).encode())
+        text = self.body.decode()
+        ascii_bytes = len(text.encode("ascii", "ignore"))
         return math.ceil(
             REQUEST_OVERHEAD_TOKENS
-            + len(non_ascii)
+            + (len(text) - ascii_bytes)
             + ascii_bytes / BYTES_PER_TOKEN_ESTIMATE
         )
 
@@ -304,9 +309,15 @@ class JevClient:
 
     async def _post(
         self, client: httpx.AsyncClient, chunk: _Chunk
-    ) -> Tuple[Dict[str, Any] | None, str | None]:
-        """POST one chunk with retries. Returns (payload, error)."""
-        delay, error = 1.0, None
+    ) -> Tuple[Dict[str, Any] | None, str | None, int]:
+        """POST one chunk with retries.
+
+        Returns:
+            (payload, error, unreadable): ``unreadable`` counts attempts whose
+            response arrived but could not be read, which Typesafe has likely
+            billed.
+        """
+        delay, error, unreadable = 1.0, None, 0
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -317,6 +328,9 @@ class JevClient:
                 response = await client.post(
                     self.endpoint, content=chunk.body, headers=headers
                 )
+            except httpx.DecodingError as exc:
+                error = f"{type(exc).__name__}: {exc}"
+                unreadable += 1
             except httpx.RequestError as exc:
                 error = f"{type(exc).__name__}: {exc}"
             else:
@@ -326,9 +340,10 @@ class JevClient:
                         payload = response.json()
                         if not isinstance(payload, dict):
                             raise ValueError("response is not a JSON object")
-                        return payload, None
+                        return payload, None, unreadable
                     except ValueError as exc:
                         error = f"Invalid response: {exc}"
+                        unreadable += 1
                 elif status in _AUTH_STATUSES:
                     raise JevAuthError(
                         f"Typesafe rejected TYPESAFE_API_KEY (HTTP {status}: "
@@ -343,14 +358,14 @@ class JevClient:
                     if retry_after is not None:
                         wait = max(wait, retry_after)
                 else:
-                    return None, f"HTTP {status}: {response.text[:300]}"
+                    return None, f"HTTP {status}: {response.text[:300]}", unreadable
             if attempt < self.max_attempts:
                 logger.info(
                     "Jev request failed (%s); retry %d in %.1fs", error, attempt, wait
                 )
                 await self._sleep(min(wait, _MAX_WAIT_SECONDS))
                 delay = min(delay * 2, 60.0)
-        return None, error
+        return None, error, unreadable
 
     async def answer_many(
         self,
@@ -376,6 +391,7 @@ class JevClient:
                 (nothing is sent), or actual spend passes the cap mid-run.
             JevAuthError: Typesafe rejected the API key.
         """
+        budget._caching = use_cache
         chunks = self._chunks(requests, model)
         results = [JevResult(answers={}, cached=True) for _ in requests]
         pending: List[_Chunk] = []
@@ -419,13 +435,16 @@ class JevClient:
                 reserved = chunk.estimated_tokens * USD_PER_INPUT_TOKEN
                 budget._reserve(reserved)
                 try:
-                    payload, error = await self._post(client, chunk)
+                    payload, error, unreadable = await self._post(client, chunk)
                 except BaseException:
                     budget._settle(reserved, 0.0)
                     raise
+                # Responses that arrived unreadable were likely billed: count
+                # each at the estimate.
+                wasted = unreadable * reserved
                 result = results[chunk.request_index]
                 if payload is None:
-                    budget._settle(reserved, 0.0)
+                    budget._settle(reserved, wasted)
                     result.error = error
                     logger.warning("Jev request failed: %s", error)
                     return
@@ -433,7 +452,7 @@ class JevClient:
                 output_tokens = _usage_tokens(payload, "output_tokens") or 0
                 if input_tokens is None:
                     input_tokens = chunk.estimated_tokens
-                budget._settle(reserved, input_tokens * USD_PER_INPUT_TOKEN)
+                budget._settle(reserved, wasted + input_tokens * USD_PER_INPUT_TOKEN)
                 answers = _parse_answers(chunk.questions, payload.get("answers"))
                 result.answers.update(answers)
                 result.input_tokens += input_tokens
@@ -503,14 +522,14 @@ def require_typesafe_key(
             answer on the chat path, which cannot hand questions on to Jev.
         MissingAPIKeyError: Jev is chosen and the key is missing.
     """
-    if first_jev_choice(llm_priority) is None or not _CHECK_KEYS.get():
+    if first_jev_choice(llm_priority) is None:
         return
     if not is_jev(llm_priority[0]):
         raise ValueError(
             f"{method}: put JevChoice first in {param}, or leave it out. Chat "
             "models can follow Jev as fallbacks, but cannot come before it."
         )
-    if settings.TYPESAFE_API_KEY:
+    if settings.TYPESAFE_API_KEY or not _CHECK_KEYS.get():
         return
     raise MissingAPIKeyError(
         f"{method} answers questions with Jev (Typesafe's System One model), "

@@ -28,6 +28,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from think_reason_learn.core._config import settings
 from think_reason_learn.core.llms import OpenAIChoice
 from think_reason_learn.core.llms._schemas import LLMChoice
 from think_reason_learn.rrf import RRF
@@ -149,11 +150,12 @@ async def main() -> None:  # noqa: D103
     # ------------------------------------------------------------------
     # 0. Check API key
     # ------------------------------------------------------------------
-    if not os.environ.get("OPENAI_API_KEY"):
+    # Keys may come from the environment or a .env file, as the library reads them.
+    if not settings.OPENAI_API_KEY:
         print("Error: set OPENAI_API_KEY before running this example.")
         print("  export OPENAI_API_KEY='sk-...'")
         sys.exit(1)
-    if not os.environ.get("TYPESAFE_API_KEY"):
+    if not settings.TYPESAFE_API_KEY:
         print("Error: set TYPESAFE_API_KEY before running this example.")
         print("  export TYPESAFE_API_KEY='...'  # Jev answers the questions")
         sys.exit(1)

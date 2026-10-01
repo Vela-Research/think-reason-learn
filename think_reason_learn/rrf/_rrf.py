@@ -1754,7 +1754,8 @@ class RRF:
             model = LogisticRegressionCV(
                 solver="saga",
                 Cs=list(self.elasticnet_cs),  # type: ignore[arg-type]
-                l1_ratios=list(self.elasticnet_l1_ratios),
+                # scikit-learn >= 1.8 stubs type this as str (a sentinel default).
+                l1_ratios=list(self.elasticnet_l1_ratios),  # type: ignore[arg-type]
                 cv=folds,
                 scoring="roc_auc",
                 max_iter=5000,

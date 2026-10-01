@@ -2641,6 +2641,7 @@ class TestCostSensitiveElasticNet:
         )
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
+            qanswer_llmc=LLM_CHOICE,
             max_generated_questions=5,
             random_state=42,
             cost_sensitive=True,

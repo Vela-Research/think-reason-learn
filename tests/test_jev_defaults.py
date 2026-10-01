@@ -114,3 +114,23 @@ def test_chat_answerer_needs_no_typesafe_key(
     method = make(tmp_path, **{param: CHAT})
 
     assert getattr(method, param) == CHAT
+
+
+@pytest.mark.parametrize("name,make,param", METHODS)
+def test_saved_jev_models_load_without_the_key(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    name: str,
+    make: Callable[..., Any],
+    param: str,
+) -> None:
+    monkeypatch.setattr(settings, "TYPESAFE_API_KEY", "test-key")
+    method = make(tmp_path)
+    method.save(tmp_path / "saved")
+    monkeypatch.setattr(settings, "TYPESAFE_API_KEY", "")
+
+    loaded = type(method).load(tmp_path / "saved")
+
+    assert [
+        c if isinstance(c, dict) else c.model_dump() for c in getattr(loaded, param)
+    ] == [JevChoice().model_dump()]

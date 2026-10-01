@@ -36,6 +36,7 @@ from think_reason_learn.core.llms import (
 )
 from think_reason_learn.core.llms._jev.client import (
     new_run_budget,
+    loading_saved_model,
     require_typesafe_key,
 )
 from think_reason_learn.core.llms._jev.schemas import answers_with_jev
@@ -1949,7 +1950,8 @@ class GPTree:
             Reconstructed GPTree instance.
         """
         try:
-            return cls._load(path)
+            with loading_saved_model():
+                return cls._load(path)
         except KeyError as e:
             raise CorruptionError(
                 f"Failed to load GPTree. Tree json is probably corrupted: {e}"

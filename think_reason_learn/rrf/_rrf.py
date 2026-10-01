@@ -52,6 +52,7 @@ from think_reason_learn.core.llms import (
 )
 from think_reason_learn.core.llms._jev.client import (
     new_run_budget,
+    loading_saved_model,
     require_typesafe_key,
 )
 from think_reason_learn.core.llms._jev.schemas import answers_with_jev, yes_no
@@ -3031,7 +3032,8 @@ class RRF:
     def load(cls, dir_path: str | PathLike[str]) -> "RRF":
         """Load an RRF saved by `save`."""
         try:
-            return cls._load(dir_path)
+            with loading_saved_model():
+                return cls._load(dir_path)
         except KeyError as e:
             raise CorruptionError(
                 f"Failed to load RRF. RRF json is probably corrupted: {e}"

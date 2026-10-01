@@ -59,6 +59,7 @@ from think_reason_learn.core.llms import (
 )
 from think_reason_learn.core.llms._jev.client import (
     MAX_QUESTIONS_PER_REQUEST,
+    loading_saved_model,
     require_typesafe_key,
 )
 from think_reason_learn.core.llms._jev.schemas import (
@@ -1605,7 +1606,8 @@ class PolicyInduction:
             dir_path: Directory produced by save().
         """
         try:
-            return cls._load(dir_path)
+            with loading_saved_model():
+                return cls._load(dir_path)
         except KeyError as e:
             raise ValueError(f"Manifest corrupted or missing key: {e}") from e
 

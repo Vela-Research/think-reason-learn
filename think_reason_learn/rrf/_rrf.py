@@ -161,8 +161,9 @@ class RRF:
         semantic_similarity_threshold: Cosine-similarity threshold used for
             early semantic filtering. Only relevant when
             ``semantic_filtering_during_fit=True``. Default 0.9.
-        aggregation_metric: Metric optimized when tuning (K, T) for
-            founder-level prediction during ``fit()``. One of ``"f1"``,
+        aggregation_metric: Metric optimized when tuning founder-level
+            prediction during ``fit()``: the elastic-net decision threshold, or
+            the vote's (K, T). One of ``"f1"``,
             ``"f_beta"``, ``"accuracy"``, ``"precision"``, ``"recall"``.
             When ``"f_beta"`` is selected, uses ``question_scoring_f_beta``
             as the beta parameter. Default ``"f1"``.
@@ -200,6 +201,8 @@ class RRF:
         prompt_preset: Optional prompt preset (``PromptPreset`` instance or
             registered name string). When provided, bypasses the meta-prompt
             step and uses domain-specific prompts for generation and answering.
+            Jev receives the question text only, so the answering prompts
+            apply when a chat model answers.
         answer_features: What the elastic-net combiner
             (``aggregation_method="elasticnet"``) sees for each answer from
             Jev: ``"probability"`` (default), Jev's probability of YES, or
@@ -512,7 +515,8 @@ class RRF:
         """Combiner features on the training answers, one column per question.
 
         1/0 for YES/NO (0 when unanswered), replaced by Jev's probability of
-        YES where one was recorded and ``answer_features="probability"``.
+        YES where one was recorded when the elastic-net combiner uses
+        probabilities (see ``_probability_features``).
         """
         features = cast(
             pd.DataFrame,
@@ -1948,13 +1952,13 @@ class RRF:
                 value learned during fit.
 
         Returns:
-            DataFrame indexed by ``X.index``. For ``aggregation_method="vote"``
-            (default) the columns are ``prediction`` ("YES"/"NO"),
+            DataFrame indexed by ``X.index``. For
+            ``aggregation_method="elasticnet"`` (default) the columns are
+            ``prediction`` ("YES"/"NO"), ``probability`` (the model's P(YES),
+            which ranks samples but is not calibrated) and ``threshold``. For
+            ``aggregation_method="vote"`` they are ``prediction``,
             ``yes_count`` (YES answers among the top-K questions), ``k`` and
-            ``t``. For
-            ``aggregation_method="elasticnet"`` the columns are
-            ``prediction``, ``probability`` (the model's P(YES), which ranks
-            samples but is not calibrated) and ``threshold``.
+            ``t``.
 
         Raises:
             ValueError: If (vote mode) k/t are not provided and not learned
@@ -2169,7 +2173,7 @@ class RRF:
         else:
             await self._build_rrf_standard()
 
-        logger.info("Tuning founder-level aggregation (K, T)")
+        logger.info("Tuning founder-level aggregation")
         self._tune_aggregation()
 
         self._last_fit_summary = {
@@ -2186,7 +2190,7 @@ class RRF:
         logger.info("Setting questions metrics")
         self._set_questions_metrics()
 
-        logger.info("Tuning founder-level aggregation (K, T)")
+        logger.info("Tuning founder-level aggregation")
         self._tune_aggregation()
 
     async def _build_rrf_cost_sensitive(self) -> None:
@@ -2379,11 +2383,12 @@ class RRF:
         """Fit the RRF to the data.
 
         Generates questions, answers them on the provided data, computes
-        per-question metrics, and tunes (K, T) for founder-level
-        aggregation via ``predict_founder_level()``.
+        per-question metrics, and tunes the founder-level combiner used by
+        ``predict_founder_level()`` (elastic-net weights and threshold, or the
+        vote's (K, T)).
 
         Note:
-            (K, T) are tuned on the data passed to ``fit()``. For
+            The combiner is tuned on the data passed to ``fit()``. For
             unbiased evaluation, fit on training data and evaluate on
             a held-out test set.
 
@@ -2521,9 +2526,12 @@ class RRF:
     ) -> AsyncGenerator[Tuple[Any, str, Literal["YES", "NO"], TokenCounter], None]:
         """Predict labels for samples.
 
-        Uses batched LLM answering to reduce API calls. Each batch groups
-        multiple samples into a single LLM call per question. The batch size
-        is controlled by ``qanswer_batch_size`` (default 20 when not set).
+        With Jev answering (the default), each sample is sent once with every
+        active question; ``max_concurrent`` and ``checkpoint_every`` do not
+        apply, and a checkpoint is written once all questions are answered.
+        With a chat model, batched answering groups multiple samples into a
+        single LLM call per question; the batch size is controlled by
+        ``qanswer_batch_size`` (default 20 when not set).
 
         Args:
             samples: Samples to predict.

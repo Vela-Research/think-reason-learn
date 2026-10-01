@@ -22,6 +22,10 @@ class JevChoice(BaseModel):
         cache: Reuse answers already paid for. Answers are stored in
             ``~/.cache/think_reason_learn/jev`` (or ``$XDG_CACHE_HOME``), keyed by
             model, sample and questions. Set ``False`` to always ask Jev again.
+            With ``model="jev-latest"`` cached answers keep the release that
+            gave them, so after Typesafe releases a new Jev, pin the model
+            (e.g. ``"jev-1.13.0"``) or use ``cache=False`` when refitting, to
+            avoid mixing releases in one model.
     """
 
     provider: Literal["jev"] = "jev"

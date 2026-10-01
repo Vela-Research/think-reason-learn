@@ -8,7 +8,7 @@ Unreleased
   Question and policy generation, critics and instructions still use chat models.
 - Jev answers need ``TYPESAFE_API_KEY``. Without it, constructing a method that answers with Jev raises
   ``MissingAPIKeyError`` with a message showing how to answer with a chat model instead. Saved models keep the
-  answering model they were saved with.
+  answering model they were saved with, and load without the key so they can be inspected.
 - Jev sends each sample once with all its questions. Random Rule Forest records Jev's probability of YES as YES at or
   above 0.5 and keeps the probabilities (``get_answer_probabilities()``); Policy Induction records its policy scores
   as YES/NO at 0.5 the same way, without keeping the probabilities; GPTree asks Jev multiple-choice questions whose
@@ -24,7 +24,10 @@ Unreleased
 - Random Rule Forest's default combiner is now elastic-net (``aggregation_method="elasticnet"``) instead of the
   top-K / T vote, so by default the founder-level model is learned from Jev's probabilities.
   ``aggregation_method="vote"`` keeps the vote; saved models load with their saved method, or ``"vote"`` if none was
-  saved.
+  saved. ``predict_founder_level()`` on an elastic-net model returns ``prediction``, ``probability`` and
+  ``threshold``; ``yes_count``, ``k`` and ``t`` belong to the vote, and passing ``k`` or ``t`` to an elastic-net model
+  raises. Its decision threshold is now chosen among the fitted probabilities, so rare positives are not all predicted
+  NO, and inner CV uses no more folds than the smaller class has samples.
 - Elastic-net's default ``elasticnet_cs`` is now ``(1.0,)`` instead of ``(0.05, 0.1, 0.5)``. On twelve benchmark
   datasets a fixed C=1 gave a mean test AUC of 0.687 with Jev's probabilities against 0.673 (better on 10 of 12) and
   0.665 against 0.663 with YES/NO answers; the inner CV over the old grid chose too much regularisation on small

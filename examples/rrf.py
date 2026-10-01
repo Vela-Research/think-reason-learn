@@ -153,6 +153,10 @@ async def main() -> None:  # noqa: D103
         print("Error: set OPENAI_API_KEY before running this example.")
         print("  export OPENAI_API_KEY='sk-...'")
         sys.exit(1)
+    if not os.environ.get("TYPESAFE_API_KEY"):
+        print("Error: set TYPESAFE_API_KEY before running this example.")
+        print("  export TYPESAFE_API_KEY='...'  # Jev answers the questions")
+        sys.exit(1)
 
     X = pd.DataFrame({"data": [p for p, _ in PERSONS]})
     y = [label for _, label in PERSONS]

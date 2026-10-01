@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -205,3 +206,99 @@ async def test_default_rrf_learns_from_jev_probabilities(tmp_path: Path) -> None
     assert rrf.aggregation_method == "elasticnet"
     assert any(w != 0 for w in (rrf._aggregation_weights or {}).values())
     assert list(result["prediction"]) == LABELS
+
+
+# ---------------------------------------------------------------------------
+# The default elastic-net combiner on edge cases
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_rare_positives_still_get_yes_predictions(tmp_path: Path) -> None:
+    # 10 positives in 1,000 with a weak, noisy signal: the model's P(YES) stays
+    # below 0.03, under the 0.05 floor of the old fixed threshold grid.
+    n, positives = 1000, 10
+
+    def prob(state: str, instructions: str) -> float:
+        digest = hashlib.sha256(f"{state}|{instructions}".encode()).hexdigest()
+        noise = int(digest[:8], 16) / 0xFFFFFFFF - 0.5
+        return 0.5 + (0.05 if "positive" in state else -0.05) + 0.4 * noise
+
+    rows = [f"positive {i}" for i in range(positives)]
+    rows += [f"negative {i}" for i in range(n - positives)]
+    rrf = RRF(
+        qgen_llmc=CHAT,
+        name="rare",
+        save_path=tmp_path,
+        max_samples_as_context=100,
+        max_generated_questions=4,
+        _llm=FakeJevLLM(prob=prob, questions_per_call=1),
+    )
+    await rrf.set_tasks(task_description="Classify founders")
+    await rrf.fit(
+        pd.DataFrame({"data": rows}), ["YES"] * positives + ["NO"] * (n - positives)
+    )
+
+    features = rrf._feature_matrix(list(rrf._aggregation_feature_order or []))
+    proba = rrf._elasticnet_proba(features)
+    predicted = proba >= (rrf._aggregation_threshold or 0)
+
+    assert proba.max() < 0.05
+    assert predicted[:positives].any()
+    assert predicted.sum() < n / 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("rows", [2, 4])
+async def test_tiny_training_sets_fit(tmp_path: Path, rows: int) -> None:
+    rrf = _rrf(tmp_path)
+    await rrf.set_tasks(task_description="Classify founders")
+
+    await rrf.fit(pd.DataFrame({"data": PEOPLE[:rows]}), LABELS[:rows])
+
+    assert rrf._aggregation_threshold is not None
+
+
+def test_elasticnet_penalty_argument_follows_sklearn_version() -> None:
+    from think_reason_learn.rrf._rrf import _elasticnet_penalty
+
+    assert _elasticnet_penalty("1.7.2") == {"penalty": "elasticnet"}
+    assert _elasticnet_penalty("1.8.0") == {}
+    assert _elasticnet_penalty("1.10.1") == {}
+
+
+@pytest.mark.asyncio
+async def test_k_and_t_are_refused_outside_the_vote(tmp_path: Path) -> None:
+    rrf = await _fit(_rrf(tmp_path))
+
+    with pytest.raises(ValueError, match='aggregation_method="vote"'):
+        await rrf.predict_founder_level(X, k=2, t=1)
+
+
+@pytest.mark.asyncio
+async def test_unfitted_elasticnet_raises_before_asking_jev(tmp_path: Path) -> None:
+    fake = FakeJevLLM(prob=_prob)
+    rrf = await _fit(_rrf(tmp_path, aggregation_method="vote", _llm=fake))
+    rrf.aggregation_method = "elasticnet"
+    fake.answer_requests.clear()
+
+    with pytest.raises(ValueError, match="not fitted"):
+        await rrf.predict_founder_level(X)
+
+    assert fake.answer_requests == []
+
+
+@pytest.mark.asyncio
+async def test_prediction_asks_only_the_questions_the_model_weighs(
+    tmp_path: Path,
+) -> None:
+    fake = FakeJevLLM(prob=_prob)
+    rrf = await _fit(_rrf(tmp_path, _llm=fake))
+    await rrf.add_question("Did the founder work at a large tech company?")
+    fake.answer_requests.clear()
+
+    await rrf.predict_founder_level(X)
+
+    weighted = {q for q, w in (rrf._aggregation_weights or {}).items() if w != 0}
+    assert weighted
+    assert all(set(r.questions) == weighted for r in fake.answer_requests)

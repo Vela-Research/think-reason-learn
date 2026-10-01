@@ -20,6 +20,13 @@ Utilities
    :show-inheritance:
    :undoc-members:
 
+Exceptions
+----------
+
+.. automodule:: think_reason_learn.core.exceptions
+   :members:
+   :show-inheritance:
+
 Module contents
 ---------------
 

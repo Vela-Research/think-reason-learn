@@ -11,15 +11,15 @@ A quick walkthrough of the Random Rule Forest (RRF) workflow:
   7. Save / load and verify predictions match
   8. Founder-level prediction with train/test split
 
-Prerequisites:
+Prerequisites (questions are written by OpenAI and answered by Jev, the default):
   export OPENAI_API_KEY="sk-..."
+  export TYPESAFE_API_KEY="..."
   python examples/rrf.py
 """
 
 from __future__ import annotations
 
 import asyncio
-import os
 import shutil
 import sys
 from collections import defaultdict
@@ -27,6 +27,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from think_reason_learn.core._config import settings
 from think_reason_learn.core.llms import OpenAIChoice
 from think_reason_learn.core.llms._schemas import LLMChoice
 from think_reason_learn.rrf import RRF
@@ -148,9 +149,14 @@ async def main() -> None:  # noqa: D103
     # ------------------------------------------------------------------
     # 0. Check API key
     # ------------------------------------------------------------------
-    if not os.environ.get("OPENAI_API_KEY"):
+    # Keys may come from the environment or a .env file, as the library reads them.
+    if not settings.OPENAI_API_KEY:
         print("Error: set OPENAI_API_KEY before running this example.")
         print("  export OPENAI_API_KEY='sk-...'")
+        sys.exit(1)
+    if not settings.TYPESAFE_API_KEY:
+        print("Error: set TYPESAFE_API_KEY before running this example.")
+        print("  export TYPESAFE_API_KEY='...'  # Jev answers the questions")
         sys.exit(1)
 
     X = pd.DataFrame({"data": [p for p, _ in PERSONS]})
@@ -353,9 +359,11 @@ async def main() -> None:  # noqa: D103
 
     # Fit: generates questions, answers them, computes metrics,
     # and tunes (K, T) for founder-level aggregation — all on train.
+    # The default combiner is elastic-net; this section shows the vote.
     rrf_fl = RRF(
         qgen_llmc=llm_choices,
         name="example_founder_level",
+        aggregation_method="vote",
         max_samples_as_context=8,
         max_generated_questions=8,
         question_scoring_f_beta=0.5,

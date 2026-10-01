@@ -24,7 +24,22 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 
-from think_reason_learn.core.llms import LLMChoice, TokenCounter, llm
+from think_reason_learn.core.llms import (
+    ChoiceQuestion,
+    JevBudget,
+    JevChoice,
+    JevQuestion,
+    JevRequest,
+    LLMChoice,
+    TokenCounter,
+    llm,
+)
+from think_reason_learn.core.llms._jev.client import (
+    new_run_budget,
+    loading_saved_model,
+    require_typesafe_key,
+)
+from think_reason_learn.core.llms._jev.schemas import answers_with_jev
 from think_reason_learn.core.exceptions import DataError, LLMError, CorruptionError
 from ._types import QuestionType, Criterion
 from ._prompts import INSTRUCTIONS_FOR_GENERATING_QUESTION_GEN_INSTRUCTIONS
@@ -189,7 +204,11 @@ class GPTree:
         critic_llmc: LLMs to use for question critique, in priority order.
         qgen_instr_llmc: LLMs for generating instructions.
         qanswer_llmc: LLMs to use for answering questions, in priority order.
-            If None, use qgen_llmc.
+            If None, Jev (``[JevChoice()]``), which needs ``TYPESAFE_API_KEY``;
+            pass a chat model here to answer with it instead. With Jev first,
+            each sample at a node is sent once with all the node's candidate
+            questions as multiple-choice questions whose labels are the
+            question's choices.
         qgen_temperature: Sampling temperature for question generation.
         critic_temperature: Sampling temperature for critique.
         qgen_instr_gen_temperature: Sampling temperature for generating
@@ -248,7 +267,8 @@ class GPTree:
         self.qgen_llmc = qgen_llmc
         self.critic_llmc = critic_llmc
         self.qgen_instr_llmc = qgen_instr_llmc
-        self.qanswer_llmc = qanswer_llmc or qgen_llmc
+        self.qanswer_llmc: List[LLMChoice] = qanswer_llmc or [JevChoice()]
+        require_typesafe_key(self.qanswer_llmc, method="GPTree", param="qanswer_llmc")
         self.qgen_temperature = qgen_temperature
         self.qanswer_temperature = qanswer_temperature
         self.critic_temperature = critic_temperature
@@ -269,6 +289,8 @@ class GPTree:
         self.random_state = random_state
 
         self._token_counter: TokenCounter = TokenCounter()
+        self._run_budget: JevBudget | None = None
+        self._feature_columns: List[Any] | None = None
         self._class_weights: Dict[str, float] | None = None
 
         self._classes: List[str] | None = None
@@ -891,6 +913,88 @@ class GPTree:
 
         return questions
 
+    @property
+    def _answers_with_jev(self) -> bool:
+        return answers_with_jev(self.qanswer_llmc)
+
+    def _question_columns(self) -> Set[str]:
+        """Columns of self._X that hold answers to node questions."""
+        columns: Set[str] = set()
+        for node in self._nodes.values():
+            columns.update(q.df_column for q in node.questions or [])
+            if node.question is not None:
+                columns.add(node.question.df_column)
+        return columns
+
+    def _jev_columns(self, columns: Sequence[Any]) -> List[Any]:
+        """Columns to show Jev: the features fit on, never answers or labels.
+
+        Trees saved before feature columns were recorded fall back to every
+        column that is not an answer column of a current node.
+        """
+        if self._feature_columns is not None:
+            features = set(self._feature_columns)
+            return [c for c in columns if c in features]
+        skip = self._question_columns()
+        return [c for c in columns if c not in skip]
+
+    @staticmethod
+    def _jev_state(row: pd.Series, columns: Sequence[Any]) -> str:
+        """Sample text from the given columns, skipping empty values."""
+        lines: List[str] = []
+        for col in columns:
+            val = row[col]
+            if val is None or (pd.api.types.is_scalar(val) and bool(pd.isna(val))):
+                continue
+            lines.append(f"{col}: {val}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _jev_question(question: NodeQuestion) -> ChoiceQuestion:
+        return ChoiceQuestion(
+            instructions=question.value, labels=list(dict.fromkeys(question.choices))
+        )
+
+    async def _answer_questions_jev(
+        self, questions: List[NodeQuestion], sample_indices: IndexArray
+    ) -> None:
+        """Answer a node's questions with Jev, one request per sample, inplace."""
+        if self._X is None:
+            raise ValueError("X and y must be set")
+        usable = [q for q in questions if len(set(q.choices)) >= 2]
+        for q in questions:
+            if q not in usable:
+                logger.warning(f"Skipping question with fewer than 2 choices: {q}")
+        if not usable:
+            return
+
+        X = cast(pd.DataFrame, self._X.iloc[sample_indices])
+        columns = self._jev_columns(list(X.columns))
+        jev_questions: Dict[str, JevQuestion] = {
+            f"q{i}": self._jev_question(q) for i, q in enumerate(usable)
+        }
+        rows = list(X.iterrows())
+        results = await llm.answer_many(
+            self.qanswer_llmc,
+            [
+                JevRequest(state=self._jev_state(row, columns), questions=jev_questions)
+                for _, row in rows
+            ],
+            budget=self._run_budget,
+            token_counter=self._token_counter,
+            caller="GPTree._answer_question",
+        )
+        for i, question in enumerate(usable):
+            answers = {
+                idx: result.answers.get(f"q{i}")
+                for (idx, _), result in zip(rows, results)
+                if isinstance(result.answers.get(f"q{i}"), str)
+            }
+            if answers:
+                series_update = pd.Series(answers, dtype=object)
+                index_update = cast(pd.Index, series_update.index)
+                self._X.loc[index_update, question.df_column] = series_update
+
     def _make_answer_model(self, choices: List[str]) -> Type[Answer]:
         field_type = Literal[tuple(choices)]
         model = create_model("Answer", answer=(field_type, ...))
@@ -1117,14 +1221,28 @@ class GPTree:
         chosen_question: NodeQuestion | None = None
         min_gini = 1.0
 
+        candidates = [NodeQuestion(**q.model_dump()) for q in questions.questions]
+        if self._answers_with_jev:
+            logger.info(f"Answering {len(candidates)} questions (Node {id}) with Jev")
+            await self._answer_questions_jev(
+                [q for q in candidates if q.question_type == "INFERENCE"],
+                sample_indices,
+            )
+
         node_questions: List[NodeQuestion] = []
-        for llm_question in questions.questions:
-            node_question = NodeQuestion(**llm_question.model_dump())
+        for node_question in candidates:
             node_questions.append(node_question)
             logger.info(f"Answering question (Node {id}): {node_question.value}")
 
             if node_question.question_type == "INFERENCE":
-                await self._answer_question(node_question, sample_indices)
+                if not self._answers_with_jev:
+                    await self._answer_question(node_question, sample_indices)
+                if node_question.df_column not in self._X.columns:  # type: ignore
+                    logger.warning(
+                        f"No answers for question (Node {id}): "
+                        f"{node_question.value}. Skipping..."
+                    )
+                    continue
                 groups = X.groupby(node_question.df_column).indices  # type: ignore
                 df_split_indices = [
                     np.array(groups.get(val, []), dtype=np.intp)
@@ -1347,6 +1465,7 @@ class GPTree:
         else:
             self._X = X.reset_index(drop=True)  # type: ignore
             self._y = y_array
+        self._feature_columns = list(self._X.columns)
 
         self._compute_class_weights()
 
@@ -1377,6 +1496,8 @@ class GPTree:
         Raises:
             ValueError: If data requirements aren't met or invalid reset usage.
         """
+        # A model loaded without the key must not spend on generation first.
+        require_typesafe_key(self.qanswer_llmc, method="GPTree", param="qanswer_llmc")
         if reset:
             if X is None or y is None:
                 raise ValueError("reset=True requires X and y")
@@ -1398,34 +1519,42 @@ class GPTree:
             )
 
         self._stop_training = False
+        # Held locally: a fit() abandoned early is closed later, possibly while
+        # a newer fit() runs, and must not clear that run's budget.
+        budget = new_run_budget(self.qanswer_llmc)
+        self._run_budget = budget
 
-        if len(self._nodes) == 0:  # train from scratch
-            indices: IndexArray = self._X.index.to_numpy(dtype=np.intp)  # type: ignore
-            async for updated_root in self._build_tree(
-                id=0,
-                parent_id=None,
-                depth=0,
-                label="root",
-                sample_indices=indices,
-            ):
-                if self._stop_training:
-                    break
-                yield updated_root
+        try:
+            if len(self._nodes) == 0:  # train from scratch
+                indices: IndexArray = self._X.index.to_numpy(dtype=np.intp)  # type: ignore
+                async for updated_root in self._build_tree(
+                    id=0,
+                    parent_id=None,
+                    depth=0,
+                    label="root",
+                    sample_indices=indices,
+                ):
+                    if self._stop_training:
+                        break
+                    yield updated_root
+                return
+
+            while self._frontier:  # resume from frontier
+                task = self._frontier.pop(0)
+                async for updated_node in self._build_tree(
+                    id=task.node_id,
+                    parent_id=task.parent_id,
+                    depth=task.depth,
+                    label=task.label,
+                    sample_indices=task.sample_indices,
+                ):
+                    if self._stop_training:
+                        return
+                    yield updated_node
             return
-
-        while self._frontier:  # resume from frontier
-            task = self._frontier.pop(0)
-            async for updated_node in self._build_tree(
-                id=task.node_id,
-                parent_id=task.parent_id,
-                depth=task.depth,
-                label=task.label,
-                sample_indices=task.sample_indices,
-            ):
-                if self._stop_training:
-                    return
-                yield updated_node
-        return
+        finally:
+            if self._run_budget is budget:
+                self._run_budget = None
 
     async def _predict(
         self,
@@ -1465,6 +1594,72 @@ class GPTree:
                 )
         yield sample_index, "No Question", "No Answer", node.id
 
+    async def _predict_jev(
+        self, samples: pd.DataFrame, token_counter: TokenCounter
+    ) -> AsyncGenerator[Tuple[Any, str, str, int], None]:
+        """Walk samples down the tree level by level: one Jev call per node."""
+        root_id = self.get_root_id()
+        root = self.get_node(root_id) if root_id is not None else None
+        if root is None:
+            raise ValueError("Tree is empty. Fit or load a tree before predicting.")
+
+        budget = new_run_budget(self.qanswer_llmc)
+        columns = self._jev_columns(list(samples.columns))
+        frontier: List[Tuple[Node, List[Tuple[Any, str]]]] = [
+            (
+                root,
+                [
+                    (idx, self._jev_state(row, columns))
+                    for idx, row in samples.iterrows()
+                ],
+            )
+        ]
+        while frontier:
+            next_frontier: List[Tuple[Node, List[Tuple[Any, str]]]] = []
+            for node, members in frontier:
+                if node.is_leaf:
+                    for sample_index, _ in members:
+                        yield sample_index, "No Question", "No Answer", node.id
+                    continue
+                question = node.question
+                if question is None:
+                    raise ValueError(
+                        f"Node {node.id} has not question. Tree is corrupted."
+                    )
+                jev_question: Dict[str, JevQuestion] = {
+                    "q": self._jev_question(question)
+                }
+                results = await llm.answer_many(
+                    self.qanswer_llmc,
+                    [JevRequest(state=s, questions=jev_question) for _, s in members],
+                    budget=budget,
+                    token_counter=token_counter,
+                    caller="GPTree._predict",
+                )
+                children = {c.label: c for c in node.children or []}
+                routed: Dict[int, Tuple[Node, List[Tuple[Any, str]]]] = {}
+                for (sample_index, state), result in zip(members, results):
+                    answer = result.answers.get("q")
+                    if not isinstance(answer, str):
+                        logger.warning(
+                            f"Failed to answer question: {question.value} "
+                            f"for sample {sample_index}"
+                        )
+                        continue
+                    yield sample_index, question.value, answer, node.id
+                    child = children.get(answer)
+                    if child is None:
+                        logger.error(
+                            f"Node with label {answer} not found in "
+                            f"children of node {node.id}"
+                        )
+                        continue
+                    routed.setdefault(child.id, (child, []))[1].append(
+                        (sample_index, state)
+                    )
+                next_frontier.extend(routed.values())
+            frontier = next_frontier
+
     async def predict(
         self,
         samples: pd.DataFrame,
@@ -1478,6 +1673,11 @@ class GPTree:
             Tuple of (sample_index, question, answer, node_id, token_usage)
         """
         token_counter = TokenCounter()
+        if self._answers_with_jev:
+            async for record in self._predict_jev(samples, token_counter):
+                yield record + (token_counter,)
+            return
+
         queue: asyncio.Queue[Literal["DONE"] | Tuple[Any, str, str, int]] = (
             asyncio.Queue()
         )
@@ -1700,6 +1900,7 @@ class GPTree:
         inst._llm_semaphore = asyncio.Semaphore(inst.llm_semaphore_limit)
 
         inst._node_counter = int(manifest["node_counter"])
+        inst._feature_columns = manifest.get("feature_columns")
 
         id_to_node: Dict[int, Node] = {}
         for nd in manifest["nodes"]:
@@ -1751,7 +1952,8 @@ class GPTree:
             Reconstructed GPTree instance.
         """
         try:
-            return cls._load(path)
+            with loading_saved_model():
+                return cls._load(path)
         except KeyError as e:
             raise CorruptionError(
                 f"Failed to load GPTree. Tree json is probably corrupted: {e}"
@@ -1832,6 +2034,7 @@ class GPTree:
             "expert_advice": self._expert_advice,
             "task_description": self._task_description,
             "node_counter": self._node_counter,
+            "feature_columns": self._feature_columns,
             "nodes": [_serialize_node(node) for node in self._nodes.values()],
             "frontier": [task.to_dict() for task in self._frontier],
             "token_counter": None if for_production else self._token_counter.to_dict(),

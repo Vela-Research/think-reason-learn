@@ -58,6 +58,15 @@ _AUTH_STATUSES = {401, 403}
 _MAX_WAIT_SECONDS = 120.0
 
 
+def format_usd(usd: float) -> str:
+    """Dollars to cents, or to the first two significant digits below a cent."""
+    if usd <= 0:
+        return "$0.00"
+    if usd >= 0.01:
+        return f"${usd:.2f}"
+    return f"${usd:.{1 - math.floor(math.log10(usd))}f}"
+
+
 def default_cache_dir() -> Path:
     """Return the folder that holds reusable Jev answers."""
     base = os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")
@@ -105,9 +114,9 @@ class JevBudget:
     def _reserve(self, usd: float) -> None:
         if usd > self.remaining_usd:
             raise JevCostCapError(
-                f"The next Jev request (about ${usd:.4f}) would take spend past "
-                f"the cap of ${self.max_cost_usd:.2f} for this run "
-                f"(max_cost_usd; ${self.spent_usd:.4f} spent), so the run "
+                f"The next Jev request (about {format_usd(usd)}) would take spend "
+                f"past the cap of {format_usd(self.max_cost_usd)} for this run "
+                f"(max_cost_usd; {format_usd(self.spent_usd)} spent), so the run "
                 f"stopped. {self._resume_hint()}"
             )
         self._reserved_usd += usd
@@ -122,8 +131,8 @@ class JevBudget:
 
     def _passed_message(self) -> str:
         return (
-            f"Jev spend ${self.spent_usd:.4f} passed the cap of "
-            f"${self.max_cost_usd:.2f} for this run (max_cost_usd), so the run "
+            f"Jev spend {format_usd(self.spent_usd)} passed the cap of "
+            f"{format_usd(self.max_cost_usd)} for this run (max_cost_usd), so the run "
             f"stopped. {self._resume_hint()}"
         )
 
@@ -409,19 +418,22 @@ class JevClient:
         est_tokens = sum(c.estimated_tokens for c in pending)
         est_usd = est_tokens * USD_PER_INPUT_TOKEN
         message = (
-            f"Jev ({model}): sending {len(pending)} requests "
+            f"Jev ({model}): sending {len(pending)} "
+            f"request{'' if len(pending) == 1 else 's'} "
             f"({len(chunks) - len(pending)} answered from cache), "
-            f"estimated cost ${est_usd:.4f}; cap ${budget.max_cost_usd:.2f} per "
-            f"run, ${budget.spent_usd:.4f} spent so far."
+            f"estimated cost {format_usd(est_usd)}; cap "
+            f"{format_usd(budget.max_cost_usd)} per run, "
+            f"{format_usd(budget.spent_usd)} spent so far."
         )
         print(message, file=sys.stderr, flush=True)
         logger.info(message)
         if est_usd > budget.remaining_usd:
             needed = budget.spent_usd + est_usd
             raise JevCostCapError(
-                f"Estimated Jev cost ${est_usd:.4f} for {len(pending)} requests "
-                f"exceeds the ${max(budget.remaining_usd, 0):.4f} left under the "
-                f"cap of ${budget.max_cost_usd:.2f} for this run. Nothing was "
+                f"Estimated Jev cost {format_usd(est_usd)} for {len(pending)} "
+                f"request{'' if len(pending) == 1 else 's'} exceeds the "
+                f"{format_usd(max(budget.remaining_usd, 0))} left under the cap of "
+                f"{format_usd(budget.max_cost_usd)} for this run. Nothing was "
                 "sent. To allow it, raise the cap, e.g. "
                 f"JevChoice(max_cost_usd={math.ceil(needed * 1.2 + 0.5)})."
             )

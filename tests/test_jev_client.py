@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -517,3 +518,30 @@ async def test_an_unreadable_200_counts_against_the_cap(tmp_path: Path) -> None:
 
     billed = (chunk.estimated_tokens + server.input_tokens) * 42 / 1e9
     assert budget.spent_usd == pytest.approx(billed)
+
+
+def test_dollar_amounts_keep_their_first_significant_digits() -> None:
+    from think_reason_learn.core.llms._jev.client import format_usd
+
+    assert format_usd(0) == "$0.00"
+    assert format_usd(0.0000144) == "$0.000014"
+    assert format_usd(0.0123) == "$0.01"
+    assert format_usd(0.05) == "$0.05"
+    assert format_usd(0.17) == "$0.17"
+    assert format_usd(10) == "$10.00"
+
+
+@pytest.mark.asyncio
+async def test_estimate_line_for_one_small_request(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    client, _ = _client(FakeJevServer(), tmp_path)
+
+    await client.answer_many(
+        [_noul_request()], model="jev-latest", budget=JevBudget(0.05)
+    )
+
+    err = capsys.readouterr().err
+    assert "sending 1 request (" in err
+    assert re.search(r"estimated cost \$0\.0+[1-9]", err)
+    assert "cap $0.05 per run, $0.00 spent so far" in err

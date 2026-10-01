@@ -66,6 +66,20 @@ def is_jev(choice: object) -> bool:
     return getattr(choice, "provider", None) == "jev"
 
 
+def answers_with_jev(llm_priority: Sequence[object]) -> bool:
+    """Whether Jev is the first answering model."""
+    return bool(llm_priority) and is_jev(llm_priority[0])
+
+
+YES_THRESHOLD = 0.5
+"""A Jev probability at or above this counts as YES."""
+
+
+def yes_no(probability: float) -> Literal["YES", "NO"]:
+    """Jev's probability of yes as a YES/NO answer."""
+    return "YES" if probability >= YES_THRESHOLD else "NO"
+
+
 def first_jev_choice(llm_priority: Sequence[object]) -> JevChoice | None:
     """The first Jev choice in a priority list, as a ``JevChoice``."""
     for choice in llm_priority:

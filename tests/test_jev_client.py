@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from typing import Any, Callable, Dict, List
+from typing import Any, Dict, List
 
 import httpx
 import pytest
@@ -17,51 +16,7 @@ from think_reason_learn.core.llms._jev.client import (
     JevClient,
     JevRequest,
 )
-
-
-def _answers_for(questions: Dict[str, Any], prob: float = 0.8) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
-    for qid, q in questions.items():
-        if q["type"] == "noul":
-            out[qid] = {"noul": prob}
-        else:
-            out[qid] = {"choice": next(iter(q["criteria"]))}
-    return out
-
-
-class FakeJevServer:
-    """Records every request and answers like Typesafe's System One endpoint."""
-
-    def __init__(
-        self,
-        responses: List[Callable[[Dict[str, Any]], httpx.Response]] | None = None,
-        input_tokens: int = 1000,
-    ) -> None:
-        self.bodies: List[Dict[str, Any]] = []
-        self.headers: List[httpx.Headers] = []
-        self._responses = list(responses or [])
-        self.input_tokens = input_tokens
-
-    def ok(self, body: Dict[str, Any]) -> httpx.Response:
-        return httpx.Response(
-            200,
-            json={
-                "model": "jev-1.13.0",
-                "answers": _answers_for(body["questions"]),
-                "usage": {"input_tokens": self.input_tokens, "output_tokens": 7},
-            },
-        )
-
-    def handler(self, request: httpx.Request) -> httpx.Response:
-        body = json.loads(request.content)
-        self.bodies.append(body)
-        self.headers.append(request.headers)
-        if self._responses:
-            return self._responses.pop(0)(body)
-        return self.ok(body)
-
-    def transport(self) -> httpx.MockTransport:
-        return httpx.MockTransport(self.handler)
+from tests.fake_jev import FakeJevServer
 
 
 class SleepRecorder:
@@ -455,9 +410,9 @@ SMOKE = JevRequest(
 def test_estimate_covers_a_small_request_as_billed(tmp_path: Path) -> None:
     client, _ = _client(FakeJevServer(), tmp_path)
 
-    estimate = client.estimate([SMOKE], "jev-latest")
+    [chunk] = client._chunks([SMOKE], "jev-latest")
 
-    assert estimate.input_tokens >= 342
+    assert chunk.estimated_tokens >= 342
 
 
 def test_estimate_for_long_samples_stays_close_to_billing(tmp_path: Path) -> None:
@@ -466,6 +421,4 @@ def test_estimate_for_long_samples_stays_close_to_billing(tmp_path: Path) -> Non
     [chunk] = client._chunks([request], "jev-latest")
     billed = 188 + len(chunk.body) / 4.42
 
-    estimate = client.estimate([request], "jev-latest")
-
-    assert billed <= estimate.input_tokens <= 1.15 * billed
+    assert billed <= chunk.estimated_tokens <= 1.15 * billed

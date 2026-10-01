@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, List, Sequence
+import json
+from typing import Any, Callable, Dict, List, Sequence
+
+import httpx
 
 from think_reason_learn.core.llms import (
     ChoiceQuestion,
@@ -69,3 +72,54 @@ class FakeJevLLM(FakeLLM):
                     model="jev-latest", provider="jev", value=101, caller=caller
                 )
         return results
+
+
+def _answers_for(questions: Dict[str, Any], prob: float = 0.8) -> Dict[str, Any]:
+    out: Dict[str, Any] = {}
+    for qid, q in questions.items():
+        if q["type"] == "noul":
+            out[qid] = {"noul": prob}
+        else:
+            out[qid] = {"choice": next(iter(q["criteria"]))}
+    return out
+
+
+class FakeJevServer:
+    """Records every request and answers like Typesafe's System One endpoint."""
+
+    def __init__(
+        self,
+        responses: List[Callable[[Dict[str, Any]], httpx.Response]] | None = None,
+        input_tokens: int = 1000,
+        prob: float = 0.8,
+        status_for_state: Dict[str, int] | None = None,
+    ) -> None:
+        self.bodies: List[Dict[str, Any]] = []
+        self.headers: List[httpx.Headers] = []
+        self._responses = list(responses or [])
+        self.input_tokens = input_tokens
+        self.prob = prob
+        self.status_for_state = status_for_state or {}
+
+    def ok(self, body: Dict[str, Any]) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "model": "jev-1.13.0",
+                "answers": _answers_for(body["questions"], self.prob),
+                "usage": {"input_tokens": self.input_tokens, "output_tokens": 7},
+            },
+        )
+
+    def handler(self, request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        self.bodies.append(body)
+        self.headers.append(request.headers)
+        if body["state"] in self.status_for_state:
+            return httpx.Response(self.status_for_state[body["state"]], text="rejected")
+        if self._responses:
+            return self._responses.pop(0)(body)
+        return self.ok(body)
+
+    def transport(self) -> httpx.MockTransport:
+        return httpx.MockTransport(self.handler)

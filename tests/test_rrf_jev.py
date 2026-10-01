@@ -136,7 +136,6 @@ async def test_predict_with_jev_one_request_per_sample(tmp_path: Path) -> None:
     questions = _active_questions(rrf)
     assert len(fake.answer_requests) == 3
     assert len(fake.answer_calls) == 1
-    assert isinstance(fake.answer_calls[0]["budget"], JevBudget)
     assert sorted(rows) == sorted(
         (i, qid, ["YES", "NO", "NO"][i]) for i in range(3) for qid in questions
     )

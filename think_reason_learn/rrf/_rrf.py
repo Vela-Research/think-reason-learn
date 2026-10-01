@@ -43,7 +43,6 @@ from think_reason_learn.core.llms import (
     JevChoice,
     JevQuestion,
     JevRequest,
-    JevResult,
     LLMChoice,
     NoulQuestion,
     TokenCounter,
@@ -53,7 +52,7 @@ from think_reason_learn.core.llms._jev.client import (
     new_run_budget,
     require_typesafe_key,
 )
-from think_reason_learn.core.llms._jev.schemas import is_jev
+from think_reason_learn.core.llms._jev.schemas import answers_with_jev, yes_no
 
 from ._cost_sensitive import CostSensitiveConfig
 from ._prompt_presets import PromptPreset, PROMPT_PRESETS
@@ -66,14 +65,6 @@ from ._prompts import (
 from ._types import AnsSimilarityFunc, EmbeddingModel
 
 logger = logging.getLogger(__name__)
-
-JEV_YES_THRESHOLD = 0.5
-"""A Jev probability at or above this is recorded as YES."""
-
-
-def _py_scalar(value: Any) -> Any:
-    """Turn numpy scalars into Python ones so checkpoints serialise."""
-    return value.item() if isinstance(value, np.generic) else value
 
 
 class Questions(BaseModel):
@@ -477,7 +468,7 @@ class RRF:
 
     @property
     def _answers_with_jev(self) -> bool:
-        return bool(self.qanswer_llmc) and is_jev(self.qanswer_llmc[0])
+        return answers_with_jev(self.qanswer_llmc)
 
     @property
     def _probability_features(self) -> bool:
@@ -1450,20 +1441,13 @@ class RRF:
             return
 
         sample_ids = list(by_sample)
-        requests: List[JevRequest] = []
-        for sidx in sample_ids:
-            sample = cast(pd.Series, xdf.iloc[sidx])  # type: ignore
-            requests.append(
-                JevRequest(
-                    state="\n".join(f"{col}: {val}" for col, val in sample.items()),
-                    questions={
-                        qid: NoulQuestion(
-                            instructions=cast(str, self._questions.at[qid, "question"])
-                        )
-                        for qid in by_sample[sidx]
-                    },
-                )
+        requests = [
+            JevRequest(
+                state="\n".join(f"{c}: {v}" for c, v in xdf.iloc[sidx].items()),
+                questions=self._jev_questions(by_sample[sidx]),
             )
+            for sidx in sample_ids
+        ]
         logger.info(
             "Answering %d questions on %d samples with Jev",
             sum(len(q) for q in by_sample.values()),
@@ -1480,10 +1464,17 @@ class RRF:
             for qid, value in result.answers.items():
                 if not isinstance(value, float):
                     continue
-                answers_buffer.setdefault(qid, {})[sidx] = (
-                    "YES" if value >= JEV_YES_THRESHOLD else "NO"
-                )
+                answers_buffer.setdefault(qid, {})[sidx] = yes_no(value)
                 probs_buffer.setdefault(qid, {})[sidx] = value
+
+    def _jev_questions(self, qids: Iterable[str]) -> Dict[str, JevQuestion]:
+        """Each question as a Jev yes/no question, keyed by question id."""
+        return {
+            qid: NoulQuestion(
+                instructions=cast(str, self._questions.at[qid, "question"])
+            )
+            for qid in qids
+        }
 
     def _set_questions_metrics(self, use_screening: bool = False) -> None:
         if self._y is None:
@@ -1820,25 +1811,24 @@ class RRF:
         ]
 
         if self._probability_features:
-            samples = [
-                (position, "\n".join(f"{col}: {val}" for col, val in row.items()))
-                for position, (_, row) in enumerate(X.iterrows())
-            ]
-            results = await self._answer_samples_jev(
-                samples, active_qids, TokenCounter()
+            questions = self._jev_questions(active_qids)
+            results = await self._llm_instance.answer_many(
+                self.qanswer_llmc,
+                [
+                    JevRequest(
+                        "\n".join(f"{c}: {v}" for c, v in row.items()), questions
+                    )
+                    for _, row in X.iterrows()
+                ],
+                caller="RRF.predict_founder_level",
             )
-            # Filled by position, so repeated index labels keep their own rows.
-            values = np.zeros((len(X), len(active_qids)), dtype=float)
-            column = {qid: j for j, qid in enumerate(active_qids)}
-            for position, result in enumerate(results):
-                for qid, value in result.answers.items():
-                    if isinstance(value, float):
-                        values[position, column[qid]] = value
+            # Rows in X order, so repeated index labels keep their own rows.
             return pd.DataFrame(
-                values,
+                [r.answers for r in results],
                 index=X.index,
                 columns=active_qids,  # type: ignore[arg-type]
-            )
+                dtype=float,
+            ).fillna(0.0)
 
         matrix = pd.DataFrame(
             0,
@@ -2525,22 +2515,21 @@ class RRF:
         if self._answers_with_jev:
             if not active_qids:
                 return
-            results = await self._answer_samples_jev(
-                all_samples, active_qids, token_counter
+            questions = self._jev_questions(active_qids)
+            results = await self._llm_instance.answer_many(
+                self.qanswer_llmc,
+                [JevRequest(state, questions) for _, state in all_samples],
+                token_counter=token_counter,
+                caller="RRF.predict",
             )
             for qid in active_qids:
                 for (sample_index, _), result in zip(all_samples, results):
                     value = result.answers.get(qid)
                     if not isinstance(value, float):
                         continue
-                    label = "YES" if value >= JEV_YES_THRESHOLD else "NO"
-                    accumulated_results.append((_py_scalar(sample_index), qid, label))
-                    yield (
-                        sample_index,
-                        qid,
-                        cast(Literal["YES", "NO"], label),
-                        token_counter,
-                    )
+                    label = yes_no(value)
+                    accumulated_results.append((sample_index, qid, label))
+                    yield sample_index, qid, label, token_counter
                 completed_qids.append(qid)
             if checkpoint_path is not None:
                 self._save_predict_checkpoint(
@@ -2651,29 +2640,6 @@ class RRF:
                             token_counter,
                         )
                         questions_since_checkpoint = 0
-
-    async def _answer_samples_jev(
-        self,
-        samples: List[Tuple[Any, str]],
-        qids: List[str],
-        token_counter: TokenCounter,
-    ) -> List[JevResult]:
-        """Ask Jev every question in ``qids`` about each (index, text) sample."""
-        if not qids or not samples:
-            return [JevResult(answers={}) for _ in samples]
-        questions: Dict[str, JevQuestion] = {
-            qid: NoulQuestion(
-                instructions=cast(str, self._questions.at[qid, "question"])
-            )
-            for qid in qids
-        }
-        return await self._llm_instance.answer_many(
-            self.qanswer_llmc,
-            [JevRequest(state=s, questions=questions) for _, s in samples],
-            budget=new_run_budget(self.qanswer_llmc),
-            token_counter=token_counter,
-            caller="RRF.predict",
-        )
 
     async def update_question_exclusion(
         self,

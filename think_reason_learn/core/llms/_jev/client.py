@@ -81,16 +81,6 @@ class JevResult:
     error: str | None = None
 
 
-@dataclass(slots=True)
-class JevEstimate:
-    """Pre-spend estimate for a batch of requests."""
-
-    requests_to_send: int
-    cached_requests: int
-    input_tokens: int
-    usd: float
-
-
 class JevBudget:
     """Cost cap shared by every Jev request in one run.
 
@@ -134,7 +124,6 @@ class JevBudget:
 @dataclass(slots=True)
 class _Chunk:
     request_index: int
-    payload: Dict[str, Any]
     questions: Dict[str, JevQuestion]
     body: bytes
     key: str
@@ -258,7 +247,6 @@ class JevClient:
                 chunks.append(
                     _Chunk(
                         request_index=index,
-                        payload=payload,
                         questions=questions,
                         body=json.dumps(payload, ensure_ascii=False).encode(),
                         key=hashlib.sha256(canonical.encode()).hexdigest(),
@@ -289,22 +277,6 @@ class JevClient:
             os.replace(tmp, path)
         except OSError:
             logger.warning("Could not write the Jev cache at %s", path, exc_info=True)
-
-    # -- estimate ------------------------------------------------------------
-
-    def estimate(
-        self, requests: Sequence[JevRequest], model: str, use_cache: bool = True
-    ) -> JevEstimate:
-        """Estimate the cost of answering ``requests`` without sending anything."""
-        chunks = self._chunks(requests, model)
-        to_send = [c for c in chunks if not (use_cache and self._read_cache(c))]
-        tokens = sum(c.estimated_tokens for c in to_send)
-        return JevEstimate(
-            requests_to_send=len(to_send),
-            cached_requests=len(chunks) - len(to_send),
-            input_tokens=tokens,
-            usd=tokens * USD_PER_INPUT_TOKEN,
-        )
 
     # -- sending ---------------------------------------------------------------
 

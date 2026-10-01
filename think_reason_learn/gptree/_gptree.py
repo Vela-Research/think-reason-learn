@@ -38,7 +38,7 @@ from think_reason_learn.core.llms._jev.client import (
     new_run_budget,
     require_typesafe_key,
 )
-from think_reason_learn.core.llms._jev.schemas import is_jev
+from think_reason_learn.core.llms._jev.schemas import answers_with_jev
 from think_reason_learn.core.exceptions import DataError, LLMError, CorruptionError
 from ._types import QuestionType, Criterion
 from ._prompts import INSTRUCTIONS_FOR_GENERATING_QUESTION_GEN_INSTRUCTIONS
@@ -914,7 +914,7 @@ class GPTree:
 
     @property
     def _answers_with_jev(self) -> bool:
-        return bool(self.qanswer_llmc) and is_jev(self.qanswer_llmc[0])
+        return answers_with_jev(self.qanswer_llmc)
 
     def _question_columns(self) -> Set[str]:
         """Columns of self._X that hold answers to node questions."""
@@ -968,8 +968,7 @@ class GPTree:
             return
 
         X = cast(pd.DataFrame, self._X.iloc[sample_indices])
-        own = {q.df_column for q in questions}
-        columns = [c for c in self._jev_columns(list(X.columns)) if c not in own]
+        columns = self._jev_columns(list(X.columns))
         jev_questions: Dict[str, JevQuestion] = {
             f"q{i}": self._jev_question(q) for i, q in enumerate(usable)
         }

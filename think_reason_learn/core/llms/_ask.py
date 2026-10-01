@@ -21,7 +21,7 @@ from ._jev.client import (
     JevResult,
     get_jev_client,
 )
-from ._jev.schemas import AnswerValue, ChoiceQuestion, JevChoice, JevQuestion
+from ._jev.schemas import AnswerValue, ChoiceQuestion, JevChoice, JevQuestion, is_jev
 from ._openai.ask import OpenAILLM, get_openai_llm
 from ._openai.schemas import OpenAIChoice
 from ._schemas import (
@@ -50,12 +50,11 @@ ANSWER_INSTRUCTIONS = (
 )
 
 
+_CHAT_CONCURRENCY = 5
+
+
 class _YesNo(BaseModel):
     answer: Literal["YES", "NO"]
-
-
-def _provider(choice: LLMChoice) -> str:
-    return choice["provider"] if isinstance(choice, dict) else choice.provider
 
 
 def _chat_query(state: str, question: JevQuestion) -> str:
@@ -165,7 +164,7 @@ class LLM(metaclass=SingletonMeta):
             ValueError: If none of the LLMs worked.
         """
         assert len(llm_priority) > 0, "llm_priority must be a non-empty list"
-        if any(_provider(c) == "jev" for c in llm_priority):
+        if any(is_jev(c) for c in llm_priority):
             raise ValueError(JEV_CANNOT_GENERATE)
         raise_ = len(llm_priority) == 1
 
@@ -284,7 +283,7 @@ class LLM(metaclass=SingletonMeta):
             ValueError: If none of the LLMs worked.
         """
         assert len(llm_priority) > 0, "llm_priority must be a non-empty list"
-        if any(_provider(c) == "jev" for c in llm_priority):
+        if any(is_jev(c) for c in llm_priority):
             raise ValueError(JEV_CANNOT_GENERATE)
         raise_ = len(llm_priority) == 1
 
@@ -392,7 +391,6 @@ class LLM(metaclass=SingletonMeta):
         token_counter: TokenCounter | None = None,
         caller: str = "LLM.answer_many",
         temperature: float | NotGiven | None = NOT_GIVEN,
-        chat_concurrency: int = 5,
     ) -> List[JevResult]:
         """Answer typed questions about samples, one request per sample.
 
@@ -409,7 +407,6 @@ class LLM(metaclass=SingletonMeta):
             token_counter: Counter to add usage to.
             caller: Name recorded in the token counter.
             temperature: Temperature for chat models.
-            chat_concurrency: Chat calls in flight at once.
 
         Returns:
             One result per request; unanswered questions are ``None``.
@@ -465,9 +462,7 @@ class LLM(metaclass=SingletonMeta):
                 )
                 for i, sub in zip(todo, sub_results):
                     result = results[i]
-                    result.answers.update(
-                        {k: v for k, v in sub.answers.items() if v is not None}
-                    )
+                    result.answers.update(sub.answers)
                     result.input_tokens += sub.input_tokens
                     result.output_tokens += sub.output_tokens
                     result.served_model = sub.served_model or result.served_model
@@ -482,7 +477,7 @@ class LLM(metaclass=SingletonMeta):
                         )
                 continue
 
-            semaphore = asyncio.Semaphore(chat_concurrency)
+            semaphore = asyncio.Semaphore(_CHAT_CONCURRENCY)
 
             async def ask(i: int, qid: str, state: str, question: JevQuestion) -> None:
                 async with semaphore:

@@ -51,6 +51,10 @@ def _choose(state: str, question: ChoiceQuestion) -> str | None:
 class FakeTreeLLM(FakeJevLLM):
     """Question generation for GPTree plus Jev-like answering."""
 
+    def __init__(self, questions: List[Question] = [TECH, STAGE], **kwargs: Any):
+        super().__init__(**kwargs)
+        self.questions = questions
+
     async def respond(
         self,
         query: str,
@@ -62,7 +66,7 @@ class FakeTreeLLM(FakeJevLLM):
     ) -> LLMResponse[Any]:
         self.calls.append({"query": query, "response_format": response_format})
         if response_format is Questions:
-            response: Any = Questions(questions=[TECH, STAGE], cumulative_memory="m")
+            response: Any = Questions(questions=self.questions, cumulative_memory="m")
         else:  # a GPTree answer model with a Literal of the choices
             labels = response_format.model_fields["answer"].annotation.__args__
             response = response_format(answer=labels[0])
@@ -217,38 +221,11 @@ ONE_CHOICE = Question(
 )
 
 
-class FakeTreeLLMWith(FakeTreeLLM):
-    """Generates the given questions instead of TECH and STAGE."""
-
-    def __init__(self, questions: List[Question], **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self.questions = questions
-
-    async def respond(
-        self,
-        query: str,
-        llm_priority: List[Any],
-        response_format: Any,
-        instructions: Any = None,
-        temperature: Any = None,
-        **kwargs: Any,
-    ) -> LLMResponse[Any]:
-        if response_format is Questions:
-            self.calls.append({"query": query, "response_format": response_format})
-            return LLMResponse(
-                response=Questions(questions=self.questions, cumulative_memory="m"),
-                logprobs=[],
-                total_tokens=10,
-                provider_model=OpenAIChoice(model="gpt-4.1-nano"),
-            )
-        return await super().respond(query, llm_priority, response_format)
-
-
 @pytest.mark.asyncio
 async def test_single_choice_question_is_skipped_not_a_crash(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    fake = FakeTreeLLMWith([ONE_CHOICE, TECH], choose=_choose)
+    fake = FakeTreeLLM([ONE_CHOICE, TECH], choose=_choose)
     monkeypatch.setattr(gptree_module, "llm", fake)
 
     tree = await _fit(_tree(tmp_path, max_depth=1))

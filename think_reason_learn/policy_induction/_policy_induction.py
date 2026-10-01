@@ -49,7 +49,6 @@ from tqdm.auto import tqdm
 
 from think_reason_learn.core.exceptions import DataError, LLMError
 from think_reason_learn.core.llms import (
-    JevBudget,
     JevChoice,
     JevQuestion,
     JevRequest,
@@ -60,10 +59,13 @@ from think_reason_learn.core.llms import (
 )
 from think_reason_learn.core.llms._jev.client import (
     MAX_QUESTIONS_PER_REQUEST,
-    new_run_budget,
     require_typesafe_key,
 )
-from think_reason_learn.core.llms._jev.schemas import is_jev
+from think_reason_learn.core.llms._jev.schemas import (
+    YES_THRESHOLD,
+    answers_with_jev,
+    yes_no,
+)
 from ._prompts import (
     POLICY_GEN_INSTRUCTIONS,
     POLICY_PREDICT_INSTRUCTIONS,
@@ -76,10 +78,6 @@ logger = logging.getLogger(__name__)
 # Compact terminal-style progress bar: "[TAG] ████░░░░ n/total · rate/s · eta MM:SS"
 _BAR_FORMAT = "{desc} {bar} {n_fmt}/{total_fmt} · {rate_fmt} · eta {remaining}"
 _BAR_ASCII = "░█"
-
-
-JEV_YES_THRESHOLD = 0.5
-"""A Jev probability at or above this counts as the policy saying YES."""
 
 
 # ── Schemas ────────────────────────────────────────────────────────────────────
@@ -200,7 +198,6 @@ class PolicyInduction:
 
         self._token_counter: TokenCounter = TokenCounter()
         self._llm_semaphore = asyncio.Semaphore(llm_semaphore_limit)
-        self._run_budget: JevBudget | None = None
         self._pgen_instructions_template: str | None = None
         self._task_description: str | None = None
 
@@ -441,7 +438,7 @@ class PolicyInduction:
 
     @property
     def _scores_with_jev(self) -> bool:
-        return bool(self.predict_llmc) and is_jev(self.predict_llmc[0])
+        return answers_with_jev(self.predict_llmc)
 
     def _jev_question(self, policy: str) -> NoulQuestion:
         return NoulQuestion(
@@ -898,16 +895,13 @@ class PolicyInduction:
         results = await llm.answer_many(
             self.predict_llmc,
             requests,
-            budget=self._run_budget,
             token_counter=self._token_counter,
             caller="PolicyInduction.score_policy",
         )
         for idx, result in zip(sample_ids, results):
             for qid, value in result.answers.items():
                 if isinstance(value, float):
-                    series[qid_to_pid[qid]].at[idx] = (
-                        "YES" if value >= JEV_YES_THRESHOLD else "NO"
-                    )
+                    series[qid_to_pid[qid]].at[idx] = yes_no(value)
         for pid, scored in series.items():
             self._policy_memory.at[pid, "predictions"] = scored  # type: ignore
         self._save_scoring_ckpt()
@@ -1149,7 +1143,6 @@ class PolicyInduction:
                 )
                 for _, row in rows
             ],
-            budget=new_run_budget(self.predict_llmc),
             token_counter=token_counter,
             caller="PolicyInduction.predict_single",
         )
@@ -1157,7 +1150,7 @@ class PolicyInduction:
         for (idx, _), result in zip(rows, results):
             vec = np.zeros(len(self._feature_order_), dtype=float)
             for qid, value in result.answers.items():
-                if isinstance(value, float) and value >= JEV_YES_THRESHOLD:
+                if isinstance(value, float) and value >= YES_THRESHOLD:
                     vec[int(qid[1:])] = 1.0
             records.append((idx, vec, self._lr_predict(vec)))
         return records
@@ -1192,11 +1185,7 @@ class PolicyInduction:
         start = time.monotonic()
 
         await self._generate_policies()
-        self._run_budget = new_run_budget(self.predict_llmc)
-        try:
-            await self._score_policies()
-        finally:
-            self._run_budget = None
+        await self._score_policies()
         self._fit_weights()
         self._fit_duration_seconds = time.monotonic() - start
         self._fit_completed_at = datetime.now(timezone.utc).isoformat()

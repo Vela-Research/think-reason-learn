@@ -37,10 +37,10 @@ def _tree(tmp_path: Path, **kwargs: Any) -> GPTree:
     )
 
 
-METHODS: list[tuple[str, Callable[..., Any], str, str]] = [
-    ("RRF", _rrf, "qanswer_llmc", "qanswer_llmc"),
-    ("PolicyInduction", _pi, "predict_llmc", "predict_llmc"),
-    ("GPTree", _tree, "qanswer_llmc", "qanswer_llmc"),
+METHODS: list[tuple[str, Callable[..., Any], str]] = [
+    ("RRF", _rrf, "qanswer_llmc"),
+    ("PolicyInduction", _pi, "predict_llmc"),
+    ("GPTree", _tree, "qanswer_llmc"),
 ]
 
 
@@ -49,28 +49,26 @@ def no_typesafe_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "TYPESAFE_API_KEY", "")
 
 
-@pytest.mark.parametrize("name,make,param,attr", METHODS)
+@pytest.mark.parametrize("name,make,param", METHODS)
 def test_jev_answers_by_default(
     tmp_path: Path,
     typesafe_key: None,
     name: str,
     make: Callable[..., Any],
     param: str,
-    attr: str,
 ) -> None:
     method = make(tmp_path)
 
-    assert getattr(method, attr) == [JevChoice()]
+    assert getattr(method, param) == [JevChoice()]
 
 
-@pytest.mark.parametrize("name,make,param,attr", METHODS)
+@pytest.mark.parametrize("name,make,param", METHODS)
 def test_missing_key_raises_naming_the_key_and_the_way_out(
     tmp_path: Path,
     no_typesafe_key: None,
     name: str,
     make: Callable[..., Any],
     param: str,
-    attr: str,
 ) -> None:
     with pytest.raises(MissingAPIKeyError) as info:
         make(tmp_path)
@@ -81,41 +79,38 @@ def test_missing_key_raises_naming_the_key_and_the_way_out(
     assert isinstance(info.value, ValueError)
 
 
-@pytest.mark.parametrize("name,make,param,attr", METHODS)
+@pytest.mark.parametrize("name,make,param", METHODS)
 def test_jev_with_a_chat_fallback_needs_the_key(
     tmp_path: Path,
     no_typesafe_key: None,
     name: str,
     make: Callable[..., Any],
     param: str,
-    attr: str,
 ) -> None:
     with pytest.raises(MissingAPIKeyError):
         make(tmp_path, **{param: [JevChoice(), *CHAT]})
 
 
-@pytest.mark.parametrize("name,make,param,attr", METHODS)
+@pytest.mark.parametrize("name,make,param", METHODS)
 def test_jev_after_a_chat_model_is_rejected(
     tmp_path: Path,
     typesafe_key: None,
     name: str,
     make: Callable[..., Any],
     param: str,
-    attr: str,
 ) -> None:
     with pytest.raises(ValueError, match=f"JevChoice first in {param}"):
         make(tmp_path, **{param: [*CHAT, JevChoice()]})
 
 
-@pytest.mark.parametrize("name,make,param,attr", METHODS)
+@pytest.mark.parametrize("name,make,param", METHODS)
 def test_chat_answerer_needs_no_typesafe_key(
     tmp_path: Path,
     no_typesafe_key: None,
     name: str,
     make: Callable[..., Any],
     param: str,
-    attr: str,
 ) -> None:
     method = make(tmp_path, **{param: CHAT})
 
-    assert getattr(method, attr) == CHAT
+    assert getattr(method, param) == CHAT

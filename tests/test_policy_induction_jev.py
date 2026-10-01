@@ -10,7 +10,6 @@ import pandas as pd
 import pytest
 
 from think_reason_learn.core.llms import (
-    JevBudget,
     JevChoice,
     NoulQuestion,
     OpenAIChoice,
@@ -120,15 +119,6 @@ async def test_scores_are_yes_at_one_half(tmp_path: Path, fake: FakePILLM) -> No
     memory = pi.get_memory()
     assert list(memory.at[0, "predictions"]) == ["YES"] * 5 + ["NO"] * 5
     assert list(memory.at[1, "predictions"]) == ["YES"] * 10
-
-
-@pytest.mark.asyncio
-async def test_fit_uses_the_choice_cap(tmp_path: Path, fake: FakePILLM) -> None:
-    await _fit(_pi(tmp_path))
-
-    [call] = fake.answer_calls
-    assert isinstance(call["budget"], JevBudget)
-    assert call["budget"].max_cost_usd == 2.0
 
 
 @pytest.mark.asyncio

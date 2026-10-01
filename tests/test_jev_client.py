@@ -422,3 +422,71 @@ def test_estimate_for_long_samples_stays_close_to_billing(tmp_path: Path) -> Non
     billed = 188 + len(chunk.body) / 4.42
 
     assert billed <= chunk.estimated_tokens <= 1.15 * billed
+
+
+# ---------------------------------------------------------------------------
+# Robustness
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_corrupt_response_body_is_retried_not_fatal(tmp_path: Path) -> None:
+    def corrupt(body: Dict[str, Any]) -> httpx.Response:
+        raise httpx.DecodingError("bad gzip")
+
+    server = FakeJevServer([corrupt])
+    client, sleep = _client(server, tmp_path)
+
+    [result] = await client.answer_many(
+        [_noul_request()], model="jev-latest", budget=JevBudget(10.0)
+    )
+
+    assert len(server.bodies) == 2
+    assert result.answers == {"q0": 0.8}
+
+
+def test_estimate_counts_non_latin_text_at_a_token_per_character(
+    tmp_path: Path,
+) -> None:
+    client, _ = _client(FakeJevServer(), tmp_path)
+    [chunk] = client._chunks([_noul_request(state="创业者" * 400)], "jev-latest")
+
+    assert chunk.estimated_tokens >= 1200 + 250
+
+
+@pytest.mark.asyncio
+async def test_a_cache_file_that_is_not_an_object_is_a_miss(tmp_path: Path) -> None:
+    server = FakeJevServer()
+    client, _ = _client(server, tmp_path)
+    [chunk] = client._chunks([_noul_request()], "jev-latest")
+    path = client._cache_path(chunk.key)
+    path.parent.mkdir(parents=True)
+    path.write_text("[]", encoding="utf-8")
+
+    [result] = await client.answer_many(
+        [_noul_request()], model="jev-latest", budget=JevBudget(10.0)
+    )
+
+    assert len(server.bodies) == 1
+    assert result.answers == {"q0": 0.8}
+
+
+def test_a_refused_reservation_does_not_claim_the_cap_was_reached() -> None:
+    budget = JevBudget(1.0)
+    budget.spent_usd = 0.95
+
+    with pytest.raises(JevCostCapError, match="would take spend past"):
+        budget._reserve(0.1)
+
+
+@pytest.mark.asyncio
+async def test_cap_message_says_received_answers_are_cached(tmp_path: Path) -> None:
+    server = FakeJevServer(input_tokens=1_000_000)
+    client, _ = _client(server, tmp_path, concurrency=1)
+
+    with pytest.raises(JevCostCapError, match="received so far are cached"):
+        await client.answer_many(
+            [_noul_request(state=f"sample {i}") for i in range(3)],
+            model="jev-latest",
+            budget=JevBudget(0.05),
+        )

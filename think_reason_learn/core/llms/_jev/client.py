@@ -15,10 +15,12 @@ import math
 import os
 import sys
 import time
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from email.utils import parsedate_to_datetime
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Dict, List, Sequence, Tuple
+from typing import Any, Awaitable, Callable, Dict, Iterator, List, Sequence, Tuple
 
 import httpx
 
@@ -43,7 +45,8 @@ Output tokens are reported but not priced at this rate.
 MAX_QUESTIONS_PER_REQUEST = 50
 REQUEST_OVERHEAD_TOKENS = 250
 BYTES_PER_TOKEN_ESTIMATE = 4.2
-"""Estimate: 250 input tokens per request plus request bytes / 4.2.
+"""Estimate: 250 input tokens per request plus request bytes / 4.2, with each
+non-ASCII character counted as one token.
 
 Calibrated on billed usage (jev-1.13.0, 30 September 2026): 2,194 ECHR requests
 used 188 + bytes / 4.42 tokens on average, and a 410-byte request used 342. The
@@ -100,7 +103,12 @@ class JevBudget:
 
     def _reserve(self, usd: float) -> None:
         if usd > self.remaining_usd:
-            raise JevCostCapError(self._passed_message())
+            raise JevCostCapError(
+                f"The next Jev request (about ${usd:.4f}) would take spend past "
+                f"the cap of ${self.max_cost_usd:.2f} for this run "
+                f"(max_cost_usd; ${self.spent_usd:.4f} spent), so the run "
+                f"stopped. {self._resume_hint()}"
+            )
         self._reserved_usd += usd
 
     def _settle(self, reserved_usd: float, actual_usd: float) -> None:
@@ -113,11 +121,17 @@ class JevBudget:
 
     def _passed_message(self) -> str:
         return (
-            f"Jev spend ${self.spent_usd:.4f} reached the cap of "
+            f"Jev spend ${self.spent_usd:.4f} passed the cap of "
             f"${self.max_cost_usd:.2f} for this run (max_cost_usd), so the run "
-            "stopped. Answers already paid for are cached: rerun with a higher "
-            "cap, e.g. JevChoice(max_cost_usd=...), to continue without paying "
-            "for them again."
+            f"stopped. {self._resume_hint()}"
+        )
+
+    @staticmethod
+    def _resume_hint() -> str:
+        return (
+            "Answers received so far are cached: rerun with a higher cap, e.g. "
+            "JevChoice(max_cost_usd=...), to continue without paying for them "
+            "again."
         )
 
 
@@ -130,8 +144,14 @@ class _Chunk:
 
     @property
     def estimated_tokens(self) -> int:
+        # Non-Latin scripts take about a token per character or more, which
+        # bytes / 4.2 would under-count; count those characters one each.
+        non_ascii = [ch for ch in self.body.decode() if ord(ch) > 127]
+        ascii_bytes = len(self.body) - len("".join(non_ascii).encode())
         return math.ceil(
-            REQUEST_OVERHEAD_TOKENS + len(self.body) / BYTES_PER_TOKEN_ESTIMATE
+            REQUEST_OVERHEAD_TOKENS
+            + len(non_ascii)
+            + ascii_bytes / BYTES_PER_TOKEN_ESTIMATE
         )
 
 
@@ -263,6 +283,8 @@ class JevClient:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return None
+        if not isinstance(payload, dict):
+            return None
         answers = _parse_answers(chunk.questions, payload.get("answers"))
         if any(v is None for v in answers.values()):
             return None
@@ -295,7 +317,7 @@ class JevClient:
                 response = await client.post(
                     self.endpoint, content=chunk.body, headers=headers
                 )
-            except httpx.TransportError as exc:
+            except httpx.RequestError as exc:
                 error = f"{type(exc).__name__}: {exc}"
             else:
                 status = response.status_code
@@ -449,6 +471,23 @@ def new_run_budget(llm_priority: Sequence[object]) -> JevBudget | None:
     return JevBudget(choice.max_cost_usd) if choice is not None else None
 
 
+_CHECK_KEYS: ContextVar[bool] = ContextVar("jev_check_keys", default=True)
+
+
+@contextmanager
+def loading_saved_model() -> Iterator[None]:
+    """Skip ``require_typesafe_key`` while a saved model is rebuilt.
+
+    A saved model can then be loaded and inspected without the key; answering
+    with Jev still needs it.
+    """
+    token = _CHECK_KEYS.set(False)
+    try:
+        yield
+    finally:
+        _CHECK_KEYS.reset(token)
+
+
 def require_typesafe_key(
     llm_priority: Sequence[object], *, method: str, param: str
 ) -> None:
@@ -464,7 +503,7 @@ def require_typesafe_key(
             answer on the chat path, which cannot hand questions on to Jev.
         MissingAPIKeyError: Jev is chosen and the key is missing.
     """
-    if first_jev_choice(llm_priority) is None:
+    if first_jev_choice(llm_priority) is None or not _CHECK_KEYS.get():
         return
     if not is_jev(llm_priority[0]):
         raise ValueError(

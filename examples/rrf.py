@@ -20,7 +20,6 @@ Prerequisites (questions are written by OpenAI and answered by Jev, the default)
 from __future__ import annotations
 
 import asyncio
-import os
 import shutil
 import sys
 from collections import defaultdict

@@ -12,6 +12,7 @@ Subpackages
    think_reason_learn.policy_induction
    think_reason_learn.reasoned_rule_mining
    think_reason_learn.rrf
+   think_reason_learn.vanilla
    think_reason_learn.verifiable_rl
 
 Package

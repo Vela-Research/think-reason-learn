@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from .._schemas import LLMResponse, T, XAIChoice
 from .schemas import xAIChatModel
+from .._temperature import drop_rejected_temperature
 from think_reason_learn.core._singleton import SingletonMeta
 
 
@@ -27,6 +28,7 @@ class xAILLM(metaclass=SingletonMeta):
             if k in self.client.chat.create.__annotations__
         }
 
+    @drop_rejected_temperature(None)
     def respond_sync(
         self,
         model: xAIChatModel,
@@ -86,6 +88,7 @@ class xAILLM(metaclass=SingletonMeta):
                 raise e
             return None
 
+    @drop_rejected_temperature(None)
     async def respond(
         self,
         model: xAIChatModel,

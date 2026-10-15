@@ -14,6 +14,7 @@ from anthropic.types import (
 from think_reason_learn.core._singleton import SingletonMeta
 from think_reason_learn.core.exceptions import LLMError
 from .schemas import AnthropicChatModel, NOT_GIVEN, NotGiven
+from .._temperature import drop_rejected_temperature
 from .._schemas import LLMResponse, T, AnthropicChoice
 
 logger = logging.getLogger(__name__)
@@ -113,6 +114,7 @@ class AnthropicLLM(metaclass=SingletonMeta):
             kwargs=kwargs,
         )
 
+    @drop_rejected_temperature(NOT_GIVEN)
     def respond_sync(
         self,
         model: AnthropicChatModel,
@@ -156,6 +158,7 @@ class AnthropicLLM(metaclass=SingletonMeta):
                 raise e
             return None
 
+    @drop_rejected_temperature(NOT_GIVEN)
     async def respond(
         self,
         model: AnthropicChatModel,

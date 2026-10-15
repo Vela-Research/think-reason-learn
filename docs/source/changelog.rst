@@ -113,6 +113,10 @@ instances use the elastic-net combiner unless ``aggregation_method="vote"`` is p
   ``"NO"`` (any case) per row with both present raise ``ValueError``; missing answers still count as NO.
 - ``cross_validate_aggregation(method="elasticnet")`` skips, with a warning, a fold whose training split holds one
   class instead of failing in scikit-learn, and fits without inner CV when the smaller class has one training sample.
+- A temperature of ``0`` now reaches OpenAI, Anthropic, Google and xAI models. It was treated as "not given", so
+  those calls ran at the provider's default temperature (usually 1) instead. A model that rejects a temperature, such
+  as OpenAI's reasoning models, is retried once without it and then uses its default for the rest of the process,
+  with a warning.
 
 0.1.0
 -----

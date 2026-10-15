@@ -77,6 +77,11 @@ def _with_discarded_tokens(
     return response.model_copy(update={"total_tokens": tokens})
 
 
+def _given(value: Any, missing: Any) -> Any:
+    """``value``, or ``missing`` when it was not given. Keeps ``0.0``."""
+    return missing if value is None or isinstance(value, NotGiven) else value
+
+
 class _YesNo(BaseModel):
     answer: Literal["YES", "NO"]
 
@@ -210,7 +215,7 @@ class LLM(metaclass=SingletonMeta):
                     model=llmp.model,
                     response_format=response_format,
                     instructions=instructions or None,
-                    temperature=temperature or None,
+                    temperature=_given(temperature, None),
                     raise_=raise_,
                     **kwargs,
                 )
@@ -242,7 +247,7 @@ class LLM(metaclass=SingletonMeta):
                     model=llmp.model,
                     response_format=response_format,
                     instructions=instructions or NOT_GIVEN.ANTHROPIC_NOT_GIVEN,
-                    temperature=temperature or NOT_GIVEN.ANTHROPIC_NOT_GIVEN,
+                    temperature=_given(temperature, NOT_GIVEN.ANTHROPIC_NOT_GIVEN),
                     raise_=raise_,
                     **kwargs,
                 )
@@ -254,7 +259,7 @@ class LLM(metaclass=SingletonMeta):
                     model=llmp.model,
                     response_format=response_format,
                     instructions=instructions or None,
-                    temperature=temperature or None,
+                    temperature=_given(temperature, None),
                     raise_=raise_,
                     **kwargs,
                 )
@@ -334,7 +339,7 @@ class LLM(metaclass=SingletonMeta):
                     model=llmp.model,
                     response_format=response_format,
                     instructions=instructions or None,
-                    temperature=temperature or None,
+                    temperature=_given(temperature, None),
                     raise_=raise_,
                     **kwargs,
                 )
@@ -366,7 +371,7 @@ class LLM(metaclass=SingletonMeta):
                     model=llmp.model,
                     response_format=response_format,
                     instructions=instructions or NOT_GIVEN.ANTHROPIC_NOT_GIVEN,
-                    temperature=temperature or NOT_GIVEN.ANTHROPIC_NOT_GIVEN,
+                    temperature=_given(temperature, NOT_GIVEN.ANTHROPIC_NOT_GIVEN),
                     raise_=raise_,
                     **kwargs,
                 )
@@ -378,7 +383,7 @@ class LLM(metaclass=SingletonMeta):
                     model=llmp.model,
                     response_format=response_format,
                     instructions=instructions or None,
-                    temperature=temperature or None,
+                    temperature=_given(temperature, None),
                     raise_=raise_,
                     **kwargs,
                 )

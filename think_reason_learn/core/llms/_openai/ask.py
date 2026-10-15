@@ -1,13 +1,14 @@
 from typing import Type, Any, cast, Dict
 import logging
 
-from openai import AsyncOpenAI, OpenAI
+from openai import AsyncOpenAI, Omit, OpenAI, omit
 from openai.types.responses import Response
 from pydantic import BaseModel
 
 from .._schemas import LLMResponse, T, OpenAIChoice
 from think_reason_learn.core._singleton import SingletonMeta
 from .schemas import OpenAIChatModel, NOT_GIVEN, NotGiven
+from .._temperature import drop_rejected_temperature
 
 
 logger = logging.getLogger(__name__)
@@ -25,6 +26,7 @@ class OpenAILLM(metaclass=SingletonMeta):
             if k in self.client.responses.parse.__annotations__
         }
 
+    @drop_rejected_temperature(NOT_GIVEN)
     def respond_sync(
         self,
         model: OpenAIChatModel,
@@ -43,7 +45,7 @@ class OpenAILLM(metaclass=SingletonMeta):
                     model=model,
                     input=kwargs.get("input", query),
                     instructions=instructions or None,
-                    temperature=temperature or None,
+                    temperature=_sent(temperature),
                     text_format=response_format,
                     **kwargs,
                 )
@@ -60,7 +62,7 @@ class OpenAILLM(metaclass=SingletonMeta):
                 model=model,
                 input=kwargs.get("input", query),
                 instructions=instructions or None,
-                temperature=temperature or None,
+                temperature=_sent(temperature),
                 **kwargs,
             )
             response = cast(Response, response)
@@ -77,6 +79,7 @@ class OpenAILLM(metaclass=SingletonMeta):
                 raise e
             return None
 
+    @drop_rejected_temperature(NOT_GIVEN)
     async def respond(
         self,
         model: OpenAIChatModel,
@@ -95,7 +98,7 @@ class OpenAILLM(metaclass=SingletonMeta):
                     model=model,
                     input=kwargs.get("input", query),
                     instructions=instructions or None,
-                    temperature=temperature or None,
+                    temperature=_sent(temperature),
                     text_format=response_format,
                     **kwargs,
                 )
@@ -112,7 +115,7 @@ class OpenAILLM(metaclass=SingletonMeta):
                 model=model,
                 input=kwargs.get("input", query),
                 instructions=instructions or None,
-                temperature=temperature or None,
+                temperature=_sent(temperature),
                 **kwargs,
             )
             response = cast(Response, response)
@@ -127,6 +130,11 @@ class OpenAILLM(metaclass=SingletonMeta):
             if raise_:
                 raise e
             return None
+
+
+def _sent(temperature: float | NotGiven | None) -> float | Omit | None:
+    """The temperature to send: left out when not given, ``0.0`` kept."""
+    return omit if isinstance(temperature, NotGiven) else temperature
 
 
 def get_openai_llm(api_key: str) -> OpenAILLM | None:

@@ -8,6 +8,7 @@ from google.genai import types as gtypes
 
 from .._schemas import LLMResponse, T, GoogleChoice
 from .schemas import GoogleChatModel
+from .._temperature import drop_rejected_temperature
 from think_reason_learn.core._singleton import SingletonMeta
 
 logger = logging.getLogger(__name__)
@@ -110,6 +111,7 @@ class GeminiLLM(metaclass=SingletonMeta):
             provider_model=GoogleChoice(model=model),
         )
 
+    @drop_rejected_temperature(None)
     def respond_sync(
         self,
         query: str,
@@ -157,6 +159,7 @@ class GeminiLLM(metaclass=SingletonMeta):
                 raise e
             return None
 
+    @drop_rejected_temperature(None)
     async def respond(
         self,
         query: str,

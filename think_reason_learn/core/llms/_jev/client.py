@@ -83,7 +83,11 @@ class JevRequest:
 
 @dataclass(slots=True)
 class JevResult:
-    """Answers for one ``JevRequest``; a failed or invalid answer is ``None``."""
+    """Answers for one ``JevRequest``; a failed or invalid answer is ``None``.
+
+    ``cached`` is true when no request was sent for it: its answers came from
+    the reuse cache or from an identical request in the same call.
+    """
 
     answers: Dict[str, AnswerValue | None]
     input_tokens: int = 0
@@ -96,6 +100,9 @@ class JevResult:
 class JevBudget:
     """Cost cap shared by every Jev request in one run.
 
+    It also notes the Jev releases that answer the run, and warns once if
+    there is more than one.
+
     Args:
         max_cost_usd: The most a run may spend, in US dollars.
     """
@@ -105,6 +112,22 @@ class JevBudget:
         self.spent_usd = 0.0
         self._reserved_usd = 0.0
         self._caching = True
+        self._releases: List[str] = []
+
+    def _record_release(self, served_model: str | None) -> None:
+        if not served_model or served_model in self._releases:
+            return
+        self._releases.append(served_model)
+        if len(self._releases) == 2:
+            logger.warning(
+                "This run combines answers from two Jev releases, %s and %s: "
+                "cached answers keep the release that gave them. To answer with "
+                'one release, pin the model, e.g. JevChoice(model="%s"), or '
+                "set JevChoice(cache=False).",
+                self._releases[0],
+                served_model,
+                served_model,
+            )
 
     @property
     def remaining_usd(self) -> float:
@@ -386,6 +409,10 @@ class JevClient:
     ) -> List[JevResult]:
         """Answer every request, printing the estimated cost before spending.
 
+        Identical requests (same model, sample and questions) are sent and
+        paid for once; each copy gets the answers, and the usage is counted on
+        the first.
+
         Args:
             requests: One request per sample.
             model: The Jev model, e.g. ``"jev-latest"``.
@@ -403,25 +430,35 @@ class JevClient:
         budget._caching = use_cache
         chunks = self._chunks(requests, model)
         results = [JevResult(answers={}, cached=True) for _ in requests]
-        pending: List[_Chunk] = []
+        # Chunks to send, by cache key: identical chunks are sent once.
+        pending: Dict[str, List[_Chunk]] = {}
         for chunk in chunks:
             result = results[chunk.request_index]
             cached = self._read_cache(chunk) if use_cache else None
             if cached is None:
-                pending.append(chunk)
+                copies = pending.setdefault(chunk.key, [])
+                copies.append(chunk)
                 result.answers.update({qid: None for qid in chunk.questions})
-                result.cached = False
+                # Only the first copy sends a request.
+                result.cached = result.cached and len(copies) > 1
                 continue
             result.answers.update(_parse_answers(chunk.questions, cached["answers"]))
             result.served_model = result.served_model or cached.get("model")
+            budget._record_release(cached.get("model"))
 
-        est_tokens = sum(c.estimated_tokens for c in pending)
+        duplicates = sum(len(copies) - 1 for copies in pending.values())
+        unsent = (
+            f", {duplicates} duplicate{'' if duplicates == 1 else 's'} not sent"
+            if duplicates
+            else ""
+        )
+        est_tokens = sum(copies[0].estimated_tokens for copies in pending.values())
         est_usd = est_tokens * USD_PER_INPUT_TOKEN
         message = (
             f"Jev ({model}): sending {len(pending)} "
             f"request{'' if len(pending) == 1 else 's'} "
-            f"({len(chunks) - len(pending)} answered from cache), "
-            f"estimated cost {format_usd(est_usd)}; cap "
+            f"({len(chunks) - len(pending) - duplicates} answered from cache"
+            f"{unsent}), estimated cost {format_usd(est_usd)}; cap "
             f"{format_usd(budget.max_cost_usd)} per run, "
             f"{format_usd(budget.spent_usd)} spent so far."
         )
@@ -442,7 +479,8 @@ class JevClient:
 
         semaphore = asyncio.Semaphore(self.concurrency)
 
-        async def send(client: httpx.AsyncClient, chunk: _Chunk) -> None:
+        async def send(client: httpx.AsyncClient, copies: List[_Chunk]) -> None:
+            chunk = copies[0]
             async with semaphore:
                 reserved = chunk.estimated_tokens * USD_PER_INPUT_TOKEN
                 budget._reserve(reserved)
@@ -454,10 +492,10 @@ class JevClient:
                 # Responses that arrived unreadable were likely billed: count
                 # each at the estimate.
                 wasted = unreadable * reserved
-                result = results[chunk.request_index]
                 if payload is None:
                     budget._settle(reserved, wasted)
-                    result.error = error
+                    for copy in copies:
+                        results[copy.request_index].error = error
                     logger.warning("Jev request failed: %s", error)
                     return
                 input_tokens = _usage_tokens(payload, "input_tokens")
@@ -465,15 +503,18 @@ class JevClient:
                 if input_tokens is None:
                     input_tokens = chunk.estimated_tokens
                 budget._settle(reserved, wasted + input_tokens * USD_PER_INPUT_TOKEN)
+                budget._record_release(payload.get("model"))
                 answers = _parse_answers(chunk.questions, payload.get("answers"))
-                result.answers.update(answers)
-                result.input_tokens += input_tokens
-                result.output_tokens += output_tokens
-                result.served_model = payload.get("model") or result.served_model
+                results[chunk.request_index].input_tokens += input_tokens
+                results[chunk.request_index].output_tokens += output_tokens
+                for copy in copies:
+                    result = results[copy.request_index]
+                    result.answers.update(answers)
+                    result.served_model = payload.get("model") or result.served_model
+                    if any(v is None for v in answers.values()):
+                        result.error = "Jev returned missing or invalid answers"
                 if use_cache and all(v is not None for v in answers.values()):
                     self._write_cache(chunk, payload)
-                if any(v is None for v in answers.values()):
-                    result.error = "Jev returned missing or invalid answers"
                 budget._check()
 
         try:
@@ -481,8 +522,8 @@ class JevClient:
                 transport=self._transport, timeout=self.timeout
             ) as client:
                 async with asyncio.TaskGroup() as tg:
-                    for chunk in pending:
-                        tg.create_task(send(client, chunk))
+                    for copies in pending.values():
+                        tg.create_task(send(client, copies))
         except BaseExceptionGroup as group:
             for exc in group.exceptions:
                 if isinstance(exc, (JevCostCapError, JevAuthError)):

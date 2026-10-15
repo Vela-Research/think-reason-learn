@@ -545,3 +545,73 @@ async def test_estimate_line_for_one_small_request(
     assert "sending 1 request (" in err
     assert re.search(r"estimated cost \$0\.0+[1-9]", err)
     assert "cap $0.05 per run, $0.00 spent so far" in err
+
+
+# ---------------------------------------------------------------------------
+# Identical samples and Jev releases within one run
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_identical_samples_are_sent_and_paid_for_once(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    server = FakeJevServer(input_tokens=10)
+    client, _ = _client(server, tmp_path)
+    [chunk] = client._chunks([_noul_request()], "jev-latest")
+    # Room under the cap for one estimate of the sample, not three.
+    budget = JevBudget(1.5 * chunk.estimated_tokens * 42 / 1e9)
+
+    results = await client.answer_many(
+        [_noul_request() for _ in range(3)], model="jev-latest", budget=budget
+    )
+
+    assert len(server.bodies) == 1
+    assert [r.answers for r in results] == [{"q0": 0.8}] * 3
+    assert [r.input_tokens for r in results] == [10, 0, 0]
+    # Copies send no request of their own, so token usage counts one call.
+    assert [r.cached for r in results] == [False, True, True]
+    assert budget.spent_usd == pytest.approx(10 * 42 / 1e9)
+    assert "sending 1 request (0 answered from cache, 2 duplicates not sent)" in (
+        capsys.readouterr().err
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_failed_sample_fails_each_of_its_copies(tmp_path: Path) -> None:
+    server = FakeJevServer(status_for_state={"bad": 413})
+    client, _ = _client(server, tmp_path)
+
+    results = await client.answer_many(
+        [_noul_request(state=s) for s in ("bad", "good", "bad")],
+        model="jev-latest",
+        budget=JevBudget(10.0),
+    )
+
+    assert len(server.bodies) == 2
+    assert [r.answers for r in results] == [{"q0": None}, {"q0": 0.8}, {"q0": None}]
+    assert [r.error is not None for r in results] == [True, False, True]
+
+
+@pytest.mark.asyncio
+async def test_warns_once_when_a_run_mixes_jev_releases(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    server = FakeJevServer(model="jev-1.13.0")
+    client, _ = _client(server, tmp_path)
+
+    with caplog.at_level("WARNING"):
+        await client.answer_many(
+            [_noul_request(state="old")], model="jev-latest", budget=JevBudget(10.0)
+        )
+        server.model = "jev-1.14.0"
+        budget = JevBudget(10.0)
+        for fresh in ("new", "newer"):
+            await client.answer_many(
+                [_noul_request(state="old"), _noul_request(state=fresh)],
+                model="jev-latest",
+                budget=budget,
+            )
+
+    [warning] = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert "jev-1.13.0" in warning and "jev-1.14.0" in warning

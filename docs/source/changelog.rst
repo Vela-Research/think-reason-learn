@@ -58,6 +58,11 @@ instances use the elastic-net combiner unless ``aggregation_method="vote"`` is p
 - Policy Induction's ``predict()`` skips a sample for which no policy answer could be obtained, instead of predicting
   from an all-NO vector, and keeps its checkpoint so a later run retries it. A checkpoint is resumed only for the same
   samples. Scoring warns how many (policy, sample) cells got no answer; they count as NO.
+- Samples with the same text and questions are sent to Jev and paid for once when they are answered together (e.g.
+  rows repeated in one ``predict()``), and each copy gets the answers. The cost estimate and cap count them once, and
+  the cost line says how many duplicates were not sent.
+- A run whose Jev answers come from two releases (with ``model="jev-latest"``, cached answers keep the release that
+  gave them) logs one warning naming both, and how to answer with one release.
 
 0.1.0
 -----

@@ -202,7 +202,7 @@ _PROVIDERS: Final[dict[str, _Provider]] = {
     "google": _Provider(
         "openai",
         "https://generativelanguage.googleapis.com/v1beta/openai/",
-        ("GEMINI_API_KEY", "GOOGLE_API_KEY"),
+        ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_AI_API_KEY"),
     ),
     "xai": _Provider("openai", "https://api.x.ai/v1", ("XAI_API_KEY",)),
     "openrouter": _Provider(

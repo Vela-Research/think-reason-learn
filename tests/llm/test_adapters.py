@@ -135,6 +135,11 @@ class TestOpenAICompatible:
         with pytest.raises(ProviderAuthError, match="Incorrect API key"):
             _answer(LLM("openai:gpt-5-mini", api_key="bad"))
 
+    def test_a_bad_key_reported_as_400_stops_the_run(self, wire: Wire) -> None:
+        wire(lambda r: _error(400, "Please pass a valid API key"))
+        with pytest.raises(ProviderAuthError):
+            _answer(LLM("google:gemini-2.5-flash", api_key="bad"))
+
     def test_openrouter_reports_its_cost(self, wire: Wire) -> None:
         usage = {
             "prompt_tokens": 10,

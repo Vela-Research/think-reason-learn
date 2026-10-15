@@ -113,7 +113,7 @@ def classify(
     lowered = message.lower()
     if status is None or status in _TRANSIENT:
         return ProviderError("transient", message, retry_after=retry_after)
-    if status in (401, 403):
+    if status in (401, 403) or any(word in lowered for word in _AUTH_WORDS):
         return ProviderError("auth", message)
     if status == 429:
         quota = any(word in lowered for word in _QUOTA_WORDS)
@@ -142,6 +142,12 @@ def retry_after_seconds(headers: Mapping[str, str]) -> float | None:
 
 
 _TRANSIENT: Final = frozenset({408, 409, 500, 502, 503, 504, 520, 522, 524, 529})
+_AUTH_WORDS: Final = (
+    "valid api key",
+    "invalid api key",
+    "incorrect api key",
+    "invalid x-api-key",
+)
 _QUOTA_WORDS: Final = ("insufficient_quota", "spend limit", "billing", "credit balance")
 _PARAM_RE: Final = re.compile("|".join(OPTIONAL_PARAMS))
 

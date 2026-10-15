@@ -10,7 +10,6 @@ import pytest
 from think_reason_learn.core._config import settings
 from think_reason_learn.core.exceptions import MissingAPIKeyError
 from think_reason_learn.core.llms import JevChoice, LLMChoice, OpenAIChoice
-from think_reason_learn.gptree import GPTree
 from think_reason_learn.policy_induction import PolicyInduction
 from think_reason_learn.rrf import RRF
 
@@ -27,20 +26,9 @@ def _pi(tmp_path: Path, **kwargs: Any) -> PolicyInduction:
     )
 
 
-def _tree(tmp_path: Path, **kwargs: Any) -> GPTree:
-    return GPTree(
-        qgen_llmc=CHAT,
-        critic_llmc=CHAT,
-        qgen_instr_llmc=CHAT,
-        save_path=tmp_path,
-        **kwargs,
-    )
-
-
 METHODS: list[tuple[str, Callable[..., Any], str]] = [
     ("RRF", _rrf, "qanswer_llmc"),
     ("PolicyInduction", _pi, "predict_llmc"),
-    ("GPTree", _tree, "qanswer_llmc"),
 ]
 
 

@@ -24,6 +24,16 @@ every model uses them.
   untouched so ``clone``, ``get_params`` and grid search work; any labels; ``usage_`` records every call;
   ``save``/``load`` write ``model.joblib`` plus a readable ``model.json`` and never store API keys.
   ``think_reason_learn.testing.check_classifier`` checks a model against this contract offline.
+- **GPTree, rebuilt** on ``TRLClassifier``: ``GPTree(task=..., generator=..., answerer="jev")`` with ``fit``,
+  ``predict``, ``predict_proba``, ``apply``, ``plot``, ``export_graphviz``, ``prune`` and ``write_instructions``.
+  Closer to the paper: insights per class before growing, defaults ``max_depth=18`` and ``min_samples_leaf=0.005``
+  (a fraction of the samples, as in scikit-learn), yes/no splits unless ``max_choices`` allows more. Fixes: earlier
+  answers no longer leak into prompts, a sample whose answer fails follows the largest branch instead of
+  vanishing, an empty branch no longer disqualifies a question, and a split must decrease impurity. Faster: the
+  nodes of a level grow at once and answers are reused across nodes and between fit and predict. New
+  ``min_samples_split``, ``min_impurity_decrease``, ``max_leaf_nodes`` and ``criterion="entropy"``; the critic is
+  ``critic=True`` or a model. Removed: ``qgen_instr_llmc`` (unused), ``fit_iter``, ``resume_fit``, ``stop``,
+  ``decision_threshold`` (use scikit-learn's ``TunedThresholdClassifierCV``) and the code question type.
 - Requires ``openai`` 3.x and ``anthropic`` 1.x. The Anthropic SDK no longer takes ``temperature``; the old
   adapter now sends it in the request body when set.
 

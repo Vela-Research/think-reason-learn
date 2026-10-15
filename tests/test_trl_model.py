@@ -11,7 +11,6 @@ import pytest
 
 from think_reason_learn.core import TRLModel
 from think_reason_learn.core.llms import LLMChoice, OpenAIChoice
-from think_reason_learn.gptree import GPTree
 from think_reason_learn.policy_induction import PolicyInduction
 from think_reason_learn.reasoned_rule_mining import ReasonedRuleMining
 from think_reason_learn.rrf import RRF
@@ -25,16 +24,6 @@ def _rrf(name: str | None = None) -> RRF:
     return RRF(qgen_llmc=CHAT, qanswer_llmc=CHAT, name=name)
 
 
-def _tree(name: str | None = None) -> GPTree:
-    return GPTree(
-        qgen_llmc=CHAT,
-        critic_llmc=CHAT,
-        qgen_instr_llmc=CHAT,
-        qanswer_llmc=CHAT,
-        name=name,
-    )
-
-
 def _pi(name: str | None = None) -> PolicyInduction:
     return PolicyInduction(gen_llmc=CHAT, predict_llmc=CHAT, name=name)
 
@@ -45,11 +34,10 @@ def _rrm(name: str | None = None) -> ReasonedRuleMining:
 
 MODELS: list[tuple[Callable[..., TRLModel], str]] = [
     (_rrf, "rrfs"),
-    (_tree, "gptrees"),
     (_pi, "policy_induction"),
     (_rrm, "reasoned_rule_mining"),
 ]
-TEMPLATED: list[Callable[[], RRF | GPTree]] = [_rrf, _tree]
+TEMPLATED: list[Callable[[], RRF]] = [_rrf]
 
 
 @pytest.mark.parametrize(("make", "default_dir"), MODELS)
@@ -114,7 +102,7 @@ def test_load_takes_dir_path(
 @pytest.mark.parametrize("make", TEMPLATED)
 @pytest.mark.asyncio
 async def test_set_task_takes_the_task_description_first(
-    make: Callable[[], RRF | GPTree],
+    make: Callable[[], RRF],
 ) -> None:
     model = make()
 
@@ -125,7 +113,7 @@ async def test_set_task_takes_the_task_description_first(
 @pytest.mark.parametrize("make", TEMPLATED)
 @pytest.mark.asyncio
 async def test_set_task_keeps_the_description_with_a_custom_template(
-    make: Callable[[], RRF | GPTree],
+    make: Callable[[], RRF],
 ) -> None:
     """Jev's questions and GPTree's critic read the description; keep it."""
     model = make()
@@ -137,7 +125,7 @@ async def test_set_task_keeps_the_description_with_a_custom_template(
 @pytest.mark.parametrize("make", TEMPLATED)
 @pytest.mark.asyncio
 async def test_set_tasks_warns_and_forwards(
-    make: Callable[[], RRF | GPTree], monkeypatch: pytest.MonkeyPatch
+    make: Callable[[], RRF], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     model = make()
     calls: list[tuple[str | None, str | None]] = []
@@ -170,7 +158,7 @@ async def test_set_tasks_warns_and_forwards(
 @pytest.mark.parametrize("make", TEMPLATED)
 @pytest.mark.asyncio
 async def test_set_tasks_still_sets_the_template(
-    make: Callable[[], RRF | GPTree],
+    make: Callable[[], RRF],
 ) -> None:
     model = make()
 

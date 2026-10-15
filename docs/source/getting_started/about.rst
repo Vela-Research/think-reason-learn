@@ -1,22 +1,30 @@
 About
 -----
 
-Think Reason Learn is an innovative, open-source Python library that fuses the power of large language models (LLMs) 
-with interpretable machine learning. Developed at Vela Research in collaboration with Oxford University, it provides 
-production-grade tools for building transparent decision-making systems—perfect for high-stakes domains like 
-venture capital, healthcare, law, etc.
+Think, Reason, Learn keeps the structure of decision trees, rule forests and short policies, and uses a language model
+at each step to write or answer the questions. Every prediction therefore comes with the questions or rules that
+produced it.
 
-Key Features
+Asked directly, a language model gives an answer but no fixed model you can inspect. Here the fitted model is fixed and
+can be read and checked. Unlike scikit-learn, its features are questions in plain language, asked of text.
+
+The library is alpha software (version 0.1.0) from Vela Research, the research arm of Vela Partners, with the
+University of Oxford.
+
+Key features
 ~~~~~~~~~~~~
 
-- **Explainable AI**: Every prediction comes with traceable reasoning paths, rules, or cluster descriptions.
-- **Async-First Design**: Scalable LLM interactions with synchronous wrappers for flexibility.
-- **Modular Algorithms**: Easily extend with new models under a unified interface.
+- **Readable reasoning**: every prediction comes with the questions, rules or policies behind it.
+- **Asynchronous by design**: fitting and prediction run many language-model calls at once.
+- **Choice of models**: OpenAI, Anthropic, Google and xAI models, set per step.
 
-Core Algorithms
+Core algorithms
 ~~~~~~~~~~~~~~~
 
-- **GPTree**: LLM-guided decision trees for dynamic feature generation.
-- **RRF (Random Rule Forest)**: Transparent ensembles of LLM-generated YES/NO rules.
+- **GPTree**: decision trees whose questions a language model writes.
+- **Random Rule Forest (RRF)**: an ensemble of yes or no questions written by a language model.
+- **Policy Induction**: short policies learned from examples, which a model applies to new cases.
+- **Reasoned Rule Mining**: plain-language if-then rules mined from a model's reasoning, combined into a calibrated, weighted ensemble.
+- **Verifiable RL**: a learned policy decides which information to reveal next, or when to stop, and a classifier predicts from what it has seen.
 
-For in-depth papers and methodology, see our :doc:`/research` section.
+The papers behind these methods are on the `research page <https://thinkreasonlearn.com/research>`_.

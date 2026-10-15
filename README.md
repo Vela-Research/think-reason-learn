@@ -1,5 +1,5 @@
 # Think Reason Learn   
-[Website](https://thinkreasonlearn.com/) · [Docs](https://thinkreasonlearn.com/modules.html)  
+[Website](https://thinkreasonlearn.com/) · [Docs](https://thinkreasonlearn.com/docs/)  
 
 TRL is an open-source Python library that extends traditional machine learning with language-based reasoning.
 It re-implements core algorithms such as decision trees and random forests so that each step of the model can call on an LLM as a reasoning function instead of a static heuristic.
@@ -23,7 +23,7 @@ TRL is developed by Vela Research in collaboration with the University of Oxford
 - **Reasoned Rule Mining (RRM)**: Mines natural-language IF-THEN rules from LLM reasoning into a calibrated, weighted ensemble.
 - **Verifiable RL**: Adaptive information-gathering — a learned policy decides what to reveal next (or stop), then classifies from the partial state.
 
-For in-depth papers and methodology, see our [Research section](https://thinkreasonlearn.com/research.html).
+For in-depth papers and methodology, see our [Research section](https://thinkreasonlearn.com/research).
 
 ## Installation
 

@@ -34,7 +34,7 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://thinkreasonlearn.com/"
-Documentation = "https://thinkreasonlearn.com/modules.html"
+Documentation = "https://thinkreasonlearn.com/docs/"
 
 [tool.poetry]
 packages = [{ include = "think_reason_learn" }]

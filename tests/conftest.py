@@ -1,59 +1,17 @@
-"""Configuration for tests."""
+"""Every test runs offline, with a fresh cache and fresh shared state."""
 
 from __future__ import annotations
 
-import sys
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
+import httpx2
+import pytest
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
-
-from collections.abc import Callable, Iterator  # noqa: E402
-
-import httpx2  # noqa: E402
-import pytest  # noqa: E402
-
-from think_reason_learn.llm import _calls, _config, _limiter, config_context  # noqa: E402
-from think_reason_learn.llm._adapters import _http, anthropic, openai_compat  # noqa: E402
-
-from think_reason_learn.core._config import settings  # noqa: E402
+from think_reason_learn.llm import _calls, _config, _limiter, config_context
+from think_reason_learn.llm._adapters import _http, anthropic, openai_compat
 
 type Handler = Callable[[httpx2.Request], httpx2.Response]
-
-
-@pytest.fixture
-def typesafe_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A placeholder TYPESAFE_API_KEY so Jev answerers can be constructed offline."""
-    monkeypatch.setattr(settings, "TYPESAFE_API_KEY", "test-key")
-
-
-@pytest.fixture(autouse=True)
-def offline_jev(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Tests never reach Typesafe, even with a real TYPESAFE_API_KEY in .env."""
-    import httpx
-
-    from think_reason_learn.core.llms import llm
-    from think_reason_learn.core.llms._jev.client import JevClient
-
-    def refuse(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(599, text="tests must not call Typesafe")
-
-    async def no_wait(seconds: float) -> None:
-        return None
-
-    monkeypatch.setattr(
-        llm,
-        "jev_llm",
-        JevClient(
-            api_key="offline",
-            transport=httpx.MockTransport(refuse),
-            cache_dir=tmp_path / "jev-cache",
-            sleep=no_wait,
-        ),
-    )
 
 
 def _reset() -> None:

@@ -2,19 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Type
+from collections.abc import Iterator
+
+from typing import Any
 
 import pandas as pd
 import pytest
 
-from think_reason_learn.core.llms import OpenAIChoice
-from think_reason_learn.core.llms._schemas import (
-    LLMChoice,
-    LLMResponse,
-    NOT_GIVEN,
-    NotGiven,
-    T,
-)
+from think_reason_learn.testing import FakeLLM, fake_llms
+
 from think_reason_learn.features import (
     CognitiveMode,
     DataSchema,
@@ -35,9 +31,6 @@ from think_reason_learn.features._prompts import (
 # ---------------------------------------------------------------------------
 # Fixtures & helpers
 # ---------------------------------------------------------------------------
-
-_FAKE_PROVIDER = OpenAIChoice(model="gpt-4.1-nano")
-LLM_CHOICE: list[LLMChoice] = [OpenAIChoice(model="gpt-4.1-nano")]
 
 
 def _parse_qs(qs_str: str) -> float:
@@ -210,60 +203,6 @@ HAND_WRITTEN_RULES = [
         ),
     ),
 ]
-
-
-class FakeFeatureLLM:
-    """Minimal fake LLM that returns canned GeneratedRules."""
-
-    def __init__(self) -> None:
-        self._call_count = 0
-        self.calls: list[dict[str, Any]] = []
-
-    async def respond(
-        self,
-        query: str,
-        llm_priority: List[LLMChoice],
-        response_format: Type[T],
-        instructions: str | NotGiven | None = NOT_GIVEN,
-        temperature: float | NotGiven | None = NOT_GIVEN,
-        **kwargs: Dict[str, Any],
-    ) -> LLMResponse[Any]:
-        self._call_count += 1
-        self.calls.append({"query": query, "response_format": response_format})
-
-        if response_format is GeneratedRules:
-            return self._rules_response()
-        raise TypeError(f"FakeFeatureLLM: unknown format {response_format!r}")
-
-    def _rules_response(self) -> LLMResponse[GeneratedRules]:
-        rules = GeneratedRules(
-            rules=[
-                GeneratedRule(
-                    name="has_phd",
-                    description="Founder has a PhD degree",
-                    expression=(
-                        "lambda founder: "
-                        'any("phd" in e.get("degree", "").lower() '
-                        'for e in founder.get("educations", []))'
-                    ),
-                ),
-                GeneratedRule(
-                    name="prior_exit",
-                    description="Founder has prior IPO or acquisition",
-                    expression=(
-                        "lambda founder: "
-                        'len(founder.get("ipos", []) or []) '
-                        '+ len(founder.get("acquisitions", []) or []) > 0'
-                    ),
-                ),
-            ]
-        )
-        return LLMResponse(
-            response=rules,
-            logprobs=[("t", -0.1)],
-            total_tokens=200,
-            provider_model=_FAKE_PROVIDER,
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -530,57 +469,22 @@ class TestPromptBuilder:
 
 
 class TestFeatureGenerator:
-    """Tests for FeatureGenerator using a fake LLM."""
+    """FeatureGenerator with a fake model."""
 
-    @pytest.mark.asyncio
-    async def test_generate_returns_rules(self) -> None:
-        fake = FakeFeatureLLM()
-        gen = FeatureGenerator(
-            schema=SAMPLE_SCHEMA,
-            helpers=[HELPER_PARSE_QS],
-            llm_priority=LLM_CHOICE,
+    def test_generate_returns_rules_in_one_call(self, writer: FakeLLM) -> None:
+        rules = _generator().generate(
+            samples=_sample_founders(), labels=SAMPLE_LABELS, n_rules=10
         )
-        # Monkey-patch the llm module to use our fake
-        import think_reason_learn.features._generator as gen_mod
-
-        original_llm = gen_mod.llm
-        gen_mod.llm = fake  # type: ignore[assignment]
-        try:
-            rules = await gen.generate(
-                samples=_sample_founders(),
-                labels=SAMPLE_LABELS,
-                n_rules=10,
-            )
-        finally:
-            gen_mod.llm = original_llm
-
-        assert len(rules) == 2  # FakeFeatureLLM returns 2 rules
-        assert rules[0].name == "has_phd"
-        assert rules[1].name == "prior_exit"
+        assert [r.name for r in rules] == ["has_phd", "prior_exit"]
         assert rules[0].expression.startswith("lambda founder:")
+        assert writer.n_calls == 1 and writer.calls[0].schema is GeneratedRules
 
     @pytest.mark.asyncio
-    async def test_generate_calls_llm_once(self) -> None:
-        fake = FakeFeatureLLM()
-        gen = FeatureGenerator(
-            schema=SAMPLE_SCHEMA,
-            helpers=[HELPER_PARSE_QS],
-            llm_priority=LLM_CHOICE,
+    async def test_async_generate(self, writer: FakeLLM) -> None:
+        rules = await _generator().agenerate(
+            samples=_sample_founders(), labels=SAMPLE_LABELS
         )
-        import think_reason_learn.features._generator as gen_mod
-
-        original_llm = gen_mod.llm
-        gen_mod.llm = fake  # type: ignore[assignment]
-        try:
-            await gen.generate(
-                samples=_sample_founders(),
-                labels=SAMPLE_LABELS,
-            )
-        finally:
-            gen_mod.llm = original_llm
-
-        assert len(fake.calls) == 1
-        assert fake.calls[0]["response_format"] is GeneratedRules
+        assert len(rules) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -591,38 +495,52 @@ class TestFeatureGenerator:
 class TestEndToEnd:
     """End-to-end test: rules → evaluator → feature matrix."""
 
-    @pytest.mark.asyncio
-    async def test_generate_then_evaluate(self) -> None:
-        fake = FakeFeatureLLM()
-        gen = FeatureGenerator(
-            schema=SAMPLE_SCHEMA,
-            helpers=[HELPER_PARSE_QS],
-            llm_priority=LLM_CHOICE,
+    def test_generate_then_evaluate(self, writer: FakeLLM) -> None:
+        rules = _generator().generate(
+            samples=_sample_founders(), labels=SAMPLE_LABELS, n_rules=10
         )
-        import think_reason_learn.features._generator as gen_mod
-
-        original_llm = gen_mod.llm
-        gen_mod.llm = fake  # type: ignore[assignment]
-        try:
-            rules = await gen.generate(
-                samples=_sample_founders(),
-                labels=SAMPLE_LABELS,
-                n_rules=10,
-            )
-        finally:
-            gen_mod.llm = original_llm
-
-        evaluator = FeatureEvaluator(rules=rules)
-        df = evaluator.evaluate_df(_sample_founders())
-
+        df = FeatureEvaluator(rules=rules).evaluate_df(_sample_founders())
         assert df.shape == (5, 2)
         assert list(df.columns) == ["has_phd", "prior_exit"]
-        # Founder 0: PhD=yes, exit=yes (acquisition)
-        assert df.iloc[0]["has_phd"] == 1
-        assert df.iloc[0]["prior_exit"] == 1
-        # Founder 1: MBA, no exits
-        assert df.iloc[1]["has_phd"] == 0
-        assert df.iloc[1]["prior_exit"] == 0
+        assert df.iloc[0]["has_phd"] == 1 and df.iloc[0]["prior_exit"] == 1
+        assert df.iloc[1]["has_phd"] == 0 and df.iloc[1]["prior_exit"] == 0
+
+
+CANNED_RULES = GeneratedRules(
+    rules=[
+        GeneratedRule(
+            name="has_phd",
+            description="Founder has a PhD degree",
+            expression=(
+                "lambda founder: "
+                'any("phd" in e.get("degree", "").lower() '
+                'for e in founder.get("educations", []))'
+            ),
+        ),
+        GeneratedRule(
+            name="prior_exit",
+            description="Founder has prior IPO or acquisition",
+            expression=(
+                "lambda founder: "
+                'len(founder.get("ipos", []) or []) '
+                '+ len(founder.get("acquisitions", []) or []) > 0'
+            ),
+        ),
+    ]
+)
+
+
+@pytest.fixture
+def writer() -> Iterator[FakeLLM]:
+    fake = FakeLLM(generate=lambda request: CANNED_RULES)
+    with fake_llms(writer=fake):
+        yield fake
+
+
+def _generator() -> FeatureGenerator:
+    return FeatureGenerator(
+        schema=SAMPLE_SCHEMA, helpers=[HELPER_PARSE_QS], generator="fake:writer"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -688,28 +606,15 @@ class TestCognitiveMode:
         assert "IMPORTANT" in prompt
         assert "has_phd" in prompt
 
-    @pytest.mark.asyncio
-    async def test_generator_passes_cognitive_modes(self) -> None:
-        fake = FakeFeatureLLM()
-        gen = FeatureGenerator(
+    def test_generator_passes_cognitive_modes(self, writer: FakeLLM) -> None:
+        generator = FeatureGenerator(
             schema=SAMPLE_SCHEMA,
             helpers=[HELPER_PARSE_QS],
-            llm_priority=LLM_CHOICE,
+            generator="fake:writer",
             cognitive_modes={CognitiveMode.BACKWARD_CHAINING},
         )
-        import think_reason_learn.features._generator as gen_mod
-
-        original_llm = gen_mod.llm
-        gen_mod.llm = fake  # type: ignore[assignment]
-        try:
-            rules = await gen.generate(
-                samples=_sample_founders(),
-                labels=SAMPLE_LABELS,
-                n_rules=10,
-            )
-        finally:
-            gen_mod.llm = original_llm
-
+        rules = generator.generate(
+            samples=_sample_founders(), labels=SAMPLE_LABELS, n_rules=10
+        )
         assert len(rules) == 2
-        # The fake LLM was called and should have received the cognitive prompt
-        assert len(fake.calls) == 1
+        assert "BACKWARD" in (writer.calls[0].instructions or "")

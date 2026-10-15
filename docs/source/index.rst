@@ -14,7 +14,7 @@ the shape of decision trees, rule forests and short policies, and asks a languag
 every prediction comes with the questions or rules behind it. It is built by Vela Research, the research arm of Vela
 Partners, with the University of Oxford.
 
-Start with the installation guide, then the quick start, which fits a small GPTree on six example founder profiles.
+Start with the installation guide, then the quick start, which fits a small GPTree on six founder profiles.
 
 .. grid:: 1 2 3 3
    :gutter: 3
@@ -24,6 +24,7 @@ Start with the installation guide, then the quick start, which fits a small GPTr
       - :doc:`About <getting_started/about>`
       - :doc:`Installation guide <getting_started/installation_guide>`
       - :doc:`Quick start <getting_started/quick_start>`
+      - :doc:`Migrating from 0.2 <getting_started/migration>`
 
    .. grid-item-card:: Reference
 
@@ -44,6 +45,7 @@ The papers behind the methods are on the `research page <https://thinkreasonlear
    getting_started/about
    getting_started/installation_guide
    getting_started/quick_start
+   getting_started/migration
    modules
    contributing
    changelog

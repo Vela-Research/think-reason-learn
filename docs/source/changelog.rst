@@ -49,6 +49,15 @@ instances use the elastic-net combiner unless ``aggregation_method="vote"`` is p
 - ``cross_validate_aggregation(method="elasticnet")`` cross-validates the elastic-net combiner.
 - Elastic-net (Random Rule Forest, ``cross_validate_aggregation``) and Policy Induction's weight fit pick their
   scikit-learn arguments by version, so they keep working on scikit-learn 1.8 and later.
+- Policy Induction answering with a chat model judges a sample against up to ``policy_batch_size`` policies (default
+  10) in one call, for scoring and ``predict()`` alike; ``policy_batch_size=1`` keeps one call per policy. Answers
+  missing from a batched reply are asked again one policy at a time. Models saved before this load with
+  ``policy_batch_size=1``, the way they were fitted.
+- Policy Induction's new ``max_gen_batches`` caps the generation rounds; the default ``None`` runs until a class
+  runs out, as before.
+- Policy Induction's ``predict()`` skips a sample for which no policy answer could be obtained, instead of predicting
+  from an all-NO vector, and keeps its checkpoint so a later run retries it. A checkpoint is resumed only for the same
+  samples. Scoring warns how many (policy, sample) cells got no answer; they count as NO.
 
 0.1.0
 -----

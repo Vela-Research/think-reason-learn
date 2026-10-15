@@ -178,7 +178,7 @@ async def main() -> None:  # noqa: D103
         question_scoring_f_beta=0.5,  # precision-weighted F-beta
     )
 
-    template = await rrf.set_tasks(
+    template = await rrf.set_task(
         task_description="Classify founders as likely to succeed or not"
     )
     print(f"Instruction template:\n  {template[:120]}...\n")
@@ -368,7 +368,7 @@ async def main() -> None:  # noqa: D103
         max_generated_questions=8,
         question_scoring_f_beta=0.5,
     )
-    await rrf_fl.set_tasks(
+    await rrf_fl.set_task(
         task_description="Classify founders as likely to succeed or not"
     )
     await rrf_fl.fit(X_train, y_train, reset=True)

@@ -51,7 +51,7 @@ def _rrf(tmp_path: Path, **kwargs: Any) -> RRF:
 
 
 async def _fit(rrf: RRF) -> RRF:
-    await rrf.set_tasks(task_description="Classify founders")
+    await rrf.set_task(task_description="Classify founders")
     return await rrf.fit(pd.DataFrame({"data": PEOPLE}), LABELS)
 
 
@@ -234,7 +234,7 @@ async def test_rare_positives_still_get_yes_predictions(tmp_path: Path) -> None:
         max_generated_questions=4,
         _llm=FakeJevLLM(prob=prob, questions_per_call=1),
     )
-    await rrf.set_tasks(task_description="Classify founders")
+    await rrf.set_task(task_description="Classify founders")
     await rrf.fit(
         pd.DataFrame({"data": rows}), ["YES"] * positives + ["NO"] * (n - positives)
     )
@@ -252,7 +252,7 @@ async def test_rare_positives_still_get_yes_predictions(tmp_path: Path) -> None:
 @pytest.mark.parametrize("rows", [2, 4])
 async def test_tiny_training_sets_fit(tmp_path: Path, rows: int) -> None:
     rrf = _rrf(tmp_path)
-    await rrf.set_tasks(task_description="Classify founders")
+    await rrf.set_task(task_description="Classify founders")
 
     await rrf.fit(pd.DataFrame({"data": PEOPLE[:rows]}), LABELS[:rows])
 
@@ -351,7 +351,7 @@ async def test_threshold_can_predict_all_no(tmp_path: Path) -> None:
         max_generated_questions=1,
         _llm=FakeJevLLM(prob=prob, questions_per_call=1),
     )
-    await rrf.set_tasks(task_description="Classify founders")
+    await rrf.set_task(task_description="Classify founders")
     await rrf.fit(
         pd.DataFrame({"data": [f"sample {i}" for i in range(n)]}),
         ["YES"] * 2 + ["NO"] * (n - 2),

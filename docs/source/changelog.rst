@@ -77,6 +77,12 @@ instances use the elastic-net combiner unless ``aggregation_method="vote"`` is p
     order, still works but is deprecated and warns.
   - ``GPTree.load()`` takes ``dir_path`` instead of ``path``. Positional calls are unchanged; replace
     ``GPTree.load(path=...)`` with ``GPTree.load(dir_path=...)``.
+- A chat model's empty or refused reply (no structured answer, blank text, or text where a structured answer was
+  asked for) now falls back to the next model in the priority list instead of being returned as the answer. If every
+  model replies that way, the response has ``response=None``, as callers already expect. The returned reply's
+  ``total_tokens`` includes the replies discarded before it, so token usage still counts them. Anthropic replies are read
+  from the tool call or text blocks wherever they are in the message, and an Anthropic reply with neither raises an
+  ``LLMError`` naming its stop reason instead of an ``IndexError``.
 
 0.1.0
 -----

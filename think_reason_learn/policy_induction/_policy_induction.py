@@ -7,6 +7,7 @@ weighted by logistic regression.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import itertools
 import logging
 import math
@@ -180,10 +181,9 @@ class PolicyInduction:
             fill its share, so imbalanced datasets won't have every
             majority-class row shown during generation.
         max_samples_as_context: Samples per generation batch (max 100).
-        max_gen_batches: Cap on the number of generation batches (default 7).
-            Generation stops at this many batches even if both classes still
-            have rows left. Set to None to disable the cap and stop only once
-            either class runs out.
+        max_gen_batches: Cap on the number of generation batches. Generation
+            stops at this many batches even if both classes still have rows
+            left. None (the default) stops only once either class runs out.
         policy_batch_size: Number of policies judged per LLM call (1-50). One
             call carries one sample and up to this many policies, returning
             one answer per policy. 1 restores the original one-call-per-
@@ -211,7 +211,7 @@ class PolicyInduction:
         max_policy_length: int = 20,
         class_ratio: Tuple[float, float] = (1.0, 1.0),
         max_samples_as_context: int = 10,
-        max_gen_batches: int | None = 7,
+        max_gen_batches: int | None = None,
         policy_batch_size: int = 10,
         p_predict_update_interval: int = 10,
         save_path: str | PathLike[str] | None = None,
@@ -593,7 +593,7 @@ class PolicyInduction:
         individually, which can add up to policy_batch_size - 1 extra calls
         per batch.
         """
-        ckpt = self._read_ckpt(self._PREDICT_CKPT_NAME) or {}
+        ckpt = self._read_predict_ckpt(self._samples_fingerprint(samples)) or {}
         done_ids = set(ckpt.get("completed", {}).keys())
         remaining_samples = sum(1 for idx in samples.index if str(idx) not in done_ids)
         if hasattr(self, "_feature_order_") and self._lr is not None:
@@ -628,6 +628,26 @@ class PolicyInduction:
     def _read_ckpt(self, name: str) -> dict | None:
         path = self._ckpt_path(name)
         return orjson.loads(path.read_bytes()) if path.exists() else None
+
+    @staticmethod
+    def _samples_fingerprint(samples: pd.DataFrame) -> str:
+        """Identifies predict()'s input: its index and every value, in order."""
+        digest = hashlib.sha256()
+        for idx, row in samples.iterrows():
+            digest.update(f"{idx!r}\x1f{list(row.items())!r}\x1e".encode())
+        return digest.hexdigest()
+
+    def _read_predict_ckpt(self, fingerprint: str) -> dict | None:
+        """The predict checkpoint, only if it was written for these samples.
+
+        Entries are keyed by index, so a checkpoint for other rows that share
+        it (e.g. another frame indexed 0..n-1) would answer for the wrong rows.
+        """
+        ckpt = self._read_ckpt(self._PREDICT_CKPT_NAME)
+        if ckpt is not None and ckpt.get("samples") != fingerprint:
+            logger.info("Ignoring a predict checkpoint written for other samples.")
+            return None
+        return ckpt
 
     def _del_ckpt(self, *names: str) -> None:
         for name in names:
@@ -931,7 +951,8 @@ class PolicyInduction:
             # Deliberately no re-query here: if the call itself failed, the
             # provider is unhealthy and fanning out to N individual calls
             # would be worse than not batching at all. Unanswered cells stay
-            # missing and are retried on the next resume, as before.
+            # missing: an interrupted fit retries them when resumed, and a
+            # finished one counts them as NO (_warn_unscored says how many).
             logger.warning("Batched scoring worker error", exc_info=True)
             return out
 
@@ -1009,6 +1030,7 @@ class PolicyInduction:
                 [pid for pid in self._policy_memory.index if pid in open_pids]
             )
             logger.info("Scoring complete.")
+            self._warn_unscored()
             return
 
         total_cells = len(self._policy_memory) * len(self._X)
@@ -1082,6 +1104,20 @@ class PolicyInduction:
                 self._save_scoring_ckpt()
 
         logger.info("Scoring complete.")
+        self._warn_unscored()
+
+    def _warn_unscored(self) -> None:
+        """Say how many cells got no answer; the weight fit counts them as NO."""
+        preds = [
+            s for s in self._policy_memory["predictions"] if isinstance(s, pd.Series)
+        ]
+        missing = sum(int(s.isna().sum()) for s in preds)
+        if missing:
+            total = sum(len(s) for s in preds)
+            logger.warning(
+                f"{missing} of {total} (policy, sample) cells could not be scored "
+                "and count as NO."
+            )
 
     async def _score_policies_jev(self, policy_ids: List[Any]) -> None:
         """Score policies with Jev: one request per sample, all its open policies."""
@@ -1388,9 +1424,28 @@ class PolicyInduction:
         records: List[Tuple[Any, NDArray, Literal["YES", "NO"]]] = []
         for (idx, _), result in zip(rows, results):
             vec = np.zeros(len(self._feature_order_), dtype=float)
+            answered = 0
             for qid, value in result.answers.items():
-                if isinstance(value, float) and value >= YES_THRESHOLD:
-                    vec[int(qid[1:])] = 1.0
+                if isinstance(value, float):
+                    answered += 1
+                    if value >= YES_THRESHOLD:
+                        vec[int(qid[1:])] = 1.0
+            # Same rules as the chat path (_predict_single): no answers at all
+            # is no evidence, so no prediction; a partial miss counts as NO.
+            if questions and not answered:
+                logger.warning(
+                    "Predict failed for sample %s: no policy answers from Jev; "
+                    "skipping.",
+                    idx,
+                )
+                continue
+            if answered < len(questions):
+                logger.warning(
+                    "Sample %s: %d/%d policy answers missing; treating as NO.",
+                    idx,
+                    len(questions) - answered,
+                    len(questions),
+                )
             records.append((idx, vec, self._lr_predict(vec)))
         return records
 
@@ -1441,10 +1496,11 @@ class PolicyInduction:
     ) -> AsyncGenerator[Tuple[Any, NDArray, Literal["YES", "NO"], TokenCounter], None]:
         """Yield predictions for each sample in the DataFrame.
 
-        Automatically checkpoints to self.save_path as it goes, resuming any
-        matching in-progress checkpoint found there — same unconditional,
-        single-file design as fit(). The checkpoint is deleted once every
-        sample has been predicted.
+        Automatically checkpoints to self.save_path as it goes, resuming an
+        in-progress checkpoint found there only if it was written for the same
+        samples (same index and values) — same unconditional, single-file
+        design as fit(). The checkpoint is deleted once every sample has been
+        predicted.
 
         May yield fewer records than len(samples): a sample for which no
         policy answer could be obtained at all is skipped rather than given a
@@ -1467,7 +1523,8 @@ class PolicyInduction:
         completed: Dict[str, Tuple[List[float], str]] = {}
         remaining_samples = samples
 
-        ckpt = self._read_ckpt(self._PREDICT_CKPT_NAME)
+        fingerprint = self._samples_fingerprint(samples)
+        ckpt = self._read_predict_ckpt(fingerprint)
         if ckpt is not None:
             completed = {
                 sidx: (v["vector"], v["prediction"])
@@ -1498,10 +1555,12 @@ class PolicyInduction:
                         for sidx, (vec, pred) in completed.items()
                     },
                     "token_counter": token_counter.to_dict(),
+                    "samples": fingerprint,
                 },
             )
 
         if self._scores_with_jev:
+            records: List[Tuple[Any, NDArray, Literal["YES", "NO"]]] = []
             if len(remaining_samples):
                 records = await self._predict_many_jev(
                     cast(pd.DataFrame, remaining_samples), token_counter
@@ -1511,7 +1570,8 @@ class PolicyInduction:
                 save_ckpt()
                 for record in records:
                     yield record + (token_counter,)
-            self._del_ckpt(self._PREDICT_CKPT_NAME)
+            if len(records) == len(remaining_samples):
+                self._del_ckpt(self._PREDICT_CKPT_NAME)
             return
 
         queue: asyncio.Queue = asyncio.Queue()

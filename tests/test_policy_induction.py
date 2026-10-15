@@ -212,16 +212,16 @@ def test_max_gen_batches_round_trips(tmp_path):
 
 
 def test_max_gen_batches_default_round_trips(tmp_path):
-    """Generation is capped at 7 batches by default, and that survives a save."""
+    """Generation is uncapped by default, as before, and that survives a save."""
     fake = FakePolicyLLM(n_policies=6)
     pi = make_pi(tmp_path, fake)  # max_gen_batches left at its default
-    assert pi.max_gen_batches == 7
+    assert pi.max_gen_batches is None
     seed_for_scoring(pi, fake)
     pi.save(tmp_path / "model")
 
     manifest = orjson.loads((tmp_path / "model" / "policy_induction.json").read_bytes())
-    assert manifest["max_gen_batches"] == 7
-    assert PolicyInduction.load(tmp_path / "model").max_gen_batches == 7
+    assert manifest["max_gen_batches"] is None
+    assert PolicyInduction.load(tmp_path / "model").max_gen_batches is None
 
 
 def test_max_gen_batches_explicit_none_round_trips(tmp_path):
@@ -295,6 +295,22 @@ async def test_persistent_miss_leaves_cells_none(tmp_path):
     assert preds.at[2].isna().all() and preds.at[5].isna().all()
     for pid in (0, 1, 3, 4):
         assert not preds.at[pid].isna().any()
+
+
+@pytest.mark.asyncio
+async def test_unscored_cells_are_reported(tmp_path, caplog):
+    """Cells a failed call left empty count as NO, and the fit says how many."""
+    fake = FakePolicyLLM(n_policies=6, fail_after=1)
+    pi = make_pi(tmp_path, fake, policy_batch_size=3)
+    seed_for_scoring(pi, fake)
+
+    with caplog.at_level("WARNING"):
+        await pi._score_policies()
+
+    assert any(
+        f"{len(X) * 6} of {len(X) * 6} (policy, sample) cells" in m
+        for m in caplog.messages
+    )
 
 
 @pytest.mark.asyncio
@@ -455,3 +471,58 @@ async def test_predict_warns_on_partial_miss(tmp_path, caplog):
 
     assert len(records) == len(X)
     assert any("answers missing after re-query" in m for m in caplog.messages)
+
+
+def _refusing(fake: FakePolicyLLM, marker: str):
+    """Make every call about a sample containing `marker` fail."""
+    original = fake.respond
+
+    async def respond(**kwargs):
+        if marker in kwargs["query"]:
+            raise RuntimeError(f"refused: {marker}")
+        return await original(**kwargs)
+
+    fake.respond = respond  # type: ignore[method-assign]
+    return original
+
+
+@pytest.mark.asyncio
+async def test_predict_retries_only_the_skipped_sample(tmp_path):
+    """Re-running predict on the same samples resumes and asks only for the gap."""
+    fake = FakePolicyLLM(n_policies=6)
+    pi = make_pi(tmp_path, fake, policy_batch_size=3)
+    await pi.fit(X, Y)
+    original = _refusing(fake, "Quinn")
+    first = [rec async for rec in pi.predict(X)]
+    assert len(first) == len(X) - 1
+
+    fake.respond = original  # type: ignore[method-assign]
+    fake.reset()
+    second = [rec async for rec in pi.predict(X)]
+
+    assert sorted(rec[0] for rec in second) == list(range(len(X)))
+    queried = {c["query"] for c in fake.calls}
+    assert queried and all("Quinn" in q for q in queried)
+    assert not (tmp_path / pi._PREDICT_CKPT_NAME).exists()
+
+
+@pytest.mark.asyncio
+async def test_predict_ignores_a_checkpoint_for_other_samples(tmp_path):
+    """A kept checkpoint never answers for different rows with the same index."""
+    fake = FakePolicyLLM(n_policies=6)
+    pi = make_pi(tmp_path, fake, policy_batch_size=3)
+    await pi.fit(X, Y)
+    original = _refusing(fake, "Quinn")
+    _ = [rec async for rec in pi.predict(X)]
+    assert (tmp_path / pi._PREDICT_CKPT_NAME).exists()
+
+    fake.respond = original  # type: ignore[method-assign]
+    fake.reset()
+    other = pd.DataFrame(
+        {"founder_info": [f"Founder {i} is new to this test." for i in range(len(X))]}
+    )
+    records = [rec async for rec in pi.predict(other)]
+
+    assert sorted(rec[0] for rec in records) == list(range(len(other)))
+    queried = " ".join(c["query"] for c in fake.calls)
+    assert all(text in queried for text in other["founder_info"])

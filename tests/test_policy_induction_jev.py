@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-
 from pathlib import Path
 from typing import Any, List
 
@@ -148,6 +147,21 @@ async def test_predict_asks_weighted_policies_once_per_sample(
     by_index = {i: (vec, pred) for i, vec, pred in out}
     assert by_index[0][1] == "YES" and by_index[1][1] == "NO"
     assert np.array_equal(by_index[0][0][weighted], np.ones(len(weighted)))
+
+
+@pytest.mark.asyncio
+async def test_predict_skips_a_sample_jev_could_not_answer(
+    tmp_path: Path, fake: FakePILLM
+) -> None:
+    """No answers means no prediction, as on the chat path, not an all-NO vector."""
+    pi = await _fit(_pi(tmp_path))
+    fake.prob = lambda state, instr: None if "unanswerable" in state else 0.9
+
+    X_new = pd.DataFrame({"text": ["strong founder x", "unanswerable founder"]})
+    out = [i async for i, _, _, _ in pi.predict(X_new)]
+
+    assert out == [0]
+    assert (tmp_path / pi._PREDICT_CKPT_NAME).exists()
 
 
 @pytest.mark.asyncio

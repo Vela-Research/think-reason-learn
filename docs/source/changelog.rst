@@ -63,6 +63,9 @@ instances use the elastic-net combiner unless ``aggregation_method="vote"`` is p
   the cost line says how many duplicates were not sent.
 - A run whose Jev answers come from two releases (with ``model="jev-latest"``, cached answers keep the release that
   gave them) logs one warning naming both, and how to answer with one release.
+- ``predict_founder_level()`` adds an ``n_answered`` column with how many of the questions asked for each sample
+  were answered. Unanswered questions (e.g. a failed Jev request) count as NO, and a warning says how many samples
+  have them.
 
 0.1.0
 -----

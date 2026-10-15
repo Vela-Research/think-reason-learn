@@ -19,7 +19,8 @@ every model uses them.
   notebooks too.
 - ``think_reason_learn.testing``: ``FakeLLM`` and ``fake_llms`` fit and check models offline, with scripted
   replies and injected failures.
-- ``TRLClassifier``: the scikit-learn base of every model. ``fit``, ``predict`` and ``predict_proba`` work in
+- ``TRLClassifier`` (and ``BinaryTRLClassifier`` for two-class models): the scikit-learn base of every model; the
+  old ``TRLModel`` is removed. ``fit``, ``predict`` and ``predict_proba`` work in
   scripts and notebooks, with ``afit``, ``apredict`` and ``apredict_proba`` for async code; settings are stored
   untouched so ``clone``, ``get_params`` and grid search work; any labels; ``usage_`` records every call;
   ``save``/``load`` write ``model.joblib`` plus a readable ``model.json`` and never store API keys.
@@ -51,8 +52,17 @@ every model uses them.
   answerer judges each sample under the whole policy; ``predictor="rules"`` keeps the per-rule L1 logistic
   regression. ``batch_size`` trades fidelity for fewer calls. Removed: ``confirm_requests`` (it called
   ``input()``), checkpoints (the cache resumes), ``WeightTrainerConfig`` (plain parameters).
-- ``core._combine``: one logistic combiner and F-beta threshold search shared by the models; thresholds are tuned
-  on out-of-fold scores of the final model's settings.
+- **Reasoned Rule Mining, rebuilt** on the new base. It mines one IF-THEN rule per labelled sample (reasoning and
+  rule in one call instead of two), compiles them into a policy, and applies the paper's cascade: the answerer
+  judges each sample under the policy, and samples it rates at or above ``harsh_gate=0.95`` get a harsh second
+  look, by ``harsh_answerer`` if given (the paper's cheap-then-strong cascade, which could not be configured before).
+  Probabilities come from decision models or an ensemble's vote share instead of token log probabilities, so every
+  provider works (OpenAI and Anthropic could not fit before). One logistic regression, fitted on samples the miner
+  never saw, calibrates and weighs both stages, replacing Platt scaling plus a weight grid that was 95% redundant.
+  Removed: ``RRMConfig`` (plain parameters), the perplexity filter and the rolling memory.
+- ``core._combine``: one logistic combiner and F-beta threshold search shared by the models. ``C`` is chosen by
+  log loss (average precision ties on separable data and picked an over-regularised model), and thresholds are tuned
+  on out-of-fold scores of the final model's settings, midway between scores so they are not knife-edged.
 - Requires ``openai`` 3.x and ``anthropic`` 1.x. The Anthropic SDK no longer takes ``temperature``; the old
   adapter now sends it in the request body when set.
 

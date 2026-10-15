@@ -1,6 +1,5 @@
 """Core utilities for Think Reason Learn."""
 
-from ._classifier import TRLClassifier
-from ._trl_model import TRLModel
+from ._classifier import BinaryTRLClassifier, TRLClassifier
 
-__all__ = ["TRLClassifier", "TRLModel"]
+__all__ = ["BinaryTRLClassifier", "TRLClassifier"]

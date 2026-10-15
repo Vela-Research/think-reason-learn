@@ -32,7 +32,11 @@ def fbeta(tp: Floats, fp: Floats, fn: Floats, beta: float) -> Floats:
 
 
 def best_threshold(scores: Floats, y: Bools, beta: float) -> tuple[float, float]:
-    """The score threshold with the best F-beta for ``y``, and that F-beta."""
+    """The score threshold with the best F-beta for ``y``, and that F-beta.
+
+    The threshold sits midway between the best cut's score and the next lower
+    score seen.
+    """
     precision, recall, thresholds = precision_recall_curve(y, scores)
     b2 = beta**2
     denominator = b2 * precision[:-1] + recall[:-1]
@@ -43,7 +47,10 @@ def best_threshold(scores: Floats, y: Bools, beta: float) -> tuple[float, float]
         where=denominator > 0,
     )
     best = int(np.argmax(f))
-    return float(thresholds[best]), float(f[best])
+    # Midway to the next lower score, so new samples just under a training
+    # score are not flipped by a knife-edge threshold.
+    below = thresholds[best - 1] if best > 0 else thresholds[best]
+    return float((thresholds[best] + below) / 2), float(f[best])
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,7 +100,7 @@ def fit_logistic(
             l1_ratios=list(l1_ratios),  # pyright: ignore[reportArgumentType]  # stubs type it as a sentinel str
             solver="saga",
             cv=splitter,
-            scoring="average_precision",
+            scoring="neg_log_loss",
             class_weight=class_weight,
             max_iter=5000,
             random_state=random_state,

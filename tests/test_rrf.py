@@ -2771,12 +2771,21 @@ class TestCrossValidationElasticNet:
             cross_validate_aggregation(answers, ["YES", "NO"], n_splits=2)
 
     @pytest.mark.parametrize(
-        "y", [["NO"] * 30, ["yes"] * 6 + ["NO"] * 24, ["YES", "NO"] * 10]
+        "y", [["NO"] * 30, ["MAYBE"] * 6 + ["NO"] * 24, ["YES", "NO"] * 10]
     )
     def test_labels_must_be_yes_and_no_for_every_row(self, y: list[str]) -> None:
         answers, _ = _make_answer_matrix(n_samples=30)
         with pytest.raises(ValueError, match="y "):
             cross_validate_aggregation(answers, y, n_splits=2)
+
+    def test_labels_are_case_insensitive(self) -> None:
+        """As in RRF, "yes"/"no" are the same labels as "YES"/"NO"."""
+        answers, y = _make_answer_matrix(n_samples=30)
+        upper = cross_validate_aggregation(answers, y, n_splits=2, n_repeats=1)
+        lower = cross_validate_aggregation(
+            answers, [label.lower() for label in y], n_splits=2, n_repeats=1
+        )
+        pd.testing.assert_frame_equal(upper.fold_metrics, lower.fold_metrics)
 
 
 # ---------------------------------------------------------------------------

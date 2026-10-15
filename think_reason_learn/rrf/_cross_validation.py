@@ -311,7 +311,7 @@ def cross_validate_aggregation(
             ``RRF(answer_features="probability")`` does; the vote counts a
             probability at or above 0.5 as YES.  **Must not include samples
             whose labels were seen during question generation.**
-        y: True labels (``"YES"``/``"NO"``), one per sample.
+        y: True labels (``"YES"``/``"NO"``, any case), one per sample.
         n_splits: Number of folds per repeat.
         n_repeats: Number of times to repeat the k-fold split.
         metric: Metric to optimise when tuning (K, T) or the elastic-net
@@ -345,17 +345,18 @@ def cross_validate_aggregation(
     Raises:
         ValueError: If ``method`` is unknown, ``answer_matrix`` holds
             anything but YES/NO answers or probabilities, or ``y`` is not
-            one ``"YES"``/``"NO"`` label per row with both present.
+            one ``"YES"``/``"NO"`` label (any case) per row with both present.
     """
     if method not in ("vote", "elasticnet"):
         raise ValueError("method must be 'vote' or 'elasticnet'")
-    if len(y) != len(answer_matrix) or set(y) != {"YES", "NO"}:
+    labels = [yi.upper() if isinstance(yi, str) else yi for yi in y]
+    if len(labels) != len(answer_matrix) or set(labels) != {"YES", "NO"}:
         raise ValueError(
-            "y must hold one 'YES' or 'NO' label per row of answer_matrix, "
-            "with both labels present"
+            "y must hold one 'YES' or 'NO' label (any case) per row of "
+            "answer_matrix, with both labels present"
         )
 
-    y_arr = np.array([1 if yi == "YES" else 0 for yi in y], dtype=np.int_)
+    y_arr = np.array([1 if yi == "YES" else 0 for yi in labels], dtype=np.int_)
     features_full, binary_full = _answer_features(answer_matrix)
     fold_rows: list[dict[str, object]] = []
     founder_rows: list[dict[str, object]] = []

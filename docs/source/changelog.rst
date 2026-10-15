@@ -67,7 +67,7 @@ instances use the elastic-net combiner unless ``aggregation_method="vote"`` is p
 - ``cross_validate_aggregation`` accepts Jev's probabilities (``RRF.get_answer_probabilities()``) as well as YES/NO
   answers. Elastic-net uses the probabilities as features, as ``answer_features="probability"`` does; the vote counts a
   probability at or above 0.5 as YES. Values that are neither, a mix of the two, or labels other than one ``"YES"`` or
-  ``"NO"`` per row with both present raise ``ValueError``; missing answers still count as NO.
+  ``"NO"`` (any case) per row with both present raise ``ValueError``; missing answers still count as NO.
 - ``cross_validate_aggregation(method="elasticnet")`` skips, with a warning, a fold whose training split holds one
   class instead of failing in scikit-learn, and fits without inner CV when the smaller class has one training sample.
 

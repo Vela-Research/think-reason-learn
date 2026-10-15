@@ -141,7 +141,7 @@ class AnthropicLLM(metaclass=SingletonMeta):
                 system=input_["system"],
                 tools=input_["tools"],
                 tool_choice=input_["tool_choice"],
-                temperature=input_["temperature"],
+                extra_body=_temperature_body(input_["temperature"]),
                 **input_["kwargs"],
             )
             response = cast(Message, response)
@@ -184,7 +184,7 @@ class AnthropicLLM(metaclass=SingletonMeta):
                 system=input_["system"],
                 tools=input_["tools"],
                 tool_choice=input_["tool_choice"],
-                temperature=input_["temperature"],
+                extra_body=_temperature_body(input_["temperature"]),
                 **input_["kwargs"],
             )
             response = cast(Message, response)
@@ -200,6 +200,11 @@ class AnthropicLLM(metaclass=SingletonMeta):
             if raise_:
                 raise e
             return None
+
+
+def _temperature_body(temperature: float | NotGiven) -> dict[str, float] | None:
+    """The temperature as an extra body field: the SDK no longer takes one."""
+    return None if isinstance(temperature, NotGiven) else {"temperature": temperature}
 
 
 def get_anthropic_llm(api_key: str) -> AnthropicLLM | None:

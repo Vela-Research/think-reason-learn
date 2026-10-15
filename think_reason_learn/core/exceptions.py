@@ -23,3 +23,11 @@ class JevCostCapError(LLMError):
 
 class MissingAPIKeyError(ValueError):
     """A model was chosen whose API key is not set."""
+
+
+class ProviderAuthError(LLMError):
+    """A provider rejected the API key, or the account has no quota left."""
+
+
+class BudgetExceededError(LLMError):
+    """A run would pass, or has passed, its cost cap (``max_cost_usd``)."""

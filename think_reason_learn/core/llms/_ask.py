@@ -53,6 +53,20 @@ ANSWER_INSTRUCTIONS = (
 _CHAT_CONCURRENCY = 5
 
 
+def _has_output(response: LLMResponse[Any] | None, response_format: type) -> bool:
+    """Whether a provider's reply holds an answer in the requested format.
+
+    A refusal or empty reply arrives as a response without one: ``None``,
+    blank text, or text where a model was asked for.
+    """
+    if response is None:
+        return False
+    output = response.response
+    if isinstance(output, str):
+        return response_format is str and bool(output.strip())
+    return output is not None and isinstance(output, response_format)
+
+
 class _YesNo(BaseModel):
     answer: Literal["YES", "NO"]
 
@@ -157,7 +171,10 @@ class LLM(metaclass=SingletonMeta):
             Provided kwargs override the function arguments.
 
         Returns:
-            The response from the LLM.
+            The response from the first LLM that gave usable output (not None,
+            not blank, and of ``response_format``); the next LLM is tried
+            otherwise. If every LLM replied without usable output, the last
+            reply with ``response=None``.
 
         Raises:
             AssertionError: If llm_priority is an empty list.
@@ -170,9 +187,11 @@ class LLM(metaclass=SingletonMeta):
 
         llm_priority_models = self._val_llm_priority_and_api_keys(llm_priority)
 
+        empty: LLMResponse[T] | None = None
         for idx, llmp in enumerate(llm_priority_models, 1):
             if idx > 1:
                 logger.warning(f"Falling back to {llmp.model} by {llmp.provider}...")
+            response: LLMResponse[T] | None = None
 
             if llmp.provider == "google":
                 google_llm = cast(GeminiLLM, self.google_llm)
@@ -185,8 +204,6 @@ class LLM(metaclass=SingletonMeta):
                     raise_=raise_,
                     **kwargs,
                 )
-                if response is not None:
-                    return response
 
             if llmp.provider == "openai":
                 openai_llm = cast(OpenAILLM, self.openai_llm)
@@ -207,8 +224,6 @@ class LLM(metaclass=SingletonMeta):
                     raise_=raise_,
                     **kwargs,
                 )
-                if response is not None:
-                    return response
 
             if llmp.provider == "anthropic":
                 anthropic_llm = cast(AnthropicLLM, self.anthropic_llm)
@@ -221,8 +236,6 @@ class LLM(metaclass=SingletonMeta):
                     raise_=raise_,
                     **kwargs,
                 )
-                if response is not None:
-                    return response
 
             if llmp.provider == "xai":
                 xai_llm = cast(xAILLM, self.xai_llm)
@@ -235,9 +248,15 @@ class LLM(metaclass=SingletonMeta):
                     raise_=raise_,
                     **kwargs,
                 )
-                if response is not None:
-                    return response
 
+            if _has_output(response, response_format):
+                return cast(LLMResponse[T], response)
+            if response is not None:
+                logger.warning(f"No usable output from {llmp.model}.")
+                empty = response
+
+        if empty is not None:
+            return empty.model_copy(update={"response": None})
         llmps = [f"{llmp.provider}: {llmp.model}" for llmp in llm_priority_models]
         raise ValueError(
             f"Failed to respond with any of {llmps}\n"
@@ -276,7 +295,10 @@ class LLM(metaclass=SingletonMeta):
             Provided kwargs override the function arguments.
 
         Returns:
-            The response from the LLM.
+            The response from the first LLM that gave usable output (not None,
+            not blank, and of ``response_format``); the next LLM is tried
+            otherwise. If every LLM replied without usable output, the last
+            reply with ``response=None``.
 
         Raises:
             AssertionError: If llm_priority is an empty list.
@@ -289,9 +311,11 @@ class LLM(metaclass=SingletonMeta):
 
         llm_priority_models = self._val_llm_priority_and_api_keys(llm_priority)
 
+        empty: LLMResponse[T] | None = None
         for idx, llmp in enumerate(llm_priority_models, 1):
             if idx > 1:
                 logger.warning(f"Falling back to {llmp.model} from {llmp.provider}...")
+            response: LLMResponse[T] | None = None
 
             if llmp.provider == "google":
                 google_llm = cast(GeminiLLM, self.google_llm)
@@ -304,8 +328,6 @@ class LLM(metaclass=SingletonMeta):
                     raise_=raise_,
                     **kwargs,
                 )
-                if response is not None:
-                    return response
 
             if llmp.provider == "openai":
                 openai_llm = cast(OpenAILLM, self.openai_llm)
@@ -326,8 +348,6 @@ class LLM(metaclass=SingletonMeta):
                     raise_=raise_,
                     **kwargs,
                 )
-                if response is not None:
-                    return response
 
             if llmp.provider == "anthropic":
                 anthropic_llm = cast(AnthropicLLM, self.anthropic_llm)
@@ -340,8 +360,6 @@ class LLM(metaclass=SingletonMeta):
                     raise_=raise_,
                     **kwargs,
                 )
-                if response is not None:
-                    return response
 
             if llmp.provider == "xai":
                 xai_llm = cast(xAILLM, self.xai_llm)
@@ -354,9 +372,15 @@ class LLM(metaclass=SingletonMeta):
                     raise_=raise_,
                     **kwargs,
                 )
-                if response is not None:
-                    return response
 
+            if _has_output(response, response_format):
+                return cast(LLMResponse[T], response)
+            if response is not None:
+                logger.warning(f"No usable output from {llmp.model}.")
+                empty = response
+
+        if empty is not None:
+            return empty.model_copy(update={"response": None})
         llmps = [f"{llmp.provider}: {llmp.model}" for llmp in llm_priority_models]
         raise ValueError(f"Failed to respond with any of {llmps}")
 

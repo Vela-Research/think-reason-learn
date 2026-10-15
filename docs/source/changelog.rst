@@ -58,6 +58,11 @@ instances use the elastic-net combiner unless ``aggregation_method="vote"`` is p
 - Policy Induction's ``predict()`` skips a sample for which no policy answer could be obtained, instead of predicting
   from an all-NO vector, and keeps its checkpoint so a later run retries it. A checkpoint is resumed only for the same
   samples. Scoring warns how many (policy, sample) cells got no answer; they count as NO.
+- A chat model's empty or refused reply (no structured answer, blank text, or text where a structured answer was
+  asked for) now falls back to the next model in the priority list instead of being returned as the answer. If every
+  model replies that way, the response has ``response=None``, as callers already expect. Anthropic replies are read
+  from the tool call or text blocks wherever they are in the message, and an Anthropic reply with neither raises an
+  ``LLMError`` naming its stop reason instead of an ``IndexError``.
 
 0.1.0
 -----

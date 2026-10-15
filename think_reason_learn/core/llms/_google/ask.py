@@ -103,7 +103,8 @@ class GeminiLLM(metaclass=SingletonMeta):
                     raise ValueError(f"Error parsing response with Google: {text}")
 
         return LLMResponse(
-            response=cast(T, text),
+            # No text is no answer, and text is never an answer to a model request.
+            response=cast(T, text) if text and response_format is str else None,
             logprobs=log_probs,
             total_tokens=total_tokens,
             provider_model=GoogleChoice(model=model),

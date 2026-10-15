@@ -11,7 +11,6 @@ import pytest
 
 from think_reason_learn.core import TRLModel
 from think_reason_learn.core.llms import LLMChoice, OpenAIChoice
-from think_reason_learn.policy_induction import PolicyInduction
 from think_reason_learn.reasoned_rule_mining import ReasonedRuleMining
 from think_reason_learn.verifiable_rl import VerifiableRL
 
@@ -19,16 +18,11 @@ CHAT: list[LLMChoice] = [OpenAIChoice(model="gpt-4.1-nano")]
 TEMPLATE = "Ask <number_of_questions> questions about founders."
 
 
-def _pi(name: str | None = None) -> PolicyInduction:
-    return PolicyInduction(gen_llmc=CHAT, predict_llmc=CHAT, name=name)
-
-
 def _rrm(name: str | None = None) -> ReasonedRuleMining:
     return ReasonedRuleMining(reason_llmc=CHAT, name=name)
 
 
 MODELS: list[tuple[Callable[..., TRLModel], str]] = [
-    (_pi, "policy_induction"),
     (_rrm, "reasoned_rule_mining"),
 ]
 

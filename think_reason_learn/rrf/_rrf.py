@@ -24,17 +24,17 @@ import numpy.typing as npt
 import pandas as pd
 from pydantic import BaseModel
 
-from think_reason_learn.core._classifier import Labels, Proba, TRLClassifier
+from think_reason_learn.core._classifier import BinaryTRLClassifier, Labels, Proba
 from think_reason_learn.core._combine import LinearCombiner, fit_logistic
 from think_reason_learn.core._data import (
     ClassRatio,
     TextInput,
+    balanced_subset,
     count,
     example_batches,
     to_texts,
 )
 from think_reason_learn.core._prompts import examples_block
-from think_reason_learn.exceptions import DataError
 from think_reason_learn.llm import Endpoint, LLMSession, Models, YesNoQuestion, run_sync
 
 from ._prompts import INSTRUCTIONS_PURPOSE, QUESTION_INSTRUCTIONS, question_prompt
@@ -47,7 +47,7 @@ class _Questions(BaseModel):
     questions: list[str]
 
 
-class RRF(TRLClassifier):
+class RRF(BinaryTRLClassifier):
     """Random Rule Forest: a tuned vote of YES/NO questions.
 
     For two classes. The positive class is ``pos_label``, by default the second
@@ -163,17 +163,8 @@ class RRF(TRLClassifier):
         self._select(questions, answers, positive[scoring])
 
     async def _apredict_proba(self, texts: list[str], session: LLMSession) -> Proba:
-        p = self._positive_scores(await self._answer(texts, self.rules_, session))
-        proba = np.zeros((len(texts), 2))
-        proba[:, self._pos_index()] = p
-        proba[:, 1 - self._pos_index()] = 1 - p
-        return proba
-
-    def _decide(self, proba: Proba) -> Labels:
-        positive = proba[:, self._pos_index()] >= self.threshold_ - 1e-9
-        return np.where(positive, self._pos_index(), 1 - self._pos_index()).astype(
-            np.intp
-        )
+        answers = await self._answer(texts, self.rules_, session)
+        return self._binary_proba(self._positive_scores(answers))
 
     def _positive_scores(
         self, answers: npt.NDArray[np.float64]
@@ -184,30 +175,12 @@ class RRF(TRLClassifier):
             return self.combiner_.scores(np.nan_to_num(answers, nan=0.0))
         return as_yes(answers).mean(axis=1)
 
-    def _positive(self, y: Labels) -> npt.NDArray[np.bool_]:
-        if len(self.classes_) != 2:
-            raise DataError(f"RRF predicts two classes; y has {len(self.classes_)}.")
-        return y == self._pos_index()
-
-    def _pos_index(self) -> int:
-        if self.pos_label is None:
-            return 1
-        labels = [str(c) for c in self.classes_]
-        if self.pos_label not in labels:
-            raise ValueError(f"pos_label={self.pos_label!r} is not one of {labels}.")
-        return labels.index(self.pos_label)
-
     def _split_generation(
         self, y: Labels, rng: np.random.Generator
     ) -> tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]]:
         """Samples for writing questions, and the rest for scoring them."""
         size = count(self.generation_size, len(y))
-        share = math.ceil(size / len(self.classes_))
-        chosen = [
-            rng.permutation(members)[: min(share, len(members) // 2)]
-            for members in (np.flatnonzero(y == c) for c in range(len(self.classes_)))
-        ]
-        generation = np.sort(np.concatenate(chosen)).astype(np.intp)
+        generation = balanced_subset(y, len(self.classes_), size, rng, max_share=0.5)
         scoring = np.setdiff1d(np.arange(len(y)), generation).astype(np.intp)
         return generation, scoring
 

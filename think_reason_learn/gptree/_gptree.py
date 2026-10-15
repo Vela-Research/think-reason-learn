@@ -204,7 +204,9 @@ class GPTree:
         qgen_llmc: LLMs to use for question generation, in priority order.
         critic_llmc: LLMs that review each node's candidate questions when
             ``use_critic`` is True, in priority order. Unused otherwise.
-        qgen_instr_llmc: LLMs for generating instructions.
+            Defaults to ``qgen_llmc``.
+        qgen_instr_llmc: LLMs for generating instructions. Defaults to
+            ``qgen_llmc``.
         qanswer_llmc: LLMs to use for answering questions, in priority order.
             If None, Jev (``[JevChoice()]``), which needs ``TYPESAFE_API_KEY``;
             pass a chat model here to answer with it instead. With Jev first,
@@ -242,8 +244,8 @@ class GPTree:
     def __init__(
         self,
         qgen_llmc: List[LLMChoice],
-        critic_llmc: List[LLMChoice],
-        qgen_instr_llmc: List[LLMChoice],
+        critic_llmc: List[LLMChoice] | None = None,
+        qgen_instr_llmc: List[LLMChoice] | None = None,
         qanswer_llmc: List[LLMChoice] | None = None,
         qgen_temperature: float = 0.0,
         critic_temperature: float = 0.0,
@@ -274,8 +276,8 @@ class GPTree:
         self.save_path: Path = self._set_save_path(save_path)
 
         self.qgen_llmc = qgen_llmc
-        self.critic_llmc = critic_llmc
-        self.qgen_instr_llmc = qgen_instr_llmc
+        self.critic_llmc: List[LLMChoice] = critic_llmc or qgen_llmc
+        self.qgen_instr_llmc: List[LLMChoice] = qgen_instr_llmc or qgen_llmc
         self.qanswer_llmc: List[LLMChoice] = qanswer_llmc or [JevChoice()]
         require_typesafe_key(self.qanswer_llmc, method="GPTree", param="qanswer_llmc")
         self.qgen_temperature = qgen_temperature
@@ -333,7 +335,7 @@ class GPTree:
         class_ratio = kwargs["class_ratio"]
 
         for param in ("qgen_llmc", "qgen_instr_llmc", "critic_llmc"):
-            if any(is_jev(c) for c in kwargs[param]):
+            if any(is_jev(c) for c in kwargs[param] or []):
                 raise ValueError(f"{param}: {JEV_CANNOT_GENERATE}")
         if qgen_temperature < 0 or qgen_temperature > 2:
             raise ValueError("qgen_temperature must be >= 0 and <= 2")

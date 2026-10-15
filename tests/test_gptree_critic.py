@@ -216,3 +216,16 @@ def test_jev_is_rejected_for_generation_when_the_tree_is_made(
     }
     with pytest.raises(ValueError, match=f"{param}.*cannot generate"):
         GPTree(qanswer_llmc=CHAT, save_path=tmp_path, **llmc)
+
+
+def test_critic_and_instruction_models_default_to_the_generation_models(
+    tmp_path: Path,
+) -> None:
+    tree = GPTree(qgen_llmc=CHAT, qanswer_llmc=CHAT, save_path=tmp_path, name="t")
+
+    assert tree.critic_llmc == CHAT
+    assert tree.qgen_instr_llmc == CHAT
+    tree.save(tmp_path / "saved")
+    loaded = GPTree.load(tmp_path / "saved")
+    assert loaded.critic_llmc == loaded.qgen_llmc
+    assert loaded.qgen_instr_llmc == loaded.qgen_llmc

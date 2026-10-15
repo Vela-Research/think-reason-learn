@@ -1,93 +1,47 @@
-num_questions_tag = "<number_of_questions>"
-INSTRUCTIONS_FOR_GENERATING_QUESTION_GEN_INSTRUCTIONS = f"""\
-You are a helper LLM that writes an instructions template for a question
-generator used in a GPTree classification task.
+"""GPTree's prompts: insights, questions per node, and the critic."""
 
-Goal:
-- Produce a concise, reusable template that instructs a question-generator LLM
-  to generate {num_questions_tag} discriminative questions per node.
-- The template must NOT include prefatory text or labels—return only the
-  template content.
-- Allow the generator to decide what to ask based on the task description and
-  the rolling cumulative memory, without over-constraining its creativity.
-- Instruct the generator to consider the cumulative memory when generating questions.
+from __future__ import annotations
 
-Requirements the template should convey to the generator:
-- Each question must be clear, brief, and domain-appropriate useful for the
-  classification task.
-- Each question must include explicit answer choices (binary or multi-class) that are
-  mutually exclusive and collectively cover likely outcomes.
-- Avoid redundant or trivially correlated questions; promote diverse angles that
-  meaningfully split the data based on the classification task.
-- Treat any provided cumulative memory as soft guidance, not a hard constraint.
-- Do not leak labels or training answers; do not fabricate data or assumptions.
+from typing import Final
 
-Return:
-- Only the instructions template text that will be sent to the question
-  generator, and it must contain the placeholder {num_questions_tag} exactly
-  once where the number of questions will be substituted later.
-"""
-"Instructions template generator for GPTree question generation."
+INSTRUCTIONS_PURPOSE: Final = (
+    "questions that split a decision tree: each question is answered from one "
+    "sample's text alone, and good questions separate the classes"
+)
 
+INSIGHT_INSTRUCTIONS: Final = """\
+You study labelled samples for a classification task. Summarise, in a few short
+bullet points, the patterns that the samples you are shown have in common and
+that may tell their class apart from the others. Describe patterns, not
+individual samples, and do not invent facts."""
 
-QUESTION_ANSWER_INSTRUCTIONS = """\
-You are an answering agent in a GPTree classification pipeline.
+MERGE_INSIGHT_INSTRUCTIONS: Final = """\
+Merge these summaries of one class into a single short list of the most useful
+patterns. Drop duplicates and anything specific to a single sample."""
 
-Given:
-- A question,
-- A set of allowed answer choices,
-- One sample (text),
+QUESTION_INSTRUCTIONS: Final = """\
+You write questions for one node of a decision tree. Another model will answer
+each question from one sample's text alone, and the tree will split the node's
+samples by the answers.
 
-Task:
-- Choose exactly one answer from the provided choices that best fits the sample.
-- Base your decision solely on the sample and the question; do not invent new choices.
-- If multiple choices seem plausible, pick the one most strongly supported
-  by the sample and be deterministic.
-- If none fit perfectly, choose the closest match.
+Write questions that:
+- separate the classes among the samples at this node, given the path so far;
+- can be answered from a sample's text alone;
+- ask one thing each, clearly, without restating or asking for the label;
+- differ from each other and from the questions already on the path.
+{options}"""
 
-Output:
-- Return only the chosen answer string—no explanations, punctuation, or extra text.
-"""
-"Instructions for consistently answering with one of the provided choices."
+YES_NO: Final = "- are answered YES or NO; leave options empty."
 
+CHOICE: Final = """\
+- are answered YES or NO (leave options empty), or with one of 3 to {max_choices}
+  options you list, which must not overlap and must cover every likely answer."""
 
-CUMULATIVE_MEMORY_INSTRUCTIONS = """\
-Using the prior cumulative memory (if any) and what was just learned at this node,
-write a brief note for the next node. Do not discard the prior cumulative memory
-but build on it.
+CRITIC_INSTRUCTIONS: Final = """\
+You review candidate questions for one node of a decision tree. Another model
+answers each question from one sample's text alone.
 
-Guidelines:
-- Summarize key observations and outcomes so far at a high level, and provide gentle
-  hints or priorities for the next node.
-- Treat this as guidance, not a constraint; avoid prescriptive language.
-- Do not repeat raw samples or sensitive details; avoid long quotes.
-- Keep it concise (1-5 sentences).
-"""
-"Instructions for producing concise, non-restrictive cumulative memory."
-
-
-CRITIC_INSTRUCTIONS = """\
-You are a critic reviewing the candidate questions for one node of a GPTree, a
-decision tree whose splits are questions another LLM answers from each sample's
-text alone.
-
-Given:
-- Samples at the node grouped by label, and the cumulative memory,
-- The classification task,
-- The candidate questions, each with its answer choices and type.
-
-Remove, merge or fix any question that:
-- Cannot be answered from a sample's text alone.
-- Leaks or restates the label, or asks for the outcome being predicted.
-- Is ambiguous, vague, or compound (asks more than one thing).
-- Duplicates or nearly duplicates another question.
-- Has choices that are not mutually exclusive or do not cover every likely answer.
-
-Rules:
-- You may drop, merge or reword questions and fix their choices. Keep each
-  question's question_type.
-- Return questions that pass unchanged.
-- Never return more questions than you were given, and return at least one.
-- In cumulative_memory, note briefly which questions you removed or changed and why.
-"""
-"Default instructions for the critic that reviews GPTree's candidate questions."
+Drop or fix any question that cannot be answered from the text alone, leaks or
+restates the label, is vague or asks two things, duplicates another, or has
+options that overlap or miss likely answers. Return the questions that pass,
+fixed where needed, and at least one. Never return more than you were given."""

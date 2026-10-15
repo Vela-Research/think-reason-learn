@@ -8,7 +8,6 @@ from typing import Any, Callable
 import pytest
 
 from think_reason_learn.core.llms import LLMChoice, OpenAIChoice
-from think_reason_learn.gptree import GPTree
 from think_reason_learn.policy_induction import PolicyInduction
 from think_reason_learn.reasoned_rule_mining import ReasonedRuleMining
 from think_reason_learn.rrf import RRF
@@ -18,17 +17,6 @@ CHAT: list[LLMChoice] = [OpenAIChoice(model="gpt-4.1-nano")]
 
 def _rrf(**kwargs: Any) -> RRF:
     return RRF(qgen_llmc=CHAT, qanswer_llmc=CHAT, name="m", **kwargs)
-
-
-def _tree(**kwargs: Any) -> GPTree:
-    return GPTree(
-        qgen_llmc=CHAT,
-        critic_llmc=CHAT,
-        qgen_instr_llmc=CHAT,
-        qanswer_llmc=CHAT,
-        name="m",
-        **kwargs,
-    )
 
 
 def _pi(**kwargs: Any) -> PolicyInduction:
@@ -43,7 +31,6 @@ def _rrm(**kwargs: Any) -> ReasonedRuleMining:
 
 MODELS: list[tuple[Callable[..., Any], Any, str, str]] = [
     (_rrf, RRF, "rrf.json", "rrfs"),
-    (_tree, GPTree, "gptree.json", "gptrees"),
     (_pi, PolicyInduction, "policy_induction.json", "policy_induction"),
     (_rrm, ReasonedRuleMining, "reasoned_rule_mining.json", "reasoned_rule_mining"),
 ]
@@ -92,7 +79,6 @@ def test_load_then_save_writes_back_in_place(
     ("make", "training_files"),
     [
         (_rrf, ["answers.parquet", "answer_probs.parquet", "data.parquet"]),
-        (_tree, ["data.parquet"]),
         (_pi, ["data.parquet", "policy_predictions.parquet"]),
     ],
 )

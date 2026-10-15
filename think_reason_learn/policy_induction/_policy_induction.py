@@ -39,6 +39,7 @@ import numpy as np
 import numpy.typing as npt
 import orjson
 import pandas as pd
+import sklearn
 from joblib import dump as joblib_dump
 from numpy.typing import NDArray
 from pydantic import BaseModel, Field
@@ -79,6 +80,26 @@ logger = logging.getLogger(__name__)
 # Compact terminal-style progress bar: "[TAG] ████░░░░ n/total · rate/s · eta MM:SS"
 _BAR_FORMAT = "{desc} {bar} {n_fmt}/{total_fmt} · {rate_fmt} · eta {remaining}"
 _BAR_ASCII = "░█"
+
+
+def _penalty_kwargs(
+    penalty: Literal["l1", "l2"], sklearn_version: str = sklearn.__version__
+) -> Dict[str, Any]:
+    """Arguments that give ``LogisticRegression`` an L1 or L2 penalty.
+
+    scikit-learn 1.8 deprecated ``penalty`` (removed in 1.10) in favour of
+    ``l1_ratio``: 1 for L1, 0 for L2. Before 1.8, ``l1_ratio`` is ignored unless
+    ``penalty="elasticnet"``, so ``penalty`` must still be passed there.
+
+    Raises:
+        ValueError: ``penalty`` is not ``"l1"`` or ``"l2"``.
+    """
+    if penalty not in ("l1", "l2"):
+        raise ValueError(f"penalty must be 'l1' or 'l2', got {penalty!r}")
+    match = re.match(r"(\d+)\.(\d+)", sklearn_version)
+    if match is None or (int(match.group(1)), int(match.group(2))) < (1, 8):
+        return {"penalty": penalty}
+    return {"l1_ratio": 1.0 if penalty == "l1" else 0.0}
 
 
 # ── Schemas ────────────────────────────────────────────────────────────────────
@@ -983,7 +1004,7 @@ class PolicyInduction:
             for tr_idx, val_idx in skf.split(X, y):
                 lr = LogisticRegression(
                     C=C,
-                    penalty=cfg.penalty,
+                    **_penalty_kwargs(cfg.penalty),
                     solver="liblinear",
                     max_iter=500,
                     class_weight="balanced" if cfg.class_weight_balanced else None,
@@ -1014,7 +1035,7 @@ class PolicyInduction:
 
         final_lr = LogisticRegression(
             C=best_C,
-            penalty=cfg.penalty,
+            **_penalty_kwargs(cfg.penalty),
             solver="liblinear",
             max_iter=1000,
             class_weight="balanced" if cfg.class_weight_balanced else None,

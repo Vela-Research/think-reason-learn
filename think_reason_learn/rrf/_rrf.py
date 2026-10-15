@@ -2881,6 +2881,10 @@ class RRF:
         if base.is_file():
             raise ValueError("Please provide a directory, not a file.")
         base.mkdir(parents=True, exist_ok=True)
+        if for_production:
+            # Training files an earlier save left here must not survive.
+            for name in ("answers.parquet", "answer_probs.parquet", "data.parquet"):
+                (base / name).unlink(missing_ok=True)
 
         if not for_production:
             qdf = self._questions.copy()

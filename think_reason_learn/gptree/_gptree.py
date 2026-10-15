@@ -1981,6 +1981,9 @@ class GPTree:
         if base.is_file():
             raise ValueError("Please provide a directory, not a file.")
         base.mkdir(parents=True, exist_ok=True)
+        if for_production:
+            # Training data an earlier save left here must not survive.
+            (base / "data.parquet").unlink(missing_ok=True)
 
         def _serialize_node(node: Node) -> Dict[str, Any]:
             dict_ = asdict(node)

@@ -86,3 +86,25 @@ def test_load_then_save_writes_back_in_place(
     loaded.save()
     cls.load(tmp_path / "elsewhere").save()
     assert _manifests(tmp_path, manifest) == [Path("elsewhere") / manifest]
+
+
+@pytest.mark.parametrize(
+    ("make", "training_files"),
+    [
+        (_rrf, ["answers.parquet", "answer_probs.parquet", "data.parquet"]),
+        (_tree, ["data.parquet"]),
+        (_pi, ["data.parquet", "policy_predictions.parquet"]),
+    ],
+)
+def test_production_save_removes_training_files_left_in_place(
+    tmp_path: Path, make: Any, training_files: list[str]
+) -> None:
+    """Saving a loaded model in place for production must not keep its data."""
+    model_dir = tmp_path / "model"
+    model_dir.mkdir()
+    for name in training_files:
+        (model_dir / name).write_bytes(b"stale")
+
+    make(save_path=model_dir).save(for_production=True)
+
+    assert not [name for name in training_files if (model_dir / name).exists()]

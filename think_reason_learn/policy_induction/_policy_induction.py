@@ -1740,6 +1740,10 @@ class PolicyInduction(TRLModel):
         if base.is_file():
             raise ValueError("dir_path must be a directory, not a file.")
         base.mkdir(parents=True, exist_ok=True)
+        if for_production:
+            # Training files an earlier save left here must not survive.
+            for name in ("data.parquet", "policy_predictions.parquet"):
+                (base / name).unlink(missing_ok=True)
 
         # Training data (dev mode only)
         if not for_production:

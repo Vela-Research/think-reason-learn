@@ -122,11 +122,10 @@ async def main():
     # Or build it node by node: async for node in tree.fit_iter(X, y, reset=True)
 
     # Visualize (requires Graphviz system package installed)
-    display(Image(tree.view_tree()))
+    display(Image(tree.view_node(tree.get_root_id())))
 
-    predictions = await tree.predict(X)
-    for pred in predictions:
-        print(pred)
+    async for index, question, answer, node_id, usage in tree.predict(X):
+        print(index, question, answer, node_id)
 
 asyncio.run(main())
 ```

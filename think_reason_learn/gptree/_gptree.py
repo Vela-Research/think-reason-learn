@@ -727,6 +727,7 @@ class GPTree(TRLModel):
                     "generate at each generation run"
                 )
             else:
+                self._task_description = task_description
                 self._qgen_instructions_template = instructions_template
                 return instructions_template
 

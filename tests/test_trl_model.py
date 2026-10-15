@@ -124,6 +124,18 @@ async def test_set_task_takes_the_task_description_first(
 
 @pytest.mark.parametrize("make", TEMPLATED)
 @pytest.mark.asyncio
+async def test_set_task_keeps_the_description_with_a_custom_template(
+    make: Callable[[], RRF | GPTree],
+) -> None:
+    """Jev's questions and GPTree's critic read the description; keep it."""
+    model = make()
+
+    await model.set_task("Predict founder success.", TEMPLATE)
+    assert model.task_description == "Predict founder success."
+
+
+@pytest.mark.parametrize("make", TEMPLATED)
+@pytest.mark.asyncio
 async def test_set_tasks_warns_and_forwards(
     make: Callable[[], RRF | GPTree], monkeypatch: pytest.MonkeyPatch
 ) -> None:

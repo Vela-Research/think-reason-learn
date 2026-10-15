@@ -572,6 +572,7 @@ class RRF(TRLModel):
                     "This tag will be replaced with the number of questions to generate"
                 )
             else:
+                self._task_description = task_description
                 self._qgen_instructions_template = instructions_template
                 return instructions_template
 

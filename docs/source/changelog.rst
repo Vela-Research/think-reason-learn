@@ -64,6 +64,19 @@ instances use the elastic-net combiner unless ``aggregation_method="vote"`` is p
   inside it on every load and save. Pass ``dir_path`` to ``save()`` to choose another directory. A loaded Reasoned Rule
   Mining model also saves back to the directory it was loaded from instead of its parent.
 - Policy Induction accepts ``yes`` / ``no`` labels in any case, as Random Rule Forest does.
+- **Breaking:** Random Rule Forest, GPTree, Policy Induction and Reasoned Rule Mining subclass the new abstract base
+  class ``think_reason_learn.core.TRLModel``, which requires ``set_task``, ``fit``, ``predict``, ``save`` and ``load``.
+  For one API across the four:
+
+  - ``GPTree.fit()`` builds the whole tree and returns it instead of yielding nodes. Replace
+    ``async for node in tree.fit(X, y)`` with ``await tree.fit(X, y)``, or with
+    ``async for node in tree.fit_iter(X, y)`` to keep getting each node as it is built, for example to ``stop()`` the
+    tree or give it ``advice()`` between nodes. ``resume_fit()`` still yields nodes.
+  - Random Rule Forest and GPTree take their task with ``set_task(task_description, instructions_template=None)``, as
+    Policy Induction does. ``set_tasks(instructions_template, task_description)``, with the arguments in the old
+    order, still works but is deprecated and warns.
+  - ``GPTree.load()`` takes ``dir_path`` instead of ``path``. Positional calls are unchanged; replace
+    ``GPTree.load(path=...)`` with ``GPTree.load(dir_path=...)``.
 
 0.1.0
 -----

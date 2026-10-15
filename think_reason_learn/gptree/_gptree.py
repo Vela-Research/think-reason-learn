@@ -5,18 +5,17 @@ LLM based decision tree classifier.
 
 from __future__ import annotations
 
-import os
 from os import PathLike
 import asyncio
 from typing import List, Dict, Literal, Sequence, cast, Type, Tuple
-from typing import Set, Any, AsyncGenerator
+from typing import Set, Any, AsyncGenerator, Self
 import logging
 from dataclasses import dataclass, field, asdict
 from uuid import uuid4
 from copy import deepcopy
 from pathlib import Path
 import datetime
-import re
+import warnings
 
 import orjson
 from pydantic import BaseModel, create_model, Field
@@ -40,6 +39,7 @@ from think_reason_learn.core.llms._jev.client import (
     require_typesafe_key,
 )
 from think_reason_learn.core.llms._jev.schemas import answers_with_jev
+from think_reason_learn.core import TRLModel
 from think_reason_learn.core.exceptions import DataError, LLMError, CorruptionError
 from ._types import QuestionType, Criterion
 from ._prompts import INSTRUCTIONS_FOR_GENERATING_QUESTION_GEN_INSTRUCTIONS
@@ -194,7 +194,7 @@ class BuildTask:
         return cls(**d)
 
 
-class GPTree:
+class GPTree(TRLModel):
     """LLM based decision tree classifier.
 
     Note that GPTree auto saves the tree after each node is built.
@@ -231,6 +231,8 @@ class GPTree:
         name: Name of the tree instance.
         random_state: Random seed.
     """
+
+    _default_save_dir = "gptrees"
 
     def __init__(
         self,
@@ -474,11 +476,6 @@ class GPTree:
         return pd.DataFrame(questions) if questions else None
 
     @property
-    def token_usage(self) -> TokenCounter:
-        """Get the token counter for the GPTree."""
-        return self._token_counter
-
-    @property
     def question_gen_instructions_template(self) -> str | None:
         """Get the question generation instructions template."""
         return self._qgen_instructions_template
@@ -487,11 +484,6 @@ class GPTree:
     def critic_instructions_template(self) -> str | None:
         """Get the critic instructions template."""
         return self._critic_instructions_template
-
-    @property
-    def task_description(self) -> str | None:
-        """Description of the classification task."""
-        return self._task_description
 
     def view_node(
         self,
@@ -643,24 +635,6 @@ class GPTree:
         """Expert advice set on the tree."""
         return self._expert_advice
 
-    def _get_name(self, name: str | None) -> str:
-        if name is None:
-            name = str(uuid4()).replace("-", "_")
-            logger.debug(f"No name provided. Assigned name: {name}")
-
-        if not re.match(r"^[a-zA-Z0-9_]+$", name):
-            raise ValueError("Name must be only alphanumeric and underscores")
-        return name
-
-    def _set_save_path(self, save_path: str | PathLike[str] | None) -> Path:
-        if save_path is None:
-            return (Path(os.getcwd()) / "gptrees" / self.name).resolve()
-        else:
-            save_path = Path(save_path).resolve()
-            if save_path.is_file():
-                raise ValueError("Please provide a directory, not a file.")
-            return save_path
-
     @property
     def classes(self) -> List[str] | None:
         """Classes the tree is trying to classify."""
@@ -716,10 +690,10 @@ class GPTree:
             scale = max(size_factor, min_candidates / max_candidates)
         return max(min_candidates, int(max_candidates * scale))
 
-    async def set_tasks(
+    async def set_task(
         self,
-        instructions_template: str | None = None,
         task_description: str | None = None,
+        instructions_template: str | None = None,
     ) -> str:
         """Initialize question generation instructions template.
 
@@ -728,11 +702,11 @@ class GPTree:
         For most users, LLM generation is recommended over custom templates.
 
         Args:
+            task_description: Description of classification task to help LLM generate
+                the template.
             instructions_template: Custom template to use. Must contain
                 '<number_of_questions>' tag. If None, generates template
                 from task_description using LLM.
-            task_description: Description of classification task to help LLM generate
-                the template.
 
         Returns:
             The question generation instructions template.
@@ -753,6 +727,7 @@ class GPTree:
                     "generate at each generation run"
                 )
             else:
+                self._task_description = task_description
                 self._qgen_instructions_template = instructions_template
                 return instructions_template
 
@@ -768,7 +743,7 @@ class GPTree:
             provider=response.provider_model.provider,
             model=response.provider_model.model,
             value=response.total_tokens,
-            caller="GPTree.set_tasks",
+            caller="GPTree.set_task",
         )
         if not response.response:
             raise ValueError(
@@ -797,11 +772,28 @@ class GPTree:
         self._qgen_instructions_template = response.response
         return response.response
 
+    async def set_tasks(
+        self,
+        instructions_template: str | None = None,
+        task_description: str | None = None,
+    ) -> str:
+        """Deprecated: use ``set_task(task_description, instructions_template)``.
+
+        Same as ``set_task``, with the arguments in the opposite order.
+        """
+        warnings.warn(
+            "GPTree.set_tasks() is deprecated; use "
+            "set_task(task_description, instructions_template) instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return await self.set_task(task_description, instructions_template)
+
     def _get_question_gen_instructions(self, num_questions: int) -> str:
         if not self._qgen_instructions_template:
             raise ValueError(
                 "Question generation instructions template is not set"
-                "Set the template using `set_tasks`"
+                "Set the template using `set_task`"
             )
 
         instructions = self._qgen_instructions_template.replace(
@@ -1483,6 +1475,36 @@ class GPTree:
         *,
         copy_data: bool = True,
         reset: bool = False,
+    ) -> Self:
+        """Train the tree, or resume training it, and return it.
+
+        Builds every node before returning. To get each node as it is built,
+        for example to ``stop()`` training or give ``advice()`` between nodes,
+        use ``fit_iter`` instead.
+
+        Args:
+            X: Training features. Required on first run or with reset=True.
+            y: Training labels. Required on first run or with reset=True.
+            copy_data: Whether to copy input data.
+            reset: Clear existing state and restart from root.
+
+        Returns:
+            The fitted tree.
+
+        Raises:
+            ValueError: If data requirements aren't met or invalid reset usage.
+        """
+        async for _ in self.fit_iter(X, y, copy_data=copy_data, reset=reset):
+            pass
+        return self
+
+    async def fit_iter(
+        self,
+        X: pd.DataFrame | None = None,
+        y: Sequence[str] | None = None,
+        *,
+        copy_data: bool = True,
+        reset: bool = False,
     ) -> AsyncGenerator[Node, None]:
         """Train or resume tree construction as an async generator.
 
@@ -1847,12 +1869,12 @@ class GPTree:
         )
         self.save()
         logger.info("Re-fitting tree...")
-        async for updated_node in self.fit():
+        async for updated_node in self.fit_iter():
             yield updated_node
 
     @classmethod
-    def _load(cls, path: str | PathLike[str]) -> GPTree:
-        base = Path(path)
+    def _load(cls, dir_path: str | PathLike[str]) -> GPTree:
+        base = Path(dir_path)
         if base.is_dir():
             tree_json_path = base / "gptree.json"
             if not tree_json_path.exists():
@@ -1944,18 +1966,18 @@ class GPTree:
         return inst
 
     @classmethod
-    def load(cls, path: str | PathLike[str]) -> GPTree:
+    def load(cls, dir_path: str | PathLike[str]) -> GPTree:
         """Load a GPTree from saved state.
 
         Args:
-            path: Directory containing "gptree.json" or the JSON file directly.
+            dir_path: Directory containing "gptree.json".
 
         Returns:
             Reconstructed GPTree instance.
         """
         try:
             with loading_saved_model():
-                return cls._load(path)
+                return cls._load(dir_path)
         except KeyError as e:
             raise CorruptionError(
                 f"Failed to load GPTree. Tree json is probably corrupted: {e}"
@@ -2054,9 +2076,3 @@ class GPTree:
             df_to_save["y"] = self._y
             data_parquet_path = base / "data.parquet"
             df_to_save.to_parquet(str(data_parquet_path), index=True)  # type: ignore
-
-    def __repr__(self) -> str:
-        return f"GPTree(name={self.name})"
-
-    def __str__(self) -> str:
-        return f"GPTree(name={self.name})"

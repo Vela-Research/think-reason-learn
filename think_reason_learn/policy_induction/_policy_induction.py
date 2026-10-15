@@ -11,7 +11,6 @@ import hashlib
 import itertools
 import logging
 import math
-import os
 import re
 import time
 from copy import deepcopy
@@ -33,7 +32,6 @@ from typing import (
     Union,
     cast,
 )
-from uuid import uuid4
 
 import numpy as np
 import numpy.typing as npt
@@ -48,6 +46,7 @@ from sklearn.metrics import fbeta_score
 from sklearn.model_selection import StratifiedKFold
 from tqdm.auto import tqdm
 
+from think_reason_learn.core import TRLModel
 from think_reason_learn.core.exceptions import (
     DataError,
     JevAuthError,
@@ -163,7 +162,7 @@ class WeightTrainerConfig:
 # ── PolicyInduction ────────────────────────────────────────────────────────────
 
 
-class PolicyInduction:
+class PolicyInduction(TRLModel):
     """Interpretable ensemble binary classifier.
 
     Induces natural-language policies from labeled data via LLM, scores each
@@ -204,6 +203,8 @@ class PolicyInduction:
         _llm: LLM instance for testing (dependency injection). If None, uses
             the global llm.
     """
+
+    _default_save_dir = "policy_induction"
 
     def __init__(
         self,
@@ -254,8 +255,8 @@ class PolicyInduction:
         self.policy_batch_size = policy_batch_size
         self.p_predict_update_interval = p_predict_update_interval
         self.confirm_requests = confirm_requests
-        self.name: str = self._parse_name(name)
-        self.save_path: Path = self._parse_save_path(save_path)
+        self.name: str = self._get_name(name)
+        self.save_path: Path = self._set_save_path(save_path)
 
         self._llm_instance: Any = _llm if _llm is not None else llm
         self._token_counter: TokenCounter = TokenCounter()
@@ -308,14 +309,6 @@ class PolicyInduction:
         self._llm_semaphore = asyncio.Semaphore(value)
 
     @property
-    def token_usage(self) -> TokenCounter:
-        return self._token_counter
-
-    @property
-    def task_description(self) -> str | None:
-        return self._task_description
-
-    @property
     def policy_gen_instructions_template(self) -> str | None:
         return self._pgen_instructions_template
 
@@ -350,13 +343,6 @@ class PolicyInduction:
         if not (0 <= kw["predict_temperature"] <= 2):
             raise ValueError("predict_temperature must be in [0, 2]")
 
-    def _parse_name(self, name: str | None) -> str:
-        if name is None:
-            name = str(uuid4()).replace("-", "_")
-        if not re.match(r"^[a-zA-Z0-9_]+$", name):
-            raise ValueError("Name must be alphanumeric and underscores only")
-        return name
-
     def _parse_config(
         self, cfg: Union[None, WeightTrainerConfig, dict]
     ) -> WeightTrainerConfig:
@@ -375,14 +361,6 @@ class PolicyInduction:
                 raise ValueError("beta must be positive")
             return result
         raise ValueError("config must be WeightTrainerConfig, dict, or None")
-
-    def _parse_save_path(self, save_path: str | PathLike[str] | None) -> Path:
-        if save_path is None:
-            return (Path(os.getcwd()) / "policy_induction" / self.name).resolve()
-        p = Path(save_path).resolve()
-        if p.is_file():
-            raise ValueError("save_path must be a directory, not a file")
-        return p
 
     # ── Data management ─────────────────────────────────────────────────────────
 
@@ -1976,9 +1954,3 @@ class PolicyInduction:
                 return cls._load(dir_path)
         except KeyError as e:
             raise ValueError(f"Manifest corrupted or missing key: {e}") from e
-
-    def __repr__(self) -> str:
-        return f"PolicyInduction(name={self.name})"
-
-    def __str__(self) -> str:
-        return f"PolicyInduction(name={self.name})"

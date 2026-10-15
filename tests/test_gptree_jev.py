@@ -17,7 +17,7 @@ from think_reason_learn.core.llms import (
     OpenAIChoice,
 )
 from think_reason_learn.core.llms._schemas import LLMResponse
-from think_reason_learn.gptree import GPTree
+from think_reason_learn.gptree import GPTree, Node
 from think_reason_learn.gptree import _gptree as gptree_module
 from think_reason_learn.gptree._gptree import Question, Questions
 from think_reason_learn.gptree._prompts import num_questions_tag
@@ -99,13 +99,39 @@ def _tree(tmp_path: Path, **kwargs: Any) -> GPTree:
     )
 
 
+TEMPLATE = f"Ask {num_questions_tag} questions about founders."
+
+
 async def _fit(tree: GPTree) -> GPTree:
-    await tree.set_tasks(
-        instructions_template=f"Ask {num_questions_tag} questions about founders."
-    )
-    async for _ in tree.fit(pd.DataFrame({"text": ROWS}), LABELS):
-        pass
-    return tree
+    await tree.set_task(instructions_template=TEMPLATE)
+    return await tree.fit(pd.DataFrame({"text": ROWS}), LABELS)
+
+
+@pytest.mark.asyncio
+async def test_fit_returns_the_whole_tree(tmp_path: Path, fake: FakeTreeLLM) -> None:
+    tree = _tree(tmp_path, max_depth=1)
+
+    assert await _fit(tree) is tree
+
+    root = tree.get_node(0)
+    assert root is not None and len(root.children) == 2
+    assert tree._frontier == []
+
+
+@pytest.mark.asyncio
+async def test_fit_iter_yields_nodes_as_they_are_built(
+    tmp_path: Path, fake: FakeTreeLLM
+) -> None:
+    tree = _tree(tmp_path, max_depth=1)
+    await tree.set_task(instructions_template=TEMPLATE)
+
+    fitter = tree.fit_iter(pd.DataFrame({"text": ROWS}), LABELS)
+    first = await anext(fitter)
+
+    assert isinstance(first, Node)
+    assert len(tree._frontier) == 1  # one child still to build
+    assert all([isinstance(node, Node) async for node in fitter])
+    assert tree._frontier == []
 
 
 @pytest.mark.asyncio
@@ -273,15 +299,12 @@ async def test_resumed_fit_keeps_one_run_budget(
     fake = SuspendingTreeLLM(choose=_choose)
     monkeypatch.setattr(gptree_module, "llm", fake)
     tree = _tree(tmp_path, max_depth=2)
-    await tree.set_tasks(
-        instructions_template=f"Ask {num_questions_tag} questions about founders."
-    )
-    async for _ in tree.fit(pd.DataFrame({"text": ROWS}), LABELS):
+    await tree.set_task(instructions_template=TEMPLATE)
+    async for _ in tree.fit_iter(pd.DataFrame({"text": ROWS}), LABELS):
         break  # stop after the first node
     before = len(fake.answer_calls)
 
-    async for _ in tree.fit():  # resume from the frontier
-        pass
+    await tree.fit()  # resume from the frontier
 
     resumed = fake.answer_calls[before:]
     assert resumed

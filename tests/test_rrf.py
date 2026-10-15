@@ -66,7 +66,7 @@ def rrf_with_fake(fake_llm: FakeLLM) -> RRF:
 
 
 # ---------------------------------------------------------------------------
-# set_tasks
+# set_task
 # ---------------------------------------------------------------------------
 
 
@@ -75,7 +75,7 @@ class TestSetTasks:
     async def test_with_description(
         self, rrf_with_fake: RRF, fake_llm: FakeLLM
     ) -> None:
-        template = await rrf_with_fake.set_tasks(
+        template = await rrf_with_fake.set_task(
             task_description="Classify founders as successful or not"
         )
         assert "<number_of_questions>" in template
@@ -85,13 +85,13 @@ class TestSetTasks:
     @pytest.mark.asyncio
     async def test_with_custom_template(self, rrf_with_fake: RRF) -> None:
         custom = "Generate <number_of_questions> questions about founders."
-        result = await rrf_with_fake.set_tasks(instructions_template=custom)
+        result = await rrf_with_fake.set_task(instructions_template=custom)
         assert result == custom
 
     @pytest.mark.asyncio
     async def test_missing_tag_raises(self, rrf_with_fake: RRF) -> None:
         with pytest.raises(ValueError, match="must contain the tag"):
-            await rrf_with_fake.set_tasks(instructions_template="No tag here.")
+            await rrf_with_fake.set_task(instructions_template="No tag here.")
 
 
 # ---------------------------------------------------------------------------
@@ -107,7 +107,7 @@ class TestFit:
         sample_data: tuple[pd.DataFrame, list[str]],
     ) -> None:
         X, y = sample_data
-        await rrf_with_fake.set_tasks(task_description="Classify founders")
+        await rrf_with_fake.set_task(task_description="Classify founders")
         rrf = await rrf_with_fake.fit(X, y)
         qdf = rrf.get_questions()
         assert len(qdf) > 0
@@ -121,14 +121,14 @@ class TestFit:
         sample_data: tuple[pd.DataFrame, list[str]],
     ) -> None:
         X, y = sample_data
-        await rrf_with_fake.set_tasks(task_description="Classify founders")
+        await rrf_with_fake.set_task(task_description="Classify founders")
         rrf = await rrf_with_fake.fit(X, y)
         qdf = rrf.get_questions()
         for col in ("precision", "recall", "f1_score", "accuracy"):
             assert qdf[col].dropna().shape[0] > 0
 
     @pytest.mark.asyncio
-    async def test_without_set_tasks_raises(
+    async def test_without_set_task_raises(
         self,
         rrf_with_fake: RRF,
         sample_data: tuple[pd.DataFrame, list[str]],
@@ -144,7 +144,7 @@ class TestFit:
         sample_data: tuple[pd.DataFrame, list[str]],
     ) -> None:
         X, y = sample_data
-        await rrf_with_fake.set_tasks(task_description="Classify founders")
+        await rrf_with_fake.set_task(task_description="Classify founders")
         await rrf_with_fake.fit(X, y)
         rrf = await rrf_with_fake.fit(X, y, reset=True)
         assert rrf.get_questions().shape[0] > 0
@@ -171,11 +171,11 @@ class TestFitBatch:
             _llm=fake,
         )
         X, y = sample_data
-        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.set_task(task_description="Classify founders")
         await rrf.fit(X, y)
         adf = rrf.get_answers()
         assert adf.shape[0] == len(X)
-        # Verify batch calls happened (response_format=str, not set_tasks)
+        # Verify batch calls happened (response_format=str, not set_task)
         batch_calls = [
             c
             for c in fake.calls
@@ -205,7 +205,7 @@ class TestFiltering:
             _llm=fake,
         )
         X, y = sample_data
-        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.set_task(task_description="Classify founders")
         await rrf.fit(X, y)
         rrf.filter_questions_on_pred_similarity(threshold=0.9)
         qdf = rrf.get_questions()
@@ -227,7 +227,7 @@ class TestFiltering:
             _llm=fake,
         )
         X, y = sample_data
-        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.set_task(task_description="Classify founders")
         await rrf.fit(X, y)
         await rrf.filter_questions_on_semantics(
             threshold=0.5, emb_model="hashed_bag_of_words"
@@ -247,7 +247,7 @@ class TestFiltering:
             _llm=fake,
         )
         X, y = sample_data
-        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.set_task(task_description="Classify founders")
         await rrf.fit(X, y)
         await rrf.filter_questions_on_semantics(
             threshold=0.01, emb_model="hashed_bag_of_words"
@@ -280,7 +280,7 @@ class TestPredict:
             _llm=fake,
         )
         X, y = sample_data
-        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.set_task(task_description="Classify founders")
         await rrf.fit(X, y)
 
         preds = []
@@ -307,7 +307,7 @@ class TestPredictBatch:
             _llm=fake,
         )
         X, y = sample_data
-        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.set_task(task_description="Classify founders")
         await rrf.fit(X, y)
 
         active_qs = rrf.get_questions()
@@ -354,7 +354,7 @@ class TestPredictBatch:
             _llm=fake,
         )
         X, y = sample_data
-        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.set_task(task_description="Classify founders")
         await rrf.fit(X, y)
 
         active_qs = rrf.get_questions()
@@ -395,7 +395,7 @@ class TestPredictBatch:
             max_generated_questions=3,
             _llm=fake_single,
         )
-        await rrf_single.set_tasks(task_description="Classify founders")
+        await rrf_single.set_task(task_description="Classify founders")
         await rrf_single.fit(X, y)
 
         single_preds: dict[tuple[int, str], str] = {}
@@ -413,7 +413,7 @@ class TestPredictBatch:
             qanswer_batch_size=20,
             _llm=fake_batch,
         )
-        await rrf_batch.set_tasks(task_description="Classify founders")
+        await rrf_batch.set_task(task_description="Classify founders")
         await rrf_batch.fit(X, y)
 
         batch_preds: dict[tuple[int, str], str] = {}
@@ -442,7 +442,7 @@ class TestPredictBatch:
             _llm=fake,
         )
         X, y = sample_data
-        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.set_task(task_description="Classify founders")
         await rrf.fit(X, y)
 
         active_qs = rrf.get_questions()
@@ -508,7 +508,7 @@ class TestValidation:
         )
         X = pd.DataFrame({"data": ["a", "b"]})
         y = ["YES"]
-        await rrf.set_tasks(task_description="Test")
+        await rrf.set_task(task_description="Test")
         with pytest.raises(DataError):
             await rrf.fit(X, y)
 
@@ -520,7 +520,7 @@ class TestValidation:
         )
         X = pd.DataFrame({"data": ["a", "b"]})
         y = ["YES", "MAYBE"]
-        await rrf.set_tasks(task_description="Test")
+        await rrf.set_task(task_description="Test")
         with pytest.raises(DataError):
             await rrf.fit(X, y)
 
@@ -545,7 +545,7 @@ class TestQuestionManagement:
             _llm=fake,
         )
         X, y = sample_data
-        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.set_task(task_description="Classify founders")
         await rrf.fit(X, y)
         before = len(rrf.get_questions())
         await rrf.add_question("Is the founder based in Silicon Valley?")
@@ -566,7 +566,7 @@ class TestQuestionManagement:
             _llm=fake,
         )
         X, y = sample_data
-        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.set_task(task_description="Classify founders")
         await rrf.fit(X, y)
         qdf = rrf.get_questions()
         qid = str(qdf.index[0])
@@ -599,7 +599,7 @@ class TestFBetaScoring:
             _llm=fake,
         )
         X, y = sample_data
-        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.set_task(task_description="Classify founders")
         await rrf.fit(X, y)
         qdf = rrf.get_questions()
         assert "f_beta_score" in qdf.columns
@@ -626,7 +626,7 @@ class TestFBetaScoring:
             _llm=fake,
         )
         X, y = sample_data
-        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.set_task(task_description="Classify founders")
         await rrf.fit(X, y)
         qdf = rrf.get_questions()
         for qid in qdf.index:
@@ -656,7 +656,7 @@ class TestFBetaScoring:
             _llm=fake,
         )
         X, y = sample_data
-        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.set_task(task_description="Classify founders")
         await rrf.fit(X, y)
         qdf = rrf.get_questions()
         assert "f_beta_score" in qdf.columns
@@ -697,7 +697,7 @@ class TestFBetaScoring:
             _llm=fake,
         )
         X, y = sample_data
-        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.set_task(task_description="Classify founders")
         await rrf.fit(X, y)
         qdf = rrf.get_questions()
         for qid in qdf.index:
@@ -725,7 +725,7 @@ class TestFBetaScoring:
             _llm=fake,
         )
         X, y = sample_data
-        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.set_task(task_description="Classify founders")
         await rrf.fit(X, y)
 
         save_dir = str(tmp_path)
@@ -765,7 +765,7 @@ class TestSaveLoad:
             _llm=fake,
         )
         X, y = sample_data
-        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.set_task(task_description="Classify founders")
         await rrf.fit(X, y)
 
         save_dir = str(tmp_path)
@@ -796,7 +796,7 @@ class TestExclusionReport:
             _llm=fake,
         )
         X, y = sample_data
-        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.set_task(task_description="Classify founders")
         await rrf.fit(X, y)
 
         report = rrf.exclusion_report()
@@ -826,7 +826,7 @@ class TestExclusionReport:
             _llm=fake,
         )
         X, y = sample_data
-        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.set_task(task_description="Classify founders")
         await rrf.fit(X, y)
         rrf.filter_questions_on_pred_similarity(threshold=0.9)
 
@@ -855,7 +855,7 @@ class TestExclusionReport:
             _llm=fake,
         )
         X, y = sample_data
-        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.set_task(task_description="Classify founders")
         await rrf.fit(X, y)
         rrf.filter_questions_on_pred_similarity(threshold=0.9)
         qdf = rrf.get_questions()
@@ -878,7 +878,7 @@ class TestExclusionReport:
             _llm=fake,
         )
         X, y = sample_data
-        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.set_task(task_description="Classify founders")
         await rrf.fit(X, y)
         rrf.filter_questions_on_pred_similarity(threshold=0.5)
 
@@ -902,7 +902,7 @@ class TestExclusionReport:
             _llm=fake,
         )
         X, y = sample_data
-        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.set_task(task_description="Classify founders")
         await rrf.fit(X, y)
         await rrf.filter_questions_on_semantics(
             threshold=0.01, emb_model="hashed_bag_of_words"
@@ -933,7 +933,7 @@ class TestExclusionReport:
             _llm=fake,
         )
         X, y = sample_data
-        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.set_task(task_description="Classify founders")
         await rrf.fit(X, y)
         qid = str(rrf.get_questions().index[0])
         await rrf.update_question_exclusion(qid, QuestionExclusion.EXPERT)
@@ -965,7 +965,7 @@ class TestExclusionReport:
             _llm=fake,
         )
         X, y = sample_data
-        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.set_task(task_description="Classify founders")
         await rrf.fit(X, y)
         rrf.filter_questions_on_pred_similarity(threshold=0.9)
 
@@ -990,7 +990,7 @@ class TestExclusionReport:
             _llm=fake,
         )
         X, y = sample_data
-        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.set_task(task_description="Classify founders")
         await rrf.fit(X, y)
         rrf.filter_questions_on_pred_similarity(threshold=0.9)
         assert len(rrf.exclusion_report()) > 0
@@ -1014,7 +1014,7 @@ class TestExclusionReport:
             _llm=fake,
         )
         X, y = sample_data
-        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.set_task(task_description="Classify founders")
         await rrf.fit(X, y)
         rrf.filter_questions_on_pred_similarity(threshold=0.9)
         original_report = rrf.exclusion_report(as_dict=True)
@@ -1049,7 +1049,7 @@ class TestEarlySemanticFiltering:
             _llm=fake,
         )
         X, y = sample_data
-        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.set_task(task_description="Classify founders")
         await rrf.fit(X, y)
 
         report = rrf.exclusion_report()
@@ -1074,7 +1074,7 @@ class TestEarlySemanticFiltering:
             _llm=fake,
         )
         X, y = sample_data
-        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.set_task(task_description="Classify founders")
         await rrf.fit(X, y)
 
         report = rrf.exclusion_report()
@@ -1099,7 +1099,7 @@ class TestEarlySemanticFiltering:
             _llm=fake,
         )
         X, y = sample_data
-        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.set_task(task_description="Classify founders")
         await rrf.fit(X, y)
 
         report = rrf.exclusion_report()
@@ -1124,7 +1124,7 @@ class TestEarlySemanticFiltering:
             _llm=fake,
         )
         X, y = sample_data
-        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.set_task(task_description="Classify founders")
         await rrf.fit(X, y)
 
         report = rrf.exclusion_report()
@@ -1156,7 +1156,7 @@ class TestEarlySemanticFiltering:
             _llm=fake,
         )
         X, y = sample_data
-        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.set_task(task_description="Classify founders")
         await rrf.fit(X, y)
 
         save_dir = str(tmp_path)
@@ -1182,7 +1182,7 @@ class TestEarlySemanticFiltering:
             _llm=fake,
         )
         X, y = sample_data
-        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.set_task(task_description="Classify founders")
         await rrf.fit(X, y)
 
         summary = rrf._last_fit_summary
@@ -1210,7 +1210,7 @@ class TestEarlySemanticFiltering:
             max_generated_questions=6,
             _llm=fake_base,
         )
-        await rrf_base.set_tasks(task_description="Classify founders")
+        await rrf_base.set_task(task_description="Classify founders")
         await rrf_base.fit(X, y)
         calls_baseline = fake_base._call_count
 
@@ -1226,7 +1226,7 @@ class TestEarlySemanticFiltering:
             semantic_similarity_threshold=0.01,
             _llm=fake_early,
         )
-        await rrf_early.set_tasks(task_description="Classify founders")
+        await rrf_early.set_task(task_description="Classify founders")
         await rrf_early.fit(X, y)
         calls_early = fake_early._call_count
 
@@ -1263,7 +1263,7 @@ class TestPredictConcurrent:
             qanswer_batch_size=20,
             _llm=fake_seq,
         )
-        await rrf_seq.set_tasks(task_description="Classify founders")
+        await rrf_seq.set_task(task_description="Classify founders")
         await rrf_seq.fit(X, y)
 
         seq_preds: dict[tuple[int, str], str] = {}
@@ -1281,7 +1281,7 @@ class TestPredictConcurrent:
             qanswer_batch_size=20,
             _llm=fake_conc,
         )
-        await rrf_conc.set_tasks(task_description="Classify founders")
+        await rrf_conc.set_task(task_description="Classify founders")
         await rrf_conc.fit(X, y)
 
         conc_preds: dict[tuple[int, str], str] = {}
@@ -1308,7 +1308,7 @@ class TestPredictConcurrent:
                 qanswer_batch_size=20,
                 _llm=fake,
             )
-            await rrf.set_tasks(task_description="Classify founders")
+            await rrf.set_task(task_description="Classify founders")
             await rrf.fit(X, y)
             out: list[tuple[int, str, str]] = []
             async for si, qid, ans, _tc in rrf.predict(X, max_concurrent=2):
@@ -1355,7 +1355,7 @@ class TestPredictConcurrent:
             qanswer_batch_size=20,
             _llm=fake,
         )
-        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.set_task(task_description="Classify founders")
         await rrf.fit(X, y)
 
         max_conc = 2
@@ -1449,7 +1449,7 @@ class TestFounderPredictions:
             _llm=fake,
         )
         X, y = sample_data
-        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.set_task(task_description="Classify founders")
         await rrf.fit(X, y)
 
         assert isinstance(rrf._aggregation_k, int)
@@ -1473,7 +1473,7 @@ class TestFounderPredictions:
             _llm=fake,
         )
         X, y = sample_data
-        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.set_task(task_description="Classify founders")
         await rrf.fit(X, y)
 
         result = await rrf.predict_founder_level(X)
@@ -1498,7 +1498,7 @@ class TestFounderPredictions:
             _llm=fake,
         )
         X, y = sample_data
-        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.set_task(task_description="Classify founders")
         await rrf.fit(X, y)
 
         result = await rrf.predict_founder_level(X, k=1, t=1)
@@ -1518,7 +1518,7 @@ class TestFounderPredictions:
             max_generated_questions=3,
             _llm=fake,
         )
-        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.set_task(task_description="Classify founders")
         X = pd.DataFrame({"data": ["test person"]})
         with pytest.raises(ValueError):
             await rrf.predict_founder_level(X)
@@ -1539,7 +1539,7 @@ class TestFounderPredictions:
             _llm=fake,
         )
         X, y = sample_data
-        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.set_task(task_description="Classify founders")
         await rrf.fit(X, y)
 
         k = rrf._aggregation_k
@@ -1569,7 +1569,7 @@ class TestFounderPredictions:
             qanswer_batch_size=20,
             _llm=fake,
         )
-        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.set_task(task_description="Classify founders")
         await rrf.fit(X, y)
 
         ckpt_dir = str(tmp_path)
@@ -1603,7 +1603,7 @@ class TestFounderPredictions:
             qanswer_batch_size=20,
             _llm=fake_full,
         )
-        await rrf_full.set_tasks(task_description="Classify founders")
+        await rrf_full.set_task(task_description="Classify founders")
         await rrf_full.fit(X, y)
 
         ckpt_dir = str(tmp_path)
@@ -1622,7 +1622,7 @@ class TestFounderPredictions:
             qanswer_batch_size=20,
             _llm=fake_resume,
         )
-        await rrf_resume.set_tasks(task_description="Classify founders")
+        await rrf_resume.set_task(task_description="Classify founders")
         await rrf_resume.fit(X, y)
 
         resume_preds: dict[tuple[int, str], str] = {}
@@ -1652,7 +1652,7 @@ class TestFounderPredictions:
             qanswer_batch_size=20,
             _llm=fake1,
         )
-        await rrf1.set_tasks(task_description="Classify founders")
+        await rrf1.set_task(task_description="Classify founders")
         await rrf1.fit(X, y)
 
         ckpt_dir = str(tmp_path)
@@ -1672,7 +1672,7 @@ class TestFounderPredictions:
             qanswer_batch_size=20,
             _llm=fake2,
         )
-        await rrf2.set_tasks(task_description="Classify founders")
+        await rrf2.set_task(task_description="Classify founders")
         await rrf2.fit(X, y)
 
         async for _ in rrf2.predict(X, checkpoint_path=ckpt_dir):
@@ -1702,7 +1702,7 @@ class TestFounderPredictions:
             qanswer_batch_size=20,
             _llm=fake_full,
         )
-        await rrf_full.set_tasks(task_description="Classify founders")
+        await rrf_full.set_task(task_description="Classify founders")
         await rrf_full.fit(X, y)
 
         ckpt_dir = str(tmp_path)
@@ -1721,7 +1721,7 @@ class TestFounderPredictions:
             qanswer_batch_size=20,
             _llm=fake_resume,
         )
-        await rrf_resume.set_tasks(task_description="Classify founders")
+        await rrf_resume.set_task(task_description="Classify founders")
         await rrf_resume.fit(X, y)
         calls_after_fit = fake_resume._call_count
 
@@ -1743,7 +1743,7 @@ class TestFounderPredictions:
             _llm=fake,
         )
         X, y = sample_data
-        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.set_task(task_description="Classify founders")
         await rrf.fit(X, y)
 
         save_dir = str(tmp_path)
@@ -1770,7 +1770,7 @@ class TestFounderPredictions:
             _llm=fake,
         )
         X, y = sample_data
-        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.set_task(task_description="Classify founders")
         await rrf.fit(X, y)
 
         result = await rrf.predict_founder_level(X)
@@ -1815,8 +1815,8 @@ async def test_standard_mode_baseline(
         _llm=fake_llm,
     )
 
-    await rrf.set_tasks(task_description="test task")
-    await rrf.set_tasks(task_description="test task")
+    await rrf.set_task(task_description="test task")
+    await rrf.set_task(task_description="test task")
     await rrf.fit(X, y)
 
     # Standard mode should:
@@ -1846,7 +1846,7 @@ async def test_cost_sensitive_reduces_calls(
         cost_sensitive=False,
         _llm=fake_llm_std,
     )
-    await rrf_std.set_tasks(task_description="test task")
+    await rrf_std.set_task(task_description="test task")
     await rrf_std.fit(X, y)
     standard_calls = fake_llm_std.call_count
 
@@ -1866,7 +1866,7 @@ async def test_cost_sensitive_reduces_calls(
         cost_sensitive_config=config,
         _llm=fake_llm_cs,
     )
-    await rrf_cs.set_tasks(task_description="test task")
+    await rrf_cs.set_task(task_description="test task")
     await rrf_cs.fit(X, y)
     cost_sensitive_calls = fake_llm_cs.call_count
 
@@ -1902,7 +1902,7 @@ async def test_screening_baseline_majority(
         _llm=fake_llm,
     )
 
-    await rrf.set_tasks(task_description="test task")
+    await rrf.set_task(task_description="test task")
     await rrf.fit(X, y)
 
     # With labels = [YES, YES, YES, NO, NO, NO, NO, NO]
@@ -1940,7 +1940,7 @@ async def test_screening_baseline_float(
         _llm=fake_llm,
     )
 
-    await rrf.set_tasks(task_description="test task")
+    await rrf.set_task(task_description="test task")
     await rrf.fit(X, y)
 
     # With threshold=0.0, no questions should be pruned by baseline
@@ -1975,7 +1975,7 @@ async def test_top_n_selection(
         _llm=fake_llm,
     )
 
-    await rrf.set_tasks(task_description="test task")
+    await rrf.set_task(task_description="test task")
     await rrf.fit(X, y)
 
     # Should have 10 total questions, but only top 3 active
@@ -2014,7 +2014,7 @@ async def test_val_set_support(
     )
 
     # Should not raise
-    await rrf.set_tasks(task_description="test task")
+    await rrf.set_task(task_description="test task")
     await rrf.fit(X_train, y_train, X_val=X_val, y_val=y_val)
 
     assert rrf._X_val is not None
@@ -2058,9 +2058,9 @@ async def test_deterministic_screening_split(
         _llm=fake_llm2,
     )
 
-    await rrf1.set_tasks(task_description="test task")
+    await rrf1.set_task(task_description="test task")
     await rrf1.fit(X, y)
-    await rrf2.set_tasks(task_description="test task")
+    await rrf2.set_task(task_description="test task")
     await rrf2.fit(X, y)
 
     # Same random state should produce same screening indices
@@ -2086,7 +2086,7 @@ async def test_cost_sensitive_false_unchanged(
         _llm=fake_llm,
     )
 
-    await rrf.set_tasks(task_description="test task")
+    await rrf.set_task(task_description="test task")
     await rrf.fit(X, y)
 
     # Should not have screening indices
@@ -2123,7 +2123,7 @@ async def test_semantic_filtering_auto_applied(
         _llm=fake_llm,
     )
 
-    await rrf.set_tasks(task_description="test task")
+    await rrf.set_task(task_description="test task")
     await rrf.fit(X, y)
 
     # Semantic filtering might exclude some questions
@@ -2156,7 +2156,7 @@ async def test_semantic_filtering_disabled(
         _llm=fake_llm,
     )
 
-    await rrf.set_tasks(task_description="test task")
+    await rrf.set_task(task_description="test task")
     await rrf.fit(X, y)
 
     # No questions should be excluded by semantics
@@ -2245,7 +2245,7 @@ class TestFBetaAggregation:
         )
         X = pd.DataFrame({"text": [f"sample {i}" for i in range(20)]})
         y = ["YES"] * 4 + ["NO"] * 16
-        await rrf.set_tasks(task_description="Classify samples")
+        await rrf.set_task(task_description="Classify samples")
         await rrf.fit(X, y)
         assert isinstance(rrf._aggregation_k, int)
         assert isinstance(rrf._aggregation_t, int)
@@ -2409,7 +2409,7 @@ class TestPromptPresets:
 
     @pytest.mark.asyncio
     async def test_preset_skips_meta_prompt(self) -> None:
-        """With a preset, set_tasks() should NOT make a meta-prompt LLM call."""
+        """With a preset, set_task() should NOT make a meta-prompt LLM call."""
         fake = FakeLLM()
         rrf = RRF(
             qgen_llmc=LLM_CHOICE,
@@ -2421,7 +2421,7 @@ class TestPromptPresets:
             _llm=fake,
         )
 
-        template = await rrf.set_tasks(task_description="Classify founders")
+        template = await rrf.set_task(task_description="Classify founders")
 
         # No LLM call should have been made (meta-prompt skipped)
         assert fake.call_count == 0
@@ -2446,7 +2446,7 @@ class TestPromptPresets:
             _llm=fake,
         )
         X, y = sample_data
-        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.set_task(task_description="Classify founders")
         await rrf.fit(X, y)
 
         # Find the Questions-format call (generation)
@@ -2472,7 +2472,7 @@ class TestPromptPresets:
             _llm=fake,
         )
         X, y = sample_data
-        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.set_task(task_description="Classify founders")
         await rrf.fit(X, y)
 
         # Find the Answer-format calls (answering)
@@ -2496,7 +2496,7 @@ class TestPromptPresets:
         )
 
         with pytest.raises(ValueError, match="[Cc]annot.*both|[Mm]utually"):
-            await rrf.set_tasks(
+            await rrf.set_task(
                 instructions_template="Generate <number_of_questions> questions"
             )
 
@@ -2514,7 +2514,7 @@ class TestPromptPresets:
             _llm=fake,
         )
 
-        template = await rrf.set_tasks(task_description="Classify founders")
+        template = await rrf.set_task(task_description="Classify founders")
         # Should work — name resolved to VC_FOUNDER_PRESET
         assert fake.call_count == 0
         assert template is not None
@@ -2543,7 +2543,7 @@ class TestPromptPresets:
             _llm=fake,
         )
 
-        template = await rrf.set_tasks(task_description="Classify founders")
+        template = await rrf.set_task(task_description="Classify founders")
         assert fake.call_count == 0
         assert template is not None
 
@@ -2775,7 +2775,7 @@ class TestCostSensitiveElasticNet:
             elasticnet_cv=2,
             _llm=FakeLLM(questions_per_call=5),
         )
-        await rrf.set_tasks(task_description="Classify founders")
+        await rrf.set_task(task_description="Classify founders")
         await rrf.fit(X, y)
 
         # Aggregation was tuned via the elastic-net path, not (K, T) vote.

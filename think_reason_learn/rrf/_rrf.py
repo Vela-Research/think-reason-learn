@@ -11,6 +11,7 @@ import inspect
 import logging
 import os
 import re
+import warnings
 from copy import deepcopy
 from enum import StrEnum
 from importlib.util import find_spec
@@ -29,7 +30,6 @@ from typing import (
     Tuple,
     cast,
 )
-from uuid import uuid4
 
 import numpy as np
 import numpy.typing as npt
@@ -39,6 +39,7 @@ import sklearn
 from pydantic import BaseModel, Field
 from sklearn.linear_model import LogisticRegression, LogisticRegressionCV
 
+from think_reason_learn.core import TRLModel
 from think_reason_learn.core.exceptions import CorruptionError, DataError, LLMError
 from think_reason_learn.core.llms import (
     JevBudget,
@@ -123,7 +124,7 @@ class QuestionExclusion(StrEnum):
         return obj
 
 
-class RRF:
+class RRF(TRLModel):
     """Interpretable ensemble binary classifier.
 
     Args:
@@ -144,7 +145,9 @@ class RRF:
         class_ratio: Ratio of YES to NO samples to use as context in a round
             of question generation.
         q_answer_update_interval: Logging interval of question answering.
-        save_path: Directory to save checkpoints/models.
+        save_path: Directory the model is saved to. Defaults to
+            ``./rrfs/<name>``; a loaded model keeps the directory it
+            was loaded from.
         name: Name of the forest instance.
         random_state: Random seed.
         use_cumulative_memory: Whether to use cumulative memory when generating
@@ -217,6 +220,8 @@ class RRF:
             similarity filters always use YES/NO.
         _llm: LLM instance for testing (dependency injection). If None, uses global llm.
     """
+
+    _default_save_dir = "rrfs"
 
     def __init__(
         self,
@@ -416,29 +421,6 @@ class RRF:
         if val not in ("probability", "binary"):
             raise ValueError("answer_features must be 'probability' or 'binary'")
 
-    def _get_name(self, name: str | None) -> str:
-        if name is None:
-            name = str(uuid4()).replace("-", "_")
-            logger.debug(f"No name provided. Assigned name: {name}")
-
-        if not re.match(r"^[a-zA-Z0-9_]+$", name):
-            raise ValueError("Name must be only alphanumeric and underscores")
-        return name
-
-    def _set_save_path(self, save_path: str | PathLike[str] | None) -> Path:
-        if save_path is None:
-            return (Path(os.getcwd()) / "rrfs" / self.name).resolve()
-        else:
-            save_path = Path(save_path).resolve()
-            if save_path.is_file():
-                raise ValueError("Please provide a directory, not a file.")
-            return save_path
-
-    @property
-    def token_usage(self) -> TokenCounter:
-        """Get the token counter for the RRF."""
-        return self._token_counter
-
     def _get_initial_questions_df(self) -> pd.DataFrame:
         """Initialize the questions dataframe."""
         return pd.DataFrame(
@@ -537,15 +519,10 @@ class RRF:
         """Get the question generation instructions template."""
         return self._qgen_instructions_template
 
-    @property
-    def task_description(self) -> str | None:
-        """Get the task description."""
-        return self._task_description
-
-    async def set_tasks(
+    async def set_task(
         self,
-        instructions_template: str | None = None,
         task_description: str | None = None,
+        instructions_template: str | None = None,
     ) -> str:
         """Initialize question generation instructions template.
 
@@ -554,11 +531,11 @@ class RRF:
         For most users, LLM generation is recommended over custom templates.
 
         Args:
+            task_description: Description of classification task to help LLM generate
+                the template.
             instructions_template: Custom template to use. Must contain
                 '<number_of_questions>' tag. If None, generates template
                 from task_description using LLM.
-            task_description: Description of classification task to help LLM generate
-                the template.
 
         Returns:
             The question generation instructions template.
@@ -595,6 +572,7 @@ class RRF:
                     "This tag will be replaced with the number of questions to generate"
                 )
             else:
+                self._task_description = task_description
                 self._qgen_instructions_template = instructions_template
                 return instructions_template
 
@@ -610,7 +588,7 @@ class RRF:
             provider=response.provider_model.provider,
             model=response.provider_model.model,
             value=response.total_tokens,
-            caller="RRF._set_tasks",
+            caller="RRF.set_task",
         )
         if not response.response:
             raise ValueError(
@@ -639,11 +617,28 @@ class RRF:
         self._qgen_instructions_template = response.response
         return response.response
 
+    async def set_tasks(
+        self,
+        instructions_template: str | None = None,
+        task_description: str | None = None,
+    ) -> str:
+        """Deprecated: use ``set_task(task_description, instructions_template)``.
+
+        Same as ``set_task``, with the arguments in the opposite order.
+        """
+        warnings.warn(
+            "RRF.set_tasks() is deprecated; use "
+            "set_task(task_description, instructions_template) instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return await self.set_task(task_description, instructions_template)
+
     def _get_question_gen_instructions(self, num_questions: int) -> str:
         if not self._qgen_instructions_template:
             raise ValueError(
                 "Question generation instructions template is not set. "
-                "Set the template using `set_tasks`."
+                "Set the template using `set_task`."
             )
 
         return self._qgen_instructions_template.replace(
@@ -1955,7 +1950,7 @@ class RRF:
 
             # sklearn-style workflow
             rrf = RRF(qgen_llmc=llm_choices, name="my_rrf")
-            await rrf.set_tasks(task_description="Classify founders")
+            await rrf.set_task(task_description="Classify founders")
             await rrf.fit(X_train, y_train)
 
             # Predict on new data
@@ -2867,7 +2862,7 @@ class RRF:
     ) -> None:
         """Save model config to JSON and dataframes to parquet in a directory.
 
-        If dir_path is None, uses `<self.save_path>/<self.name>`.
+        If dir_path is None, uses `self.save_path`.
         If for_production is True, strips the questions dataframe and does not save
         the answers and training dataframes.
 
@@ -2875,10 +2870,14 @@ class RRF:
             dir_path: The directory to save the RRF to.
             for_production: Whether to save the RRF for production.
         """
-        base = Path(dir_path) if dir_path is not None else (self.save_path / self.name)
+        base = Path(dir_path) if dir_path is not None else self.save_path
         if base.is_file():
             raise ValueError("Please provide a directory, not a file.")
         base.mkdir(parents=True, exist_ok=True)
+        if for_production:
+            # Training files an earlier save left here must not survive.
+            for name in ("answers.parquet", "answer_probs.parquet", "data.parquet"):
+                (base / name).unlink(missing_ok=True)
 
         if not for_production:
             qdf = self._questions.copy()
@@ -2991,7 +2990,7 @@ class RRF:
             class_ratio=tuple(manifest["class_ratio"]),
             q_answer_update_interval=manifest["q_answer_update_interval"],
             random_state=manifest["random_state"],
-            save_path=str(base.parent),
+            save_path=str(base),
             name=manifest["name"],
             use_cumulative_memory=manifest.get("use_cumulative_memory", True),
             question_scoring_f_beta=manifest.get("question_scoring_f_beta", 1.0),
@@ -3077,9 +3076,3 @@ class RRF:
             )
         except Exception as e:
             raise e
-
-    def __repr__(self) -> str:
-        return f"RRF(name={self.name})"
-
-    def __str__(self) -> str:
-        return f"RRF(name={self.name})"

@@ -24,14 +24,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
-import os
 import re
 from copy import deepcopy
 from dataclasses import asdict
 from os import PathLike
 from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, List, Literal, Self, Sequence, Tuple
-from uuid import uuid4
 
 import numpy as np
 import orjson
@@ -40,6 +38,7 @@ from joblib import dump as joblib_dump
 from joblib import load as joblib_load
 from sklearn.linear_model import LogisticRegression
 
+from think_reason_learn.core import TRLModel
 from think_reason_learn.core.exceptions import DataError, LLMError
 from think_reason_learn.core.llms import LLMChoice, TokenCounter, llm
 
@@ -58,7 +57,7 @@ logger = logging.getLogger(__name__)
 _RULE_OUTCOME_RE = re.compile(r"label\s*=\s*(YES|NO)", re.IGNORECASE)
 
 
-class ReasonedRuleMining:
+class ReasonedRuleMining(TRLModel):
     """Interpretable rule-mining binary classifier.
 
     Args:
@@ -76,6 +75,8 @@ class ReasonedRuleMining:
         _llm: LLM instance for dependency injection (testing). If None, uses the
             global ``llm`` singleton.
     """
+
+    _default_save_dir = "reasoned_rule_mining"
 
     def __init__(
         self,
@@ -152,35 +153,9 @@ class ReasonedRuleMining:
         if not (nm is None or isinstance(nm, str)):
             raise ValueError("name must be None or a string")
 
-    @staticmethod
-    def _get_name(name: str | None) -> str:
-        if name is None:
-            name = str(uuid4()).replace("-", "_")
-        if not re.match(r"^[a-zA-Z0-9_]+$", name):
-            raise ValueError("Name must be only alphanumeric and underscores")
-        return name
-
-    def _set_save_path(self, save_path: str | PathLike[str] | None) -> Path:
-        if save_path is None:
-            return (Path(os.getcwd()) / "reasoned_rule_mining" / self.name).resolve()
-        path = Path(save_path).resolve()
-        if path.is_file():
-            raise ValueError("Please provide a directory, not a file.")
-        return path
-
     # ------------------------------------------------------------------
     # Properties
     # ------------------------------------------------------------------
-
-    @property
-    def token_usage(self) -> TokenCounter:
-        """Token counter accumulating usage across all LLM calls."""
-        return self._token_counter
-
-    @property
-    def task_description(self) -> str | None:
-        """The configured task description."""
-        return self._task_description
 
     @property
     def policy(self) -> str:
@@ -937,7 +912,7 @@ class ReasonedRuleMining:
             reason_temperature=manifest["reason_temperature"],
             predict_temperature=manifest["predict_temperature"],
             llm_semaphore_limit=manifest["llm_semaphore_limit"],
-            save_path=str(base.parent),
+            save_path=str(base),
             name=manifest["name"],
         )
         inst._task_description = manifest.get("task_description")
@@ -957,7 +932,3 @@ class ReasonedRuleMining:
         if manifest.get("mod_platt_file"):
             inst._mod_platt = joblib_load(base / manifest["mod_platt_file"])
         return inst
-
-    def __repr__(self) -> str:
-        """Return a concise representation."""
-        return f"ReasonedRuleMining(name={self.name})"

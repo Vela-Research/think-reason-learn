@@ -2316,7 +2316,7 @@ class TestCrossValidation:
         """Function runs and returns CVResult with correct types."""
         answers, y = _make_answer_matrix()
         result = cross_validate_aggregation(
-            answers, y, n_splits=5, n_repeats=2, beta=0.5
+            answers, y, n_splits=5, n_repeats=2, beta=0.5, method="vote"
         )
         assert isinstance(result, CVResult)
         assert isinstance(result.fold_metrics, pd.DataFrame)
@@ -2327,7 +2327,7 @@ class TestCrossValidation:
         """n_splits=5, n_repeats=2 gives 10 fold rows."""
         answers, y = _make_answer_matrix()
         result = cross_validate_aggregation(
-            answers, y, n_splits=5, n_repeats=2, beta=0.5
+            answers, y, n_splits=5, n_repeats=2, beta=0.5, method="vote"
         )
         assert len(result.fold_metrics) == 10
         assert set(result.fold_metrics.columns) >= {
@@ -2349,7 +2349,7 @@ class TestCrossValidation:
         answers, y = _make_answer_matrix(n_samples=30)
         n_repeats = 3
         result = cross_validate_aggregation(
-            answers, y, n_splits=5, n_repeats=n_repeats, beta=0.5
+            answers, y, n_splits=5, n_repeats=n_repeats, beta=0.5, method="vote"
         )
         counts = result.per_founder.groupby("sample_idx").size()
         assert len(counts) == 30
@@ -2359,7 +2359,7 @@ class TestCrossValidation:
         """Summary dict has mean and std for each metric."""
         answers, y = _make_answer_matrix()
         result = cross_validate_aggregation(
-            answers, y, n_splits=5, n_repeats=1, beta=0.5
+            answers, y, n_splits=5, n_repeats=1, beta=0.5, method="vote"
         )
         for m in ("precision", "recall", "f1", "f_beta", "accuracy"):
             assert f"{m}_mean" in result.summary
@@ -2369,7 +2369,7 @@ class TestCrossValidation:
         """Train and test indices never overlap within a fold."""
         answers, y = _make_answer_matrix(n_samples=30)
         result = cross_validate_aggregation(
-            answers, y, n_splits=5, n_repeats=2, beta=0.5
+            answers, y, n_splits=5, n_repeats=2, beta=0.5, method="vote"
         )
         # Per repeat, all sample indices appear exactly once
         for rep in range(2):
@@ -2386,6 +2386,7 @@ class TestCrossValidation:
             n_repeats=1,
             metric="f_beta",
             beta=0.5,
+            method="vote",
         )
         r2 = cross_validate_aggregation(
             answers,
@@ -2394,6 +2395,7 @@ class TestCrossValidation:
             n_repeats=1,
             metric="precision",
             beta=0.5,
+            method="vote",
         )
         # Both should succeed; K/T selections may differ
         assert len(r1.fold_metrics) == 5
@@ -2744,6 +2746,52 @@ class TestCrossValidationElasticNet:
         for m in ("precision", "recall", "f1", "f_beta", "accuracy"):
             assert f"{m}_mean" in result.summary
             assert f"{m}_std" in result.summary
+
+    @pytest.mark.filterwarnings("ignore:The least populated class")
+    def test_one_class_training_fold_is_skipped(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # One YES in 40: the fold that tests it trains on NO only.
+        answers, y = _make_answer_matrix(n_samples=40, pos_rate=0.025)
+        with caplog.at_level("WARNING"):
+            result = cross_validate_aggregation(answers, y, n_splits=5, n_repeats=1)
+
+        assert len(result.fold_metrics) == 4
+        assert len(result.per_founder) == 32
+        assert "skipping" in caplog.text
+
+    @pytest.mark.parametrize(
+        "answers",
+        [
+            pd.DataFrame({"q0": [0.2, 1.3]}),
+            pd.DataFrame({"q0": [-0.1, 0.4]}),
+            pd.DataFrame({"q0": ["YES", 0.4]}),
+            pd.DataFrame({"q0": ["YES", "NO"], "q1": [0.3, 0.8]}),
+            pd.DataFrame({"q0": ["yes", "NO"]}),
+        ],
+    )
+    def test_answers_must_be_yes_no_or_probabilities(
+        self, answers: pd.DataFrame
+    ) -> None:
+        with pytest.raises(ValueError, match="answer_matrix"):
+            cross_validate_aggregation(answers, ["YES", "NO"], n_splits=2)
+
+    @pytest.mark.parametrize(
+        "y", [["NO"] * 30, ["MAYBE"] * 6 + ["NO"] * 24, ["YES", "NO"] * 10]
+    )
+    def test_labels_must_be_yes_and_no_for_every_row(self, y: list[str]) -> None:
+        answers, _ = _make_answer_matrix(n_samples=30)
+        with pytest.raises(ValueError, match="y "):
+            cross_validate_aggregation(answers, y, n_splits=2)
+
+    def test_labels_are_case_insensitive(self) -> None:
+        """As in RRF, "yes"/"no" are the same labels as "YES"/"NO"."""
+        answers, y = _make_answer_matrix(n_samples=30)
+        upper = cross_validate_aggregation(answers, y, n_splits=2, n_repeats=1)
+        lower = cross_validate_aggregation(
+            answers, [label.lower() for label in y], n_splits=2, n_repeats=1
+        )
+        pd.testing.assert_frame_equal(upper.fold_metrics, lower.fold_metrics)
 
 
 # ---------------------------------------------------------------------------

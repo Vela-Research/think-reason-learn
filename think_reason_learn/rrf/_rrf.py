@@ -21,6 +21,7 @@ from typing import (
     Any,
     AsyncGenerator,
     Dict,
+    Final,
     Generator,
     Iterable,
     List,
@@ -91,6 +92,103 @@ _NEW_CV_ATTRIBUTES: Dict[str, Any] = (
     if "use_legacy_attributes" in inspect.signature(LogisticRegressionCV).parameters
     else {}
 )
+
+# RRF's default founder-level combiner; cross_validate_aggregation defaults to
+# the same so it evaluates the model RRF fits by default.
+_DEFAULT_AGGREGATION_METHOD: Final[Literal["vote", "elasticnet"]] = "elasticnet"
+_DEFAULT_AGGREGATION_METRIC: Final[
+    Literal["f1", "f_beta", "accuracy", "precision", "recall"]
+] = "f1"
+_DEFAULT_ELASTICNET_CS: Final[Tuple[float, ...]] = (1.0,)
+_DEFAULT_ELASTICNET_L1_RATIOS: Final[Tuple[float, ...]] = (0.1, 0.5)
+_DEFAULT_ELASTICNET_CV: Final[int] = 3
+
+
+def _fit_elasticnet(
+    x: npt.NDArray[np.float64],
+    y: npt.NDArray[np.int_],
+    *,
+    cs: Sequence[float],
+    l1_ratios: Sequence[float],
+    cv: int,
+    random_state: int,
+    metric: str,
+    beta: float,
+) -> Tuple[LogisticRegression | LogisticRegressionCV, float, float]:
+    """Fit the elastic-net combiner and tune its decision threshold.
+
+    Shared by ``RRF`` and ``cross_validate_aggregation``. ``C`` and
+    ``l1_ratio`` are chosen by inner CV over ``cs`` and ``l1_ratios``; the
+    threshold maximises ``metric`` on the training probabilities.
+
+    Args:
+        x: ``(n_samples, n_questions)`` features.
+        y: 0/1 labels holding both classes.
+        cs: Inverse-regularisation grid.
+        l1_ratios: Elastic-net mixing grid.
+        cv: Inner-CV folds, capped at the smaller class's size.
+        random_state: Seed for the solver and inner CV.
+        metric: Metric the threshold maximises (see ``RRF._compute_metric``).
+        beta: Beta for ``"f_beta"``.
+
+    Returns:
+        ``(model, threshold, score)``: the fitted model, its threshold on
+        P(YES), and ``metric`` on the training data at that threshold.
+    """
+    # Inner CV needs at least one sample of each class per fold.
+    folds = min(cv, int(np.bincount(y).min()))
+    model: LogisticRegression | LogisticRegressionCV
+    if folds >= 2:
+        model = LogisticRegressionCV(
+            solver="saga",
+            Cs=list(cs),  # type: ignore[arg-type]
+            # scikit-learn >= 1.8 stubs type this as str (a sentinel default).
+            l1_ratios=list(l1_ratios),  # type: ignore[arg-type]
+            cv=folds,
+            scoring="roc_auc",
+            max_iter=5000,
+            random_state=random_state,
+            n_jobs=1,
+            refit=True,
+            **_elasticnet_penalty(),
+            **_NEW_CV_ATTRIBUTES,
+        )
+    else:
+        logger.warning(
+            "One training sample of the smaller class is too few for inner "
+            "CV; fitting elastic-net with C=%s and l1_ratio=%s.",
+            cs[0],
+            l1_ratios[0],
+        )
+        model = LogisticRegression(
+            solver="saga",
+            C=cs[0],
+            l1_ratio=l1_ratios[0],
+            max_iter=5000,
+            random_state=random_state,
+            **_elasticnet_penalty(),
+        )
+    model.fit(x, y)
+    proba = model.predict_proba(x)[:, 1]
+
+    # Candidate thresholds come from the fitted probabilities: with rare
+    # positives every P(YES) can sit far below any fixed grid. Each cut lies
+    # halfway between neighbouring values (0 means all YES, a cut above the
+    # largest means all NO), so recomputing
+    # a probability at predict time cannot round it onto the wrong side.
+    cuts = np.unique(proba)
+    if len(cuts) > 2001:
+        cuts = np.unique(np.quantile(proba, np.linspace(0, 1, 2001)))
+    thresholds = np.concatenate(
+        ([0.0], (cuts[:-1] + cuts[1:]) / 2, [np.nextafter(cuts[-1], 2.0)])
+    )
+    best_score, best_thr = -1.0, 0.5
+    for thr in thresholds:
+        preds = (proba >= thr).astype(int)
+        score = RRF._compute_metric(preds, y, metric, beta=beta)
+        if score > best_score:
+            best_score, best_thr = score, float(thr)
+    return model, best_thr, best_score
 
 
 class Questions(BaseModel):
@@ -245,12 +343,12 @@ class RRF(TRLModel):
         semantic_similarity_threshold: float = 0.9,
         aggregation_metric: Literal[
             "f1", "f_beta", "accuracy", "precision", "recall"
-        ] = "f1",
+        ] = _DEFAULT_AGGREGATION_METRIC,
         aggregation_max_k: int | None = None,
-        aggregation_method: Literal["vote", "elasticnet"] = "elasticnet",
-        elasticnet_cs: Tuple[float, ...] = (1.0,),
-        elasticnet_l1_ratios: Tuple[float, ...] = (0.1, 0.5),
-        elasticnet_cv: int = 3,
+        aggregation_method: Literal["vote", "elasticnet"] = _DEFAULT_AGGREGATION_METHOD,
+        elasticnet_cs: Tuple[float, ...] = _DEFAULT_ELASTICNET_CS,
+        elasticnet_l1_ratios: Tuple[float, ...] = _DEFAULT_ELASTICNET_L1_RATIOS,
+        elasticnet_cv: int = _DEFAULT_ELASTICNET_CV,
         cost_sensitive: bool = False,
         cost_sensitive_config: CostSensitiveConfig | None = None,
         prompt_preset: str | PromptPreset | None = None,
@@ -1742,65 +1840,16 @@ class RRF(TRLModel):
             )
             return
 
-        # Inner CV needs at least one sample of each class per fold.
-        folds = min(self.elasticnet_cv, int(np.bincount(y_true).min()))
-        model: LogisticRegression | LogisticRegressionCV
-        if folds >= 2:
-            model = LogisticRegressionCV(
-                solver="saga",
-                Cs=list(self.elasticnet_cs),  # type: ignore[arg-type]
-                # scikit-learn >= 1.8 stubs type this as str (a sentinel default).
-                l1_ratios=list(self.elasticnet_l1_ratios),  # type: ignore[arg-type]
-                cv=folds,
-                scoring="roc_auc",
-                max_iter=5000,
-                random_state=self.random_state,
-                n_jobs=1,
-                refit=True,
-                **_elasticnet_penalty(),
-                **_NEW_CV_ATTRIBUTES,
-            )
-        else:
-            logger.warning(
-                "One training sample of the smaller class is too few for inner "
-                "CV; fitting elastic-net with C=%s and l1_ratio=%s.",
-                self.elasticnet_cs[0],
-                self.elasticnet_l1_ratios[0],
-            )
-            model = LogisticRegression(
-                solver="saga",
-                C=self.elasticnet_cs[0],
-                l1_ratio=self.elasticnet_l1_ratios[0],
-                max_iter=5000,
-                random_state=self.random_state,
-                **_elasticnet_penalty(),
-            )
-        model.fit(x, y_true)
-        proba = model.predict_proba(x)[:, 1]
-
-        # Candidate thresholds come from the fitted probabilities: with rare
-        # positives every P(YES) can sit far below any fixed grid. Each cut lies
-        # halfway between neighbouring values (0 means all YES, a cut above the
-        # largest means all NO), so recomputing
-        # a probability at predict time cannot round it onto the wrong side.
-        cuts = np.unique(proba)
-        if len(cuts) > 2001:
-            cuts = np.unique(np.quantile(proba, np.linspace(0, 1, 2001)))
-        thresholds = np.concatenate(
-            ([0.0], (cuts[:-1] + cuts[1:]) / 2, [np.nextafter(cuts[-1], 2.0)])
+        model, best_thr, best_score = _fit_elasticnet(
+            x,
+            y_true,
+            cs=self.elasticnet_cs,
+            l1_ratios=self.elasticnet_l1_ratios,
+            cv=self.elasticnet_cv,
+            random_state=self.random_state,
+            metric=self.aggregation_metric,
+            beta=self.question_scoring_f_beta,
         )
-        best_score, best_thr = -1.0, 0.5
-        for thr in thresholds:
-            preds = (proba >= thr).astype(int)
-            score = RRF._compute_metric(
-                preds,
-                y_true,
-                self.aggregation_metric,
-                beta=self.question_scoring_f_beta,
-            )
-            if score > best_score:
-                best_score, best_thr = score, float(thr)
-
         coefs = np.ravel(model.coef_)
         self._aggregation_weights = {
             qid: float(w) for qid, w in zip(active_qids, coefs)

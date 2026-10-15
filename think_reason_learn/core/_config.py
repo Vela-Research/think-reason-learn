@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     GOOGLE_AI_API_KEY: str = ""
     XAI_API_KEY: str = ""
     ANTHROPIC_API_KEY: str = ""
+    TYPESAFE_API_KEY: str = ""
 
     model_config = SettingsConfigDict(
         case_sensitive=False,

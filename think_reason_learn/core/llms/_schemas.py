@@ -24,29 +24,33 @@ from ._openai.schemas import (
 )
 from ._google.schemas import GoogleChatModel, GoogleChoice, GoogleChoiceDict
 from ._xai.schemas import xAIChatModel, XAIChoice, XAIChoiceDict
+from ._jev.schemas import JevChoice, JevChoiceDict, JevModel
 
 
 T = TypeVar("T", bound=BaseModel | str, covariant=True)
 
 
-LLMProvider: TypeAlias = Literal["anthropic", "google", "openai", "xai"]
+LLMProvider: TypeAlias = Literal["anthropic", "google", "openai", "xai", "jev"]
 LLMChatModel: TypeAlias = Union[
     AnthropicChatModel,
     GoogleChatModel,
     OpenAIChatModel,
     xAIChatModel,
+    JevModel,
 ]
 LLMChoiceModel: TypeAlias = Union[
     AnthropicChoice,
     GoogleChoice,
     OpenAIChoice,
     XAIChoice,
+    JevChoice,
 ]
 LLMChoiceDict: TypeAlias = Union[
     AnthropicChoiceDict,
     GoogleChoiceDict,
     OpenAIChoiceDict,
     XAIChoiceDict,
+    JevChoiceDict,
 ]
 LLMChoice: TypeAlias = LLMChoiceModel | LLMChoiceDict
 

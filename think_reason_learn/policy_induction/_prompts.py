@@ -58,3 +58,9 @@ Requirements:
 Output format:
 Return ONLY ONE WORD: YES / NO.
 """
+
+POLICY_PREDICT_JEV_TEMPLATE = """\
+Task: {task_description}
+Policy (guidance, not a strict rule): {policy}
+Considering this policy along with the sample's full content, is the answer to \
+the task YES?"""

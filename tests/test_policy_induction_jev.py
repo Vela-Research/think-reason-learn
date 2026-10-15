@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any, List
 
@@ -14,12 +15,15 @@ from think_reason_learn.core.llms import (
     NoulQuestion,
     OpenAIChoice,
 )
+from think_reason_learn.core.exceptions import JevCostCapError, LLMError
 from think_reason_learn.core.llms._schemas import LLMResponse
 from think_reason_learn.policy_induction import PolicyInduction
 from think_reason_learn.policy_induction import _policy_induction as pi_module
 from think_reason_learn.policy_induction._policy_induction import (
     Answer as PIAnswer,
+    BatchedAnswers,
     Policies,
+    PolicyAnswer,
 )
 from tests.fake_jev import FakeJevLLM
 
@@ -61,6 +65,11 @@ class FakePILLM(FakeJevLLM):
             response: Any = Policies(policies=POLICIES)
         elif response_format is PIAnswer:
             response = PIAnswer(answer="YES")
+        elif response_format is BatchedAnswers:
+            ids = [int(i) for i in re.findall(r"^id=(\d+):", query, re.MULTILINE)]
+            response = BatchedAnswers(
+                answers=[PolicyAnswer(policy_id=i, answer="YES") for i in ids]
+            )
         else:
             raise TypeError(f"unexpected response_format {response_format!r}")
         return LLMResponse(
@@ -142,6 +151,52 @@ async def test_predict_asks_weighted_policies_once_per_sample(
 
 
 @pytest.mark.asyncio
+async def test_predict_skips_a_sample_jev_could_not_answer(
+    tmp_path: Path, fake: FakePILLM
+) -> None:
+    """No answers means no prediction, as on the chat path, not an all-NO vector."""
+    pi = await _fit(_pi(tmp_path))
+    fake.prob = lambda state, instr: None if "unanswerable" in state else 0.9
+
+    X_new = pd.DataFrame({"text": ["strong founder x", "unanswerable founder"]})
+    out = [i async for i, _, _, _ in pi.predict(X_new)]
+
+    assert out == [0]
+    assert (tmp_path / pi._PREDICT_CKPT_NAME).exists()
+
+
+@pytest.mark.asyncio
+async def test_predict_skips_samples_when_every_jev_request_fails(
+    tmp_path: Path, fake: FakePILLM, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Like the chat path: skip and keep the checkpoint, so a retry can't jam."""
+    pi = await _fit(_pi(tmp_path))
+
+    async def all_failed(*args: Any, **kwargs: Any) -> Any:
+        raise LLMError("Every Jev request failed.")
+
+    monkeypatch.setattr(fake, "answer_many", all_failed)
+    X_new = pd.DataFrame({"text": ["strong founder x", "weak founder y"]})
+
+    for _ in range(2):  # the retry too
+        assert [i async for i, _, _, _ in pi.predict(X_new)] == []
+
+
+@pytest.mark.asyncio
+async def test_predict_raises_when_jev_stops_on_its_cost_cap(
+    tmp_path: Path, fake: FakePILLM, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pi = await _fit(_pi(tmp_path))
+
+    async def capped(*args: Any, **kwargs: Any) -> Any:
+        raise JevCostCapError("Spend passed the cap.")
+
+    monkeypatch.setattr(fake, "answer_many", capped)
+    with pytest.raises(JevCostCapError):
+        _ = [r async for r in pi.predict(pd.DataFrame({"text": ["strong x"]}))]
+
+
+@pytest.mark.asyncio
 async def test_request_estimate_counts_one_jev_request_per_sample(
     tmp_path: Path, fake: FakePILLM
 ) -> None:
@@ -160,4 +215,4 @@ async def test_chat_scoring_keeps_the_chat_path(
     await _fit(_pi(tmp_path, predict_llmc=[OpenAIChoice(model="gpt-4.1-nano")]))
 
     assert fake.answer_requests == []
-    assert any(c["response_format"] is PIAnswer for c in fake.calls)
+    assert any(c["response_format"] is BatchedAnswers for c in fake.calls)

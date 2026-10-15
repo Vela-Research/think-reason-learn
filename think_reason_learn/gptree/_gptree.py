@@ -225,7 +225,9 @@ class GPTree:
         n_samples_as_context: Number of samples used as context in generation.
         class_ratio: Strategy for class sampling ("balanced" or dict of ratios).
         use_critic: Whether to critique generated questions.
-        save_path: Directory to save checkpoints/models.
+        save_path: Directory the model is saved to. Defaults to
+            ``./gptrees/<name>``; a loaded model keeps the directory it
+            was loaded from.
         name: Name of the tree instance.
         random_state: Random seed.
     """
@@ -1968,14 +1970,14 @@ class GPTree:
     ) -> None:
         """Save model config to JSON and dataframes to parquet in a directory.
 
-        If dir_path is None, uses `<self.save_path>/<self.name>`.
+        If dir_path is None, uses `self.save_path`.
         If for_production is True, does not save the training dataframe.
 
         Args:
             dir_path: The directory to save the tree to.
             for_production: Whether to save the tree for production.
         """
-        base = Path(dir_path) if dir_path is not None else (self.save_path / self.name)
+        base = Path(dir_path) if dir_path is not None else self.save_path
         if base.is_file():
             raise ValueError("Please provide a directory, not a file.")
         base.mkdir(parents=True, exist_ok=True)

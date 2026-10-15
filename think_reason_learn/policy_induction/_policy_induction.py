@@ -399,9 +399,10 @@ class PolicyInduction:
             raise DataError("y must be a sequence of strings")
         if len(y) != X.shape[0]:
             raise DataError("X and y must have the same number of rows")
-        if set(np.unique(y)) != {"YES", "NO"}:
-            raise DataError("y must contain only 'YES' or 'NO'")
-        y_arr = np.array([v.upper() for v in y], dtype=np.str_)
+        upper_y = [v.upper() for v in y]
+        if set(upper_y) != {"YES", "NO"}:
+            raise DataError("y must contain only 'YES' or 'NO' (case insensitive)")
+        y_arr = np.array(upper_y, dtype=np.str_)
         self._X = deepcopy(X).reset_index(drop=True)
         self._y = deepcopy(y_arr)
 

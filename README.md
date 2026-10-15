@@ -1,5 +1,5 @@
 # Think Reason Learn   
-[Website](https://thinkreasonlearn.com/) · [Docs](https://thinkreasonlearn.com/modules.html)  
+[Website](https://thinkreasonlearn.com/) · [Docs](https://thinkreasonlearn.com/docs/)  
 
 TRL is an open-source Python library that extends traditional machine learning with language-based reasoning.
 It re-implements core algorithms such as decision trees and random forests so that each step of the model can call on an LLM as a reasoning function instead of a static heuristic.
@@ -23,7 +23,7 @@ TRL is developed by Vela Research in collaboration with the University of Oxford
 - **Reasoned Rule Mining (RRM)**: Mines natural-language IF-THEN rules from LLM reasoning into a calibrated, weighted ensemble.
 - **Verifiable RL**: Adaptive information-gathering — a learned policy decides what to reveal next (or stop), then classifies from the partial state.
 
-For in-depth papers and methodology, see our [Research section](https://thinkreasonlearn.com/research.html).
+For in-depth papers and methodology, see our [Research section](https://thinkreasonlearn.com/research).
 
 ## Installation
 
@@ -56,10 +56,19 @@ poetry install --with dev,docs
 poetry run pre-commit install  # Optional: code quality hooks
 ```
 
+### API keys
+
+A chat model (OpenAI, Google, Anthropic or xAI) writes the questions and policies; set its key, e.g. `OPENAI_API_KEY`.
+Jev, Typesafe's System One model, answers them about each sample by default, so also set `TYPESAFE_API_KEY`
+(see [docs.typesafe.ai](https://docs.typesafe.ai)). Keys can go in the environment or in a git-ignored `.env` file.
+Each `fit()` or `predict()` prints its estimated Jev cost first and stops at a $10 cap unless you set another
+(`JevChoice(max_cost_usd=...)`). To answer with a chat model instead, pass it as the answering model, e.g.
+`RRF(qgen_llmc=llm, qanswer_llmc=llm)`, `GPTree(..., qanswer_llmc=llm)` or `PolicyInduction(..., predict_llmc=llm)`.
+
 ### Troubleshooting
 
 - If you encounter dependency issues, ensure your Python version matches.
-- For LLM integrations, set API keys as environment variables (e.g., OPENAI_API_KEY).
+- For LLM integrations, set API keys as environment variables (e.g., OPENAI_API_KEY, and TYPESAFE_API_KEY for Jev).
 - See [Contributing](https://github.com/Vela-Research/think-reason-learn/blob/main/CONTRIBUTING.md) for more dev tips.
 
 ## Quick Start

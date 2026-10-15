@@ -1,6 +1,6 @@
 [project]
 name = "think-reason-learn"
-version = "0.1.0"
+version = "0.2.0"
 description = "Interpretable tree/forest-style decision-making systems powered by LLMs"
 readme = "README.md"
 license = { text = "MIT" }
@@ -27,12 +27,13 @@ dependencies = [
     "pyarrow (>=21.0.0,<22.0.0)",
     "tqdm (>=4.68.4,<5.0.0)",
     "torch (>=2.2.0,<3.0.0)",
+    "httpx (>=0.28.1,<1.0.0)",
 ]
 
 [project.urls]
 Homepage = "https://thinkreasonlearn.com/"
 Repository = "https://github.com/Vela-Research/think-reason-learn"
-Documentation = "https://thinkreasonlearn.com/modules.html"
+Documentation = "https://thinkreasonlearn.com/docs/"
 
 [tool.poetry]
 packages = [{ include = "think_reason_learn" }]

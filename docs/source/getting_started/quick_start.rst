@@ -1,83 +1,74 @@
-Quick Start
+Quick start
 -----------
 
-GPTree
-~~~~~~
+This fits a small GPTree on six example founder profiles, draws the tree and prints a prediction for each profile. Run
+it in Jupyter, which allows ``await`` at the top level, with ``OPENAI_API_KEY`` and ``TYPESAFE_API_KEY`` set and
+Graphviz installed.
 
 .. code-block:: python
 
-   # Setup imports
-
-   from IPython.display import Image
    import pandas as pd
-   import numpy as np
+   from IPython.display import Image, display
    from think_reason_learn.gptree import GPTree
-   from think_reason_learn.core.llms import GoogleChoice, OpenAIChoice
-   from think_reason_learn.core.llms import XAIChoice, AnthropicChoice
+   from think_reason_learn.core.llms import OpenAIChoice
 
-   import asyncio
+   X = pd.DataFrame({"founder_info": [
+       "Alex is a serial entrepreneur with two successful exits and expertise in AI.",
+       "Jordan graduated top of class from Oxford but has no business experience.",
+       "Taylor has 10 years in finance, raised a seed round quickly and built a strong team.",
+       "Casey started a company out of high school and has faced several failures.",
+       "Morgan is a former Google engineer with machine learning patents and VC backing.",
+       "Seraphine has a first-class degree in Minerals Engineering and a strong mining network.",
+   ]})
+   y = ["successful", "failed", "successful", "failed", "successful", "successful"]
 
-   # Sample data: Predict startup founder success
+   llm = [OpenAIChoice(model="gpt-4o-mini")]
+   tree = GPTree(qgen_llmc=llm, critic_llmc=llm, qgen_instr_llmc=llm, max_depth=2)
+   await tree.set_tasks(task_description="Predict whether a founder succeeds or fails from their background.")
 
-   X = pd.DataFrame(
-       {
-           "founder_info": [
-               "Alex is a serial entrepreneur with two successful exits, strong network in Silicon Valley, and expertise in AI.",
-               "Jordan graduated top of class from Oxford but has no prior business experience and limited funding.",
-               "Taylor has 10 years in finance, secured seed funding quickly, and built a talented team.",
-               "Casey started a company right out of high school, faced multiple failures, but persists with innovative ideas.",
-               "Morgan is a former Google engineer with patents in machine learning and venture capital backing."
-               "Seraphine graduated from UMaT with a first class degree in Minerals Engineering and has a strong network in the mining industry."
-           ]
-       }
-   )
-   y = np.array(["successful", "failed", "successful", "failed", "successful", "successful"])
+   async for node in tree.fit(X, y, reset=True):
+       pass  # each step yields the node just built
 
-   # Initialize GPTree with LLM choices
-   tree = GPTree(
-       qgen_llmc=[
-           GoogleChoice(model="gemini-1.5-flash-latest"),
-           OpenAIChoice(model="gpt-5"),
-           XAIChoice(model="grok-3-mini"),
-       ],
-       critic_llmc=[
-           XAIChoice(model="grok-3-mini"),
-           OpenAIChoice(model="gpt-4o-mini"),
-           AnthropicChoice(model="claude-3-5-sonnet-20240620"),
-       ],
-       qgen_instr_llmc=[
-           GoogleChoice(model="gemini-1.5-flash-latest"),
-           XAIChoice(model="grok-3-mini"),
-       ],
-   )
+   display(Image(tree.view_node(tree.get_root_id())))
+   print(tree.get_questions())
 
-   # Generate question generation instructions template
-   qgit = await tree.set_tasks(
-       task_description="Predict if a startup founder will be successful or fail based on their background.",
-   )
+   async for index, question, answer, node_id, usage in tree.predict(X):
+       print(index, question, answer)
 
-   # Print the generated instructions template
-   print(qgit)
+Other providers work the same way. Use ``AnthropicChoice``, ``GoogleChoice`` or ``XAIChoice`` from
+``think_reason_learn.core.llms`` with the matching API key. The API reference covers
+:doc:`Random Rule Forest </think_reason_learn.rrf>` and the other methods.
 
-   # Fit the tree
-   fitter = tree.fit(X, y, reset=True)
+Who answers the questions
+~~~~~~~~~~~~~~~~~~~~~~~~~
 
-   # Build the root node / Could do it in a loop or manually
-   root = await anext(fitter)
+The chat model above writes the tree's questions. Jev, Typesafe's System One model, answers them for each profile:
+it is the default answering model in GPTree, Random Rule Forest (``qanswer_llmc``) and Policy Induction
+(``predict_llmc``). Jev reads one sample and answers all the questions about it in one request, so the sample is paid
+for once rather than once per question. Labels are never sent to it.
 
-   # Visualize the tree
-   display(Image(tree.view_tree()))
+Before a run spends anything, the library prints the estimated cost. Each ``fit()`` or ``predict()`` stops if the
+estimate, or the actual spend, passes its cap, which is $10 unless you set another. Answers already paid for are kept
+in ``~/.cache/think_reason_learn/jev`` and reused when the same sample and questions come up again:
 
-   # Get training data with generated features
-   tree.get_training_data()
+.. code-block:: python
 
-   # Get all generated questions
-   tree.get_questions()
+   from think_reason_learn.core.llms import JevChoice
 
-   # Predict on the training data
-   # NOTE: ensure the fitter is fully consumed
-   predictions = await tree.predict(X)
-   for pred in predictions:
-       print(pred)
+   tree = GPTree(qgen_llmc=llm, critic_llmc=llm, qgen_instr_llmc=llm,
+                 qanswer_llmc=[JevChoice(max_cost_usd=25, cache=False)])
 
-For more examples and comprehensive use cases, visit the `examples directory <https://github.com/vela-research/think-reason-learn/tree/main/examples>`_ on our GitHub repository.
+To answer with a chat model instead, for example because you have no ``TYPESAFE_API_KEY``, pass it as the answering
+model:
+
+.. code-block:: python
+
+   tree = GPTree(qgen_llmc=llm, critic_llmc=llm, qgen_instr_llmc=llm, qanswer_llmc=llm, max_depth=2)
+
+Why Jev: on twelve benchmark datasets we had studied before, with the same Random Rule Forest questions and the same
+logistic combiner, Jev's probabilities gave a mean test AUC of 0.686, against 0.660 for Jev's answers recorded as
+YES/NO at 0.5 and 0.630 for Gemini's YES/NO answers. Random Rule Forest's default combiner, elastic-net, uses the
+probabilities. For Policy Induction, Jev's probabilities gave 0.695 against Gemini's 0.683. This is a development
+comparison, not an independent evaluation. As for cost, answering 2,194 court cases (ECHR) with 14 questions each
+through this library used 3.16 million input tokens: $0.13 at Jev's list price of $42 per billion input tokens
+(checked 22 September 2026).

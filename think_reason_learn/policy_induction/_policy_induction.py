@@ -48,7 +48,12 @@ from sklearn.metrics import fbeta_score
 from sklearn.model_selection import StratifiedKFold
 from tqdm.auto import tqdm
 
-from think_reason_learn.core.exceptions import DataError, LLMError
+from think_reason_learn.core.exceptions import (
+    DataError,
+    JevAuthError,
+    JevCostCapError,
+    LLMError,
+)
 from think_reason_learn.core.llms import (
     JevChoice,
     JevQuestion,
@@ -593,7 +598,7 @@ class PolicyInduction:
         individually, which can add up to policy_batch_size - 1 extra calls
         per batch.
         """
-        ckpt = self._read_predict_ckpt(self._samples_fingerprint(samples)) or {}
+        ckpt = self._read_predict_ckpt(self._predict_fingerprint(samples)) or {}
         done_ids = set(ckpt.get("completed", {}).keys())
         remaining_samples = sum(1 for idx in samples.index if str(idx) not in done_ids)
         if hasattr(self, "_feature_order_") and self._lr is not None:
@@ -629,23 +634,33 @@ class PolicyInduction:
         path = self._ckpt_path(name)
         return orjson.loads(path.read_bytes()) if path.exists() else None
 
-    @staticmethod
-    def _samples_fingerprint(samples: pd.DataFrame) -> str:
-        """Identifies predict()'s input: its index and every value, in order."""
-        digest = hashlib.sha256()
+    def _predict_fingerprint(self, samples: pd.DataFrame) -> str:
+        """Identifies a predict() run: the model, and the samples' index and values.
+
+        Checkpoint entries are keyed by index, so resuming one for other rows
+        that share it (e.g. another frame indexed 0..n-1), or after a refit or
+        a threshold change, would replay answers that no longer apply.
+        """
+        lr = self._lr
+        model = (
+            list(getattr(self, "_feature_order_", [])),
+            lr.coef_.tolist() if lr is not None else None,
+            np.asarray(lr.intercept_).tolist() if lr is not None else None,
+            self._threshold,
+        )
+        digest = hashlib.sha256(repr(model).encode())
         for idx, row in samples.iterrows():
             digest.update(f"{idx!r}\x1f{list(row.items())!r}\x1e".encode())
         return digest.hexdigest()
 
     def _read_predict_ckpt(self, fingerprint: str) -> dict | None:
-        """The predict checkpoint, only if it was written for these samples.
-
-        Entries are keyed by index, so a checkpoint for other rows that share
-        it (e.g. another frame indexed 0..n-1) would answer for the wrong rows.
-        """
+        """The predict checkpoint, if this model wrote it for these samples."""
         ckpt = self._read_ckpt(self._PREDICT_CKPT_NAME)
-        if ckpt is not None and ckpt.get("samples") != fingerprint:
-            logger.info("Ignoring a predict checkpoint written for other samples.")
+        if ckpt is not None and ckpt.get("run") != fingerprint:
+            logger.info(
+                "Ignoring a predict checkpoint written for another model or "
+                "other samples."
+            )
             return None
         return ckpt
 
@@ -1497,10 +1512,10 @@ class PolicyInduction:
         """Yield predictions for each sample in the DataFrame.
 
         Automatically checkpoints to self.save_path as it goes, resuming an
-        in-progress checkpoint found there only if it was written for the same
-        samples (same index and values) — same unconditional, single-file
-        design as fit(). The checkpoint is deleted once every sample has been
-        predicted.
+        in-progress checkpoint found there only if it was written by the same
+        fitted model for the same samples (same index and values) — same
+        unconditional, single-file design as fit(). The checkpoint is deleted
+        once every sample has been predicted.
 
         May yield fewer records than len(samples): a sample for which no
         policy answer could be obtained at all is skipped rather than given a
@@ -1523,7 +1538,7 @@ class PolicyInduction:
         completed: Dict[str, Tuple[List[float], str]] = {}
         remaining_samples = samples
 
-        fingerprint = self._samples_fingerprint(samples)
+        fingerprint = self._predict_fingerprint(samples)
         ckpt = self._read_predict_ckpt(fingerprint)
         if ckpt is not None:
             completed = {
@@ -1555,16 +1570,28 @@ class PolicyInduction:
                         for sidx, (vec, pred) in completed.items()
                     },
                     "token_counter": token_counter.to_dict(),
-                    "samples": fingerprint,
+                    "run": fingerprint,
                 },
             )
 
         if self._scores_with_jev:
             records: List[Tuple[Any, NDArray, Literal["YES", "NO"]]] = []
             if len(remaining_samples):
-                records = await self._predict_many_jev(
-                    cast(pd.DataFrame, remaining_samples), token_counter
-                )
+                try:
+                    records = await self._predict_many_jev(
+                        cast(pd.DataFrame, remaining_samples), token_counter
+                    )
+                except (JevAuthError, JevCostCapError):
+                    raise
+                except LLMError as e:
+                    # Every request failed. As on the chat path, skip the
+                    # samples and keep the checkpoint for a later retry, rather
+                    # than raise on every retry of a sample Jev can't answer.
+                    logger.warning(
+                        "Predict failed for %d samples; skipping: %s",
+                        len(remaining_samples),
+                        e,
+                    )
                 for sidx, vec, pred in records:
                     completed[str(sidx)] = (vec.tolist(), pred)
                 save_ckpt()

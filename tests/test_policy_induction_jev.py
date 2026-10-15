@@ -15,6 +15,7 @@ from think_reason_learn.core.llms import (
     NoulQuestion,
     OpenAIChoice,
 )
+from think_reason_learn.core.exceptions import JevCostCapError, LLMError
 from think_reason_learn.core.llms._schemas import LLMResponse
 from think_reason_learn.policy_induction import PolicyInduction
 from think_reason_learn.policy_induction import _policy_induction as pi_module
@@ -162,6 +163,37 @@ async def test_predict_skips_a_sample_jev_could_not_answer(
 
     assert out == [0]
     assert (tmp_path / pi._PREDICT_CKPT_NAME).exists()
+
+
+@pytest.mark.asyncio
+async def test_predict_skips_samples_when_every_jev_request_fails(
+    tmp_path: Path, fake: FakePILLM, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Like the chat path: skip and keep the checkpoint, so a retry can't jam."""
+    pi = await _fit(_pi(tmp_path))
+
+    async def all_failed(*args: Any, **kwargs: Any) -> Any:
+        raise LLMError("Every Jev request failed.")
+
+    monkeypatch.setattr(fake, "answer_many", all_failed)
+    X_new = pd.DataFrame({"text": ["strong founder x", "weak founder y"]})
+
+    for _ in range(2):  # the retry too
+        assert [i async for i, _, _, _ in pi.predict(X_new)] == []
+
+
+@pytest.mark.asyncio
+async def test_predict_raises_when_jev_stops_on_its_cost_cap(
+    tmp_path: Path, fake: FakePILLM, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pi = await _fit(_pi(tmp_path))
+
+    async def capped(*args: Any, **kwargs: Any) -> Any:
+        raise JevCostCapError("Spend passed the cap.")
+
+    monkeypatch.setattr(fake, "answer_many", capped)
+    with pytest.raises(JevCostCapError):
+        _ = [r async for r in pi.predict(pd.DataFrame({"text": ["strong x"]}))]
 
 
 @pytest.mark.asyncio

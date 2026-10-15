@@ -143,6 +143,7 @@ def test_estimate_predict_requests_batched(tmp_path, bs):
 
     class _LR:
         coef_ = np.array([[1.0, 0.0, 2.0, 0.0, 3.0, 0.0]])
+        intercept_ = np.array([0.0])
 
     pi._lr = _LR()  # type: ignore[assignment]
 
@@ -526,3 +527,23 @@ async def test_predict_ignores_a_checkpoint_for_other_samples(tmp_path):
     assert sorted(rec[0] for rec in records) == list(range(len(other)))
     queried = " ".join(c["query"] for c in fake.calls)
     assert all(text in queried for text in other["founder_info"])
+
+
+@pytest.mark.asyncio
+async def test_predict_after_refit_does_not_replay_the_old_model(tmp_path):
+    """A checkpoint kept by one model is not resumed by a refitted one."""
+    fake = FakePolicyLLM(n_policies=6)
+    pi = make_pi(tmp_path, fake, policy_batch_size=3)
+    await pi.fit(X, Y)
+    original = _refusing(fake, "Quinn")
+    _ = [rec async for rec in pi.predict(X)]
+    assert (tmp_path / pi._PREDICT_CKPT_NAME).exists()
+
+    fake.respond = original  # type: ignore[method-assign]
+    pi.threshold = 0.99  # a different model, as a refit would make
+    fake.reset()
+    records = [rec async for rec in pi.predict(X)]
+
+    assert sorted(rec[0] for rec in records) == list(range(len(X)))
+    queried = " ".join(c["query"] for c in fake.calls)
+    assert all(text in queried for text in X["founder_info"])

@@ -311,7 +311,7 @@ async def test_feature_columns_survive_save_and_load(
     tree = await _fit(_tree(tmp_path, max_depth=1))
     tree.save()
 
-    loaded = GPTree.load(tmp_path / "jev_tree")
+    loaded = GPTree.load(tmp_path)
     fake.answer_requests.clear()
     loaded.prune_tree(0)
     async for _ in loaded.resume_fit(0):

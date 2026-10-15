@@ -1859,17 +1859,21 @@ class RRF(TRLModel):
             index=response_matrix.index,
         )
 
-    async def _build_response_matrix(self, X: pd.DataFrame) -> pd.DataFrame:
+    async def _build_response_matrix(
+        self, X: pd.DataFrame
+    ) -> Tuple[pd.DataFrame, pd.Series]:
         """Answer X and build the combiners' response matrix.
 
         Returns:
-            DataFrame with a row per sample and a column per question: the
-            active questions for the vote, or for elastic-net the questions the
-            fitted model weighs (so questions added or excluded after fit()
-            change nothing until it is refitted). Values are Jev's
-            probabilities of YES when the elastic-net combiner uses them
-            (``answer_features="probability"``), otherwise 1 (YES) or 0 (NO).
-            Unanswered cells are 0.
+            (matrix, n_answered). ``matrix`` has a row per sample and a column
+            per question: the active questions for the vote, or for
+            elastic-net the questions the fitted model weighs (so questions
+            added or excluded after fit() change nothing until it is
+            refitted). Values are Jev's probabilities of YES when the
+            elastic-net combiner uses them (``answer_features="probability"``),
+            otherwise 1 (YES) or 0 (NO). Unanswered cells are 0.
+            ``n_answered`` counts each sample's answered questions; a warning
+            is logged if any sample has unanswered ones.
         """
         active_qids = [
             cast(str, qid)
@@ -1883,7 +1887,7 @@ class RRF(TRLModel):
                 q for q in self._aggregation_feature_order or [] if weights.get(q, 0)
             ]
             if not active_qids:
-                return pd.DataFrame(index=X.index)
+                return pd.DataFrame(index=X.index), pd.Series(0, index=X.index)
 
         if self._probability_features:
             questions = self._jev_questions(active_qids)
@@ -1898,20 +1902,21 @@ class RRF(TRLModel):
                 caller="RRF.predict_founder_level",
             )
             # Rows in X order, so repeated index labels keep their own rows.
-            return pd.DataFrame(
+            matrix = pd.DataFrame(
                 [r.answers for r in results],
                 index=X.index,
                 columns=active_qids,  # type: ignore[arg-type]
                 dtype=float,
-            ).fillna(0.0)
+            )
+            return matrix.fillna(0.0), self._count_answered(matrix)
 
         # Filled by position, so repeated index labels keep their own rows.
         positional = X.reset_index(drop=True)
         matrix = pd.DataFrame(
-            0,
+            np.nan,
             index=positional.index,
             columns=active_qids,  # type: ignore[arg-type]
-            dtype=int,
+            dtype=float,
         )
 
         async for sample_idx, qid, answer, _tc in self.predict(
@@ -1920,7 +1925,27 @@ class RRF(TRLModel):
             matrix.at[sample_idx, qid] = 1 if answer == "YES" else 0
 
         matrix.index = X.index
-        return matrix
+        return matrix.fillna(0).astype(int), self._count_answered(matrix)
+
+    @staticmethod
+    def _count_answered(matrix: pd.DataFrame) -> pd.Series:
+        """Answered questions per sample (non-missing cells of ``matrix``).
+
+        Logs one warning if any sample has unanswered questions: they count as
+        0 (NO), so that sample's prediction rests on fewer answers.
+        """
+        n_answered = matrix.notna().sum(axis=1)
+        if short := int((n_answered < matrix.shape[1]).sum()):
+            logger.warning(
+                "%d of %d samples have unanswered questions (of %d asked each), "
+                "e.g. because their answering requests failed; those questions "
+                "count as NO. The n_answered column shows how many each sample "
+                "had answered.",
+                short,
+                len(matrix),
+                matrix.shape[1],
+            )
+        return n_answered
 
     async def predict_founder_level(
         self,
@@ -1971,7 +1996,10 @@ class RRF(TRLModel):
             which ranks samples but is not calibrated) and ``threshold``. For
             ``aggregation_method="vote"`` they are ``prediction``,
             ``yes_count`` (YES answers among the top-K questions), ``k`` and
-            ``t``.
+            ``t``. Both end with ``n_answered``: how many of the questions
+            asked for the sample were answered. Unanswered questions (e.g. a
+            failed Jev request) count as NO, and a warning says how many
+            samples have them.
 
         Raises:
             ValueError: If (vote mode) k/t are not provided and not learned
@@ -1996,7 +2024,7 @@ class RRF(TRLModel):
                     "questions the elastic-net model was fitted on.",
                     len(self._aggregation_feature_order or []),
                 )
-            matrix = await self._build_response_matrix(X)
+            matrix, n_answered = await self._build_response_matrix(X)
             proba = self._elasticnet_proba(matrix)
             predictions = self._aggregate_elasticnet(matrix)
             return pd.DataFrame(
@@ -2004,6 +2032,7 @@ class RRF(TRLModel):
                     "prediction": predictions,
                     "probability": proba,
                     "threshold": self._aggregation_threshold,
+                    "n_answered": n_answered,
                 },
                 index=X.index,
             )
@@ -2016,7 +2045,7 @@ class RRF(TRLModel):
                 "via fit(). Call fit() first or pass k and t."
             )
 
-        matrix = await self._build_response_matrix(X)
+        matrix, n_answered = await self._build_response_matrix(X)
         active_qids = list(matrix.columns)
         scores = self._questions.loc[active_qids, "f_beta_score"].astype(float)
 
@@ -2031,6 +2060,7 @@ class RRF(TRLModel):
                 "yes_count": yes_counts,
                 "k": k_val,
                 "t": t_val,
+                "n_answered": n_answered,
             },
             index=X.index,
         )

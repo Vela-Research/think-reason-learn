@@ -92,6 +92,14 @@ instances use the elastic-net combiner unless ``aggregation_method="vote"`` is p
   answers questions.
 - GPTree's ``critic_llmc`` and ``qgen_instr_llmc`` are optional and default to ``qgen_llmc``, so
   ``GPTree(qgen_llmc=[...])`` is enough to build a tree.
+- Samples with the same text and questions are sent to Jev and paid for once when they are answered together (e.g.
+  rows repeated in one ``predict()``), and each copy gets the answers. The cost estimate and cap count them once, and
+  the cost line says how many duplicates were not sent.
+- A run whose Jev answers come from two releases (with ``model="jev-latest"``, cached answers keep the release that
+  gave them) logs one warning naming both, and how to answer with one release.
+- ``predict_founder_level()`` adds an ``n_answered`` column with how many of the questions asked for each sample
+  were answered. Unanswered questions (e.g. a failed Jev request) count as NO, and a warning says how many samples
+  have them.
 
 0.1.0
 -----

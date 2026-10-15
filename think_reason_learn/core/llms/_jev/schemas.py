@@ -25,7 +25,8 @@ class JevChoice(BaseModel):
             With ``model="jev-latest"`` cached answers keep the release that
             gave them, so after Typesafe releases a new Jev, pin the model
             (e.g. ``"jev-1.13.0"``) or use ``cache=False`` when refitting, to
-            avoid mixing releases in one model.
+            avoid mixing releases in one model. A run that mixes releases
+            logs a warning naming them.
     """
 
     provider: Literal["jev"] = "jev"

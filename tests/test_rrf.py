@@ -1478,7 +1478,13 @@ class TestFounderPredictions:
 
         result = await rrf.predict_founder_level(X)
         assert isinstance(result, pd.DataFrame)
-        assert set(result.columns) == {"prediction", "yes_count", "k", "t"}
+        assert set(result.columns) == {
+            "prediction",
+            "yes_count",
+            "k",
+            "t",
+            "n_answered",
+        }
         assert len(result) == len(X)
         assert list(result.index) == list(X.index)
 

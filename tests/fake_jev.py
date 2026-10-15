@@ -93,6 +93,7 @@ class FakeJevServer:
         input_tokens: int = 1000,
         prob: float = 0.8,
         status_for_state: Dict[str, int] | None = None,
+        model: str = "jev-1.13.0",
     ) -> None:
         self.bodies: List[Dict[str, Any]] = []
         self.headers: List[httpx.Headers] = []
@@ -100,12 +101,13 @@ class FakeJevServer:
         self.input_tokens = input_tokens
         self.prob = prob
         self.status_for_state = status_for_state or {}
+        self.model = model
 
     def ok(self, body: Dict[str, Any]) -> httpx.Response:
         return httpx.Response(
             200,
             json={
-                "model": "jev-1.13.0",
+                "model": self.model,
                 "answers": _answers_for(body["questions"], self.prob),
                 "usage": {"input_tokens": self.input_tokens, "output_tokens": 7},
             },

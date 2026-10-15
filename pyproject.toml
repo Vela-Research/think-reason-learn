@@ -26,13 +26,13 @@ dependencies = [
     "scikit-learn (>=1.7.2,<2.0.0)",
     "pyarrow (>=21.0.0,<22.0.0)",
     "tqdm (>=4.68.4,<5.0.0)",
-    "torch (>=2.2.0,<3.0.0)",
     "httpx (>=0.28.1,<1.0.0)",
     "httpx2>=2.13,<3",
 ]
 
 [project.optional-dependencies]
 prices = ["genai-prices>=0.1.13,<0.2"]
+rl = ["torch>=2.2.0,<3.0.0"]
 
 [project.urls]
 Homepage = "https://thinkreasonlearn.com/"

@@ -8,27 +8,23 @@ input checks, labels, usage, progress, and ``save``/``load``.
 
 from __future__ import annotations
 
-import json
 import logging
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from os import PathLike
-from pathlib import Path
 from typing import ClassVar, Self
 
-import joblib
 import numpy as np
 import numpy.typing as npt
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.utils import Tags
 from sklearn.utils.validation import check_is_fitted
 
+from think_reason_learn.core._persistence import Persistable
 from think_reason_learn.core._data import LabelInput, TextInput, encode_labels, to_texts
 from think_reason_learn.core._prompts import write_instructions
 from think_reason_learn.exceptions import DataError
 from think_reason_learn.llm import (
-    LLM,
     Endpoint,
     LLMSession,
     Model,
@@ -46,7 +42,7 @@ type Proba = npt.NDArray[np.float64]
 type Labels = npt.NDArray[np.intp]
 
 
-class TRLClassifier(ClassifierMixin, BaseEstimator, ABC):
+class TRLClassifier(Persistable, ClassifierMixin, BaseEstimator, ABC):
     """Base class of the LLM-powered classifiers.
 
     ``fit``, ``predict`` and ``predict_proba`` work in scripts and notebooks;
@@ -117,45 +113,12 @@ class TRLClassifier(ClassifierMixin, BaseEstimator, ABC):
         self.instructions = run_sync(self._written_instructions(LLMSession(), writer))
         return self.instructions
 
-    def save(self, path: str | PathLike[str]) -> Path:
-        """Save the model to a folder: ``model.joblib`` and a readable ``model.json``.
-
-        API keys are never saved.
-
-        Returns:
-            The folder.
-        """
-        folder = Path(path)
-        folder.mkdir(parents=True, exist_ok=True)
-        joblib.dump(self, folder / "model.joblib")
-        summary = {"class": type(self).__name__, "params": _jsonable(self.get_params())}
-        if hasattr(self, "classes_"):
-            summary |= {"classes": _jsonable(list(self.classes_)), **self._summary()}
-        (folder / "model.json").write_text(
-            json.dumps(summary, indent=2), encoding="utf-8"
-        )
-        return folder
-
-    @classmethod
-    def load(cls, path: str | PathLike[str]) -> Self:
-        """Load a model saved with ``save``. Only load files you trust."""
-        model = joblib.load(Path(path) / "model.joblib")
-        if not isinstance(model, cls):
-            raise TypeError(
-                f"{path} holds a {type(model).__name__}, not a {cls.__name__}."
-            )
-        return model
-
     def __sklearn_tags__(self) -> Tags:
         """Text input, and answers that can vary between calls."""
         tags = super().__sklearn_tags__()
         tags.input_tags.string = True
         tags.non_deterministic = True
         return tags
-
-    def _summary(self) -> Mapping[str, object]:
-        """What the model learned, for ``model.json``. Subclasses add to it."""
-        return {}
 
     def _decide(self, proba: Proba) -> Labels:
         """Label codes from probabilities: the most likely class."""
@@ -243,22 +206,6 @@ class TRLClassifier(ClassifierMixin, BaseEstimator, ABC):
                 f"{type(self).__name__} returned probabilities of shape {proba.shape}."
             )
         return proba
-
-
-def _jsonable(value: object) -> object:
-    """``value`` as JSON-ready data; LLM settings without their key."""
-    if isinstance(value, LLM):
-        fields = {
-            f: getattr(value, f) for f in value.__dataclass_fields__ if f != "api_key"
-        }
-        return {k: _jsonable(v) for k, v in fields.items() if v is not None}
-    if isinstance(value, Mapping):
-        return {str(k): _jsonable(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple, np.ndarray)):
-        return [_jsonable(v) for v in value]
-    if isinstance(value, (str, int, float, bool)) or value is None:
-        return value
-    return str(value)
 
 
 class BinaryTRLClassifier(TRLClassifier):

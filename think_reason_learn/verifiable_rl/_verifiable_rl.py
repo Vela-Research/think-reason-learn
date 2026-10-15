@@ -1,844 +1,588 @@
-"""Verifiable RL.
+"""VerifiableRL: decide which information to reveal, one slot at a time.
 
-An adaptive information-gathering classifier: instead of consuming every feature
-up front, a learned policy network decides, slot by slot, which piece of
-information to reveal next (or to STOP), and a classifier predicts the binary
-label from the accumulated partial state. The policy is trained on soft targets
-derived from Monte-Carlo tree-search rollouts; an optional LLM supervisor can
-nudge the policy toward an informative slot when it is undecided.
+Ye, Alican, Griffin, Ontoyin Yin and Ihlamur, "Learning What to Ask: Cost-Aware
+Sequential Founder Evaluation" (MIDAS @ ECML-PKDD 2026),
+https://vela.partners/research/cost-aware-sequential-evaluation.
 
-This is a library port of the standalone VCBench reference implementation. The
-algorithm (networks, MCTS targets, two-network training loop, optional LLM
-supervision) is preserved; the run-script scaffolding (CLI, CSV/`.npy` I/O,
-plotting, baselines, multi-seed drivers, and the VCBench-specific founder data
-store) is intentionally omitted. The caller supplies generic, named information
-*slots* as arrays and binary 0/1 labels.
+Each sample's features come in named slots (e.g. education, jobs). A policy
+network chooses which slot to reveal next, or to stop; a classifier predicts the
+label from what was revealed. The policy learns from Monte Carlo rollouts scored
+by cost-aware, asymmetric rewards; an optional LLM supervisor breaks near-ties.
 """
 
 from __future__ import annotations
 
-import logging
-from dataclasses import asdict
-from os import PathLike
-from pathlib import Path
-from typing import Any, Dict, List, Mapping, Sequence, Self
+import copy
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
+from typing import Self
 
 import numpy as np
-import orjson
+import numpy.typing as npt
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, TensorDataset
+from sklearn.base import BaseEstimator, ClassifierMixin
+from sklearn.utils.validation import check_is_fitted
 
-from think_reason_learn.core.exceptions import DataError
+from think_reason_learn.core._combine import best_threshold
+from think_reason_learn.core._data import LabelInput, encode_labels
+from think_reason_learn.core._persistence import Persistable
+from think_reason_learn.exceptions import DataError
+from think_reason_learn.llm import LLMSession, Models, Usage, resolve_models
 
-from ._mcts import (
-    ObservationState,
-    compute_reward,
-    policy_action_probs,
-    tree_value_map,
-)
+from ._episodes import Sample, Search, policy_probs, targets
 from ._networks import Classifier, PolicyNet
-from ._supervisor import ActionSupervisor, apply_action_bias, is_uncertain
-from ._types import QueryResult, VerifiableRLConfig
+from ._supervisor import Supervisor, boost, is_uncertain
 
-logger = logging.getLogger(__name__)
+type SlotFeatures = npt.NDArray[np.floating] | Mapping[str, npt.NDArray[np.floating]]
+"""A 2-D array with the slots' columns in order, or one array per slot."""
 
-_SlotsArg = Sequence[str] | Mapping[str, int]
-_FeaturesArg = Mapping[str, np.ndarray] | Sequence[np.ndarray]
+type SlotTexts = Mapping[str, Sequence[str]]
+"""Per slot, one text per sample, shown to the supervisor once revealed."""
 
 
-class VerifiableRL:
-    """Adaptive, sequential information-gathering binary classifier.
+class VerifiableRL(Persistable, ClassifierMixin, BaseEstimator):
+    """A two-class classifier that learns which slots of information to reveal.
 
     Args:
-        slots: Either an ordered sequence of slot names (feature dimensions are
-            inferred at ``fit``) or a mapping of ``name -> dimension`` (lets
-            :attr:`state_dim` be known before fitting and enables
-            :meth:`from_state_dicts`).
-        config: Algorithm configuration. Defaults to ``VerifiableRLConfig()``.
-        supervisor: Optional :class:`ActionSupervisor` consulted when the policy
-            is undecided. Requires per-sample ``profiles`` at fit/predict time.
-        device: Torch device string (e.g. ``"cpu"`` or ``"cuda"``).
-        random_state: Seed for reproducible network init and rollouts.
+        slots: Each slot's name and number of feature columns, in column order.
+        slot_costs: Cost of revealing each slot, subtracted from the reward.
+        supervisor: Reasoning model(s) that suggest a slot when the policy's top
+            two are within ``uncertain_delta``. Needs ``slot_texts``.
+        policy_hidden, clf_hidden: Hidden widths of the networks.
+        max_steps: Most slots revealed per sample.
+        max_depth, n_rollouts: Depth and number of rollouts per action.
+        min_queries: Slots to reveal before STOP may be chosen in training.
+        predict_min_queries: The same, when predicting.
+        reward_tp, reward_fp, reward_tn, reward_fn: Rewards of the final call.
+        step_penalty, repeat_penalty: Added per step and per repeated query.
+        reward_threshold: Classifier probability counted as a positive call.
+        tau_info, tau_stop: Temperatures of the policy targets.
+        n_iterations: Passes over the training samples.
+        update_every: Samples between network updates.
+        policy_lr, clf_lr: Learning rates.
+        policy_batch, clf_batch: Batch sizes.
+        train_epochs: Passes over the replay sample per update.
+        grad_clip: Gradient-norm clip; 0 to turn off.
+        eps: Chance of a random action while training.
+        policy_replay, clf_replay: Replay buffer sizes.
+        policy_sample, clf_sample: Examples drawn per update; 0 for all.
+        freeze_clf_updates: Updates before the classifier starts training.
+        clf_target_update_every: Updates between syncs of the frozen classifier
+            the rollouts use; 0 to use the live one.
+        pretrain_epochs: Epochs of classifier pretraining on random reveals;
+            0 to skip. Rewards depend on the classifier, so this helps.
+        pretrain_lr, pretrain_batch: Its learning rate and batch size.
+        uncertain_delta: Gap between the top two actions that asks the supervisor.
+        llm_bias: The supervisor's pick is multiplied by ``1 + llm_bias``.
+        threshold: Positive probability for a positive prediction. ``None`` tunes
+            it for F-beta on the training samples.
+        beta: F-beta for the tuned threshold.
+        pos_label: The positive class; by default the second sorted label.
+        device: Torch device.
+        random_state: Seed for the networks, exploration and rollouts.
     """
 
     def __init__(
         self,
-        slots: _SlotsArg,
-        config: VerifiableRLConfig | None = None,
-        supervisor: ActionSupervisor | None = None,
+        slots: Mapping[str, int] | None = None,
+        *,
+        slot_costs: Mapping[str, float] | None = None,
+        supervisor: Models | None = None,
+        policy_hidden: int = 512,
+        clf_hidden: int = 256,
+        max_steps: int = 5,
+        max_depth: int = 4,
+        n_rollouts: int = 10,
+        min_queries: int = 3,
+        predict_min_queries: int = 1,
+        reward_tp: float = 4.0,
+        reward_fp: float = -16.0,
+        reward_tn: float = 0.0,
+        reward_fn: float = -0.25,
+        step_penalty: float = -0.1,
+        repeat_penalty: float = -5.0,
+        reward_threshold: float = 0.3,
+        tau_info: float = 1.0,
+        tau_stop: float = 4.0,
+        n_iterations: int = 1,
+        update_every: int = 25,
+        policy_lr: float = 5e-5,
+        clf_lr: float = 1e-5,
+        policy_batch: int = 128,
+        clf_batch: int = 512,
+        train_epochs: int = 1,
+        grad_clip: float = 5.0,
+        eps: float = 0.1,
+        policy_replay: int = 20_000,
+        clf_replay: int = 40_000,
+        policy_sample: int = 2_000,
+        clf_sample: int = 4_000,
+        freeze_clf_updates: int = 10,
+        clf_target_update_every: int = 5,
+        pretrain_epochs: int = 50,
+        pretrain_lr: float = 1e-5,
+        pretrain_batch: int = 16,
+        uncertain_delta: float = 0.01,
+        llm_bias: float = 0.05,
+        threshold: float | None = None,
+        beta: float = 0.5,
+        pos_label: str | None = None,
         device: str = "cpu",
         random_state: int | None = None,
     ) -> None:
-        slot_names, slot_dims = self._verify_slots(slots)
-        self.slot_names: List[str] = slot_names
-        self.slot_dims: Dict[str, int] | None = slot_dims
-        self.config = config if config is not None else VerifiableRLConfig()
+        self.slots = slots
+        self.slot_costs = slot_costs
         self.supervisor = supervisor
+        self.policy_hidden = policy_hidden
+        self.clf_hidden = clf_hidden
+        self.max_steps = max_steps
+        self.max_depth = max_depth
+        self.n_rollouts = n_rollouts
+        self.min_queries = min_queries
+        self.predict_min_queries = predict_min_queries
+        self.reward_tp = reward_tp
+        self.reward_fp = reward_fp
+        self.reward_tn = reward_tn
+        self.reward_fn = reward_fn
+        self.step_penalty = step_penalty
+        self.repeat_penalty = repeat_penalty
+        self.reward_threshold = reward_threshold
+        self.tau_info = tau_info
+        self.tau_stop = tau_stop
+        self.n_iterations = n_iterations
+        self.update_every = update_every
+        self.policy_lr = policy_lr
+        self.clf_lr = clf_lr
+        self.policy_batch = policy_batch
+        self.clf_batch = clf_batch
+        self.train_epochs = train_epochs
+        self.grad_clip = grad_clip
+        self.eps = eps
+        self.policy_replay = policy_replay
+        self.clf_replay = clf_replay
+        self.policy_sample = policy_sample
+        self.clf_sample = clf_sample
+        self.freeze_clf_updates = freeze_clf_updates
+        self.clf_target_update_every = clf_target_update_every
+        self.pretrain_epochs = pretrain_epochs
+        self.pretrain_lr = pretrain_lr
+        self.pretrain_batch = pretrain_batch
+        self.uncertain_delta = uncertain_delta
+        self.llm_bias = llm_bias
+        self.threshold = threshold
+        self.beta = beta
+        self.pos_label = pos_label
         self.device = device
         self.random_state = random_state
 
-        self._policy: PolicyNet | None = None
-        self._classifier: Classifier | None = None
-        # Frozen target classifier used by the MCTS rollouts/rewards during
-        # training (synced from the live classifier every N updates). ``None``
-        # outside ``fit`` and when ``clf_target_update_every == 0``.
-        self._clf_target: Classifier | None = None
-        self._rng: np.random.Generator = np.random.default_rng(random_state)
-        self._fitted = False
-
-    # ------------------------------------------------------------------
-    # Construction helpers / properties
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _verify_slots(slots: _SlotsArg) -> tuple[List[str], Dict[str, int] | None]:
-        if isinstance(slots, Mapping):
-            names = list(slots.keys())
-            dims: Dict[str, int] | None = {str(k): int(v) for k, v in slots.items()}
-        else:
-            names = list(slots)
-            dims = None
-        if len(names) == 0:
-            raise ValueError("slots must define at least one information slot")
-        if len(set(names)) != len(names):
-            raise ValueError("slot names must be unique")
-        if dims is not None and any(d < 1 for d in dims.values()):
-            raise ValueError("slot dimensions must be >= 1")
-        return names, dims
-
-    @property
-    def action_dim(self) -> int:
-        """Number of actions: one per slot plus STOP."""
-        return len(self.slot_names) + 1
-
-    @property
-    def state_dim(self) -> int | None:
-        """Length of the state vector (``None`` until slot dims are known)."""
-        if self.slot_dims is None:
-            return None
-        return sum(self.slot_dims[s] for s in self.slot_names)
-
-    @property
-    def is_fitted(self) -> bool:
-        """Whether the model has trained or loaded weights."""
-        return self._fitted
-
-    @property
-    def _pol(self) -> PolicyNet:
-        """The policy network (raises if networks are not built yet)."""
-        if self._policy is None:
-            raise RuntimeError("networks are not built; call fit() first")
-        return self._policy
-
-    @property
-    def _clf(self) -> Classifier:
-        """The classifier network (raises if networks are not built yet)."""
-        if self._classifier is None:
-            raise RuntimeError("networks are not built; call fit() first")
-        return self._classifier
-
-    @property
-    def _rollout_clf(self) -> Classifier:
-        """Classifier the MCTS rollouts/rewards query during training.
-
-        Returns the frozen *target* classifier when one is active, otherwise the
-        live classifier. Using a slowly-updated target keeps the policy's value
-        targets stable (matching the standalone reference).
-        """
-        return self._clf_target if self._clf_target is not None else self._clf
-
-    def _build_networks(self) -> None:
-        assert self.slot_dims is not None
-        state_dim = self.state_dim
-        assert state_dim is not None
-        device = torch.device(self.device)
-        self._policy = PolicyNet(
-            state_dim, self.action_dim, hidden=self.config.policy_hidden
-        ).to(device)
-        self._classifier = Classifier(state_dim, hidden=self.config.clf_hidden).to(
-            device
-        )
-
-    # ------------------------------------------------------------------
-    # Input handling / validation
-    # ------------------------------------------------------------------
-
-    def _coerce_x(self, X: _FeaturesArg) -> Dict[str, np.ndarray]:
-        if isinstance(X, Mapping):
-            missing = [s for s in self.slot_names if s not in X]
-            if missing:
-                raise DataError(f"X is missing slot(s): {missing}")
-            return {s: np.asarray(X[s]) for s in self.slot_names}
-        if isinstance(X, (list, tuple)):
-            if len(X) != len(self.slot_names):
-                raise DataError(
-                    f"X has {len(X)} arrays but there are {len(self.slot_names)} slots"
-                )
-            return {s: np.asarray(X[k]) for k, s in enumerate(self.slot_names)}
-        raise DataError("X must be a dict of slot->array or a list/tuple of arrays")
-
-    def _check_dims(self, Xd: Dict[str, np.ndarray]) -> None:
-        for s in self.slot_names:
-            if Xd[s].ndim != 2:
-                raise DataError(f"slot '{s}' must be 2-D (n_samples, dim)")
-        counts = {Xd[s].shape[0] for s in self.slot_names}
-        if len(counts) != 1:
-            raise DataError("all slots must have the same number of samples")
-
-    def _validate_fit(self, Xd: Dict[str, np.ndarray], y: Any) -> np.ndarray:
-        self._check_dims(Xd)
-        y_arr = np.asarray(y)
-        if y_arr.ndim != 1:
-            raise DataError("y must be 1-D")
-        n = Xd[self.slot_names[0]].shape[0]
-        if n != len(y_arr):
-            raise DataError("X and y must have the same number of samples")
-        if n == 0:
-            raise DataError("X and y must be non-empty")
-        uniq = set(int(v) for v in np.unique(y_arr))
-        if not uniq.issubset({0, 1}):
-            raise DataError("y must be binary (values 0/1)")
-        if uniq != {0, 1}:
-            raise DataError("y must contain both classes (0 and 1)")
-        return y_arr.astype(int)
-
-    def _validate_predict(
-        self, Xd: Dict[str, np.ndarray], profiles: Sequence[str] | None
-    ) -> int:
-        self._check_dims(Xd)
-        n = Xd[self.slot_names[0]].shape[0]
-        if n == 0:
-            raise DataError("X must be non-empty")
-        if self.slot_dims is not None:
-            inferred = {s: int(Xd[s].shape[1]) for s in self.slot_names}
-            if inferred != self.slot_dims:
-                raise DataError(
-                    f"slot dims {inferred} do not match the model's {self.slot_dims}"
-                )
-        if profiles is not None and len(profiles) != n:
-            raise DataError("profiles must have the same length as X")
-        return n
-
-    def _make_state(self, Xd: Dict[str, np.ndarray], i: int) -> ObservationState:
-        assert self.slot_dims is not None
-        features = {s: Xd[s][i] for s in self.slot_names}
-        return ObservationState(self.slot_names, self.slot_dims, features)
-
-    def _check_fitted(self) -> None:
-        if not self._fitted or self._policy is None or self._classifier is None:
-            raise RuntimeError("model is not fitted; call fit() first")
-
-    # ------------------------------------------------------------------
-    # Action selection (shared by training rollouts and prediction)
-    # ------------------------------------------------------------------
-
-    def _biased_probs(self, state: ObservationState, profile: str | None) -> np.ndarray:
-        device = torch.device(self.device)
-        pi = policy_action_probs(state, self._pol, device)
-        n_info = len(self.slot_names)
-        if self.supervisor is None or profile is None:
-            return pi
-        if not is_uncertain(pi[:n_info], self.config.uncertain_delta):
-            return pi
-        observed = {s for s in self.slot_names if state.observed[s]}
-        available = [s for s in self.slot_names if not state.observed[s]]
-        if not available:
-            return pi
-        preferred = self.supervisor.prefer(observed, available, profile)
-        return apply_action_bias(
-            pi, n_info, preferred, self.slot_names, self.config.llm_bias
-        )
-
-    # ------------------------------------------------------------------
-    # Training
-    # ------------------------------------------------------------------
+    classes_: npt.NDArray[np.object_]
+    slot_names_: list[str]
+    columns_: npt.NDArray[np.intp]
+    costs_: npt.NDArray[np.float64]
+    policy_: PolicyNet
+    classifier_: Classifier
+    threshold_: float
+    usage_: Usage
 
     def fit(
-        self,
-        X: _FeaturesArg,
-        y: Any,
-        *,
-        profiles: Sequence[str] | None = None,
-        pretrained_classifier: str | PathLike[str] | Mapping[str, Any] | None = None,
+        self, X: SlotFeatures, y: LabelInput, *, slot_texts: SlotTexts | None = None
     ) -> Self:
-        """Train the policy and classifier on partially observable episodes.
-
-        Mirrors the standalone two-network training loop: an optional classifier
-        warm-start, a freeze period during which only the policy trains against
-        the (fixed) classifier, and a slowly-synced *target* classifier that the
-        MCTS rollouts query so the policy's value targets stay stable.
+        """Train the policy and the classifier.
 
         Args:
-            X: Slot features (dict ``name -> (n, dim)`` array, or a list of
-                arrays aligned to ``slots``).
-            y: Binary labels (length ``n``, values in ``{0, 1}``).
-            profiles: Optional per-sample text used by the LLM supervisor.
-            pretrained_classifier: Optional warm-start for the classifier — a
-                path to a checkpoint (``{"state_dict": ...}``,
-                ``{"clf_state_dict": ...}``, or a raw state dict) or an
-                in-memory state dict. Strongly recommended for faithful results:
-                the MCTS reward depends on the classifier, so starting it from a
-                pretrained model (rather than random) is what lets the policy
-                learn useful queries (matches the reference implementation).
-
-        Returns:
-            ``self``.
+            X: Slot features: a 2-D array (columns in ``slots`` order) or one
+                array per slot.
+            y: One of two labels per sample.
+            slot_texts: Text of each slot per sample, for the supervisor.
         """
-        Xd = self._coerce_x(X)
-        y_arr = self._validate_fit(Xd, y)
-        n = len(y_arr)
-        if profiles is not None and len(profiles) != n:
-            raise DataError("profiles must have the same length as y")
-
-        inferred = {s: int(Xd[s].shape[1]) for s in self.slot_names}
-        if self.slot_dims is not None and self.slot_dims != inferred:
-            raise DataError(
-                f"slot dims {inferred} do not match configured {self.slot_dims}"
-            )
-        self.slot_dims = inferred
-
-        if self.random_state is not None:
-            torch.manual_seed(self.random_state)
-            self._rng = np.random.default_rng(self.random_state)
-        self._build_networks()
-
-        device = torch.device(self.device)
-        cfg = self.config
-
-        # Optional classifier warm-start. The MCTS reward queries the
-        # classifier, so starting it from a pretrained model (rather than
-        # random) is what makes the policy's value targets meaningful.
-        if pretrained_classifier is not None:
-            self._load_pretrained_classifier(pretrained_classifier, device)
-
-        # Target classifier the rollouts query (synced from the live classifier
-        # every ``clf_target_update_every`` updates). Disabled when 0.
-        if cfg.clf_target_update_every > 0:
-            target = Classifier(int(self.state_dim or 0), hidden=cfg.clf_hidden)
-            target = target.to(device)
-            target.load_state_dict(self._clf.state_dict())
-            target.eval()
-            for p in target.parameters():
-                p.requires_grad_(False)
-            self._clf_target = target
-        else:
-            self._clf_target = None
-
-        policy_opt = torch.optim.Adam(self._pol.parameters(), lr=cfg.policy_lr)
-        clf_opt = torch.optim.Adam(self._clf.parameters(), lr=cfg.clf_lr)
-
-        spv_buf: List[Dict[str, Any]] = []
-        clf_buf: List[Dict[str, Any]] = []
-        n_updates = 0
-
-        def _do_update() -> None:
-            nonlocal n_updates
-            n_updates += 1
-            self._train_policy(
-                self._sample(spv_buf, cfg.policy_sample), policy_opt, device
-            )
-            # Keep the classifier fixed for the first ``freeze_clf_updates``
-            # updates so the policy adapts to the (warm-started) classifier first.
-            if n_updates >= cfg.freeze_clf_updates:
-                self._train_classifier(
-                    self._sample(clf_buf, cfg.clf_sample), clf_opt, device
-                )
-            # Periodically refresh the target classifier from the live one.
-            if (
-                self._clf_target is not None
-                and n_updates % cfg.clf_target_update_every == 0
-            ):
-                self._clf_target.load_state_dict(self._clf.state_dict())
-                self._clf_target.eval()
-
-        for _ in range(cfg.n_iterations):
-            order = self._rng.permutation(n)
-            for count, i in enumerate(order):
-                state = self._make_state(Xd, int(i))
-                profile = profiles[int(i)] if profiles is not None else None
-                spv, samples = self._run_episode(state, int(y_arr[i]), profile)
-                spv_buf.extend(spv)
-                clf_buf.extend(samples)
-                spv_buf = spv_buf[-cfg.policy_replay_max :]
-                clf_buf = clf_buf[-cfg.clf_replay_max :]
-                if (count + 1) % cfg.update_every == 0:
-                    _do_update()
-            # end-of-iteration flush
-            _do_update()
-
-        # The target classifier is a training-time aid only; drop it so the
-        # fitted model uses the live classifier for prediction/persistence.
-        self._clf_target = None
-        self._fitted = True
+        features = self._layout(X, fitting=True)
+        self.classes_, codes = encode_labels(y)
+        if len(self.classes_) != 2 or len(codes) != len(features):
+            raise DataError("y needs two classes and one label per row of X.")
+        positive = (codes == self._pos_index()).astype(np.float32)
+        rng = np.random.default_rng(self.random_state)
+        self._build_networks(rng)
+        session = LLMSession()
+        self.usage_ = session.usage
+        if self.pretrain_epochs:
+            self._pretrain(features, positive, rng)
+        _Trainer(
+            self, features, positive, self._supervisor(session, slot_texts), rng
+        ).run()
+        proba = self._final_proba(features, slot_texts)
+        self.threshold_ = (
+            self.threshold
+            if self.threshold is not None
+            else best_threshold(proba, positive == 1, self.beta)[0]
+        )
         return self
 
-    def _load_pretrained_classifier(
-        self,
-        src: str | PathLike[str] | Mapping[str, Any],
-        device: torch.device,
-    ) -> None:
-        """Warm-start the classifier from a checkpoint or in-memory state dict.
-
-        Accepts a path or mapping; unwraps a ``state_dict``/``clf_state_dict``
-        wrapper if present, then loads into the live classifier.
-        """
-        if isinstance(src, Mapping):
-            ckpt: Any = src
-        else:
-            ckpt = torch.load(Path(src), map_location=device, weights_only=True)
-        state = ckpt
-        for key in ("state_dict", "clf_state_dict"):
-            if isinstance(state, Mapping) and key in state:
-                state = state[key]
-                break
-        self._clf.load_state_dict(state)
-        self._clf.train()
-
-    # ------------------------------------------------------------------
-    # Classifier pretraining (curriculum-masked) — standalone parity
-    # ------------------------------------------------------------------
-
-    def _default_curriculum(self) -> List[Dict[str, Any]]:
-        """Full -> medium -> light reveal schedule, derived from #slots."""
-        n = len(self.slot_names)
-        return [
-            {"min_k": n, "max_k": n, "frac": 0.3},
-            {"min_k": 2, "max_k": max(2, n - 1), "frac": 0.4},
-            {"min_k": 1, "max_k": min(2, n), "frac": 0.3},
-        ]
-
-    @staticmethod
-    def _curriculum_phase(
-        phases: Sequence[Mapping[str, Any]], epoch: int, total_epochs: int
-    ) -> Mapping[str, Any]:
-        t = epoch / max(total_epochs, 1)
-        acc = 0.0
-        for phase in phases:
-            acc += float(phase["frac"])
-            if t <= acc:
-                return phase
-        return phases[-1]
-
-    @staticmethod
-    def _clf_step(
-        clf: Classifier,
-        opt: torch.optim.Optimizer,
-        criterion: nn.Module,
-        bx: List[np.ndarray],
-        by: List[float],
-        device: torch.device,
-    ) -> None:
-        xb = torch.from_numpy(np.stack(bx)).float().to(device)
-        yb = torch.tensor(by, dtype=torch.float32).to(device)
-        loss = criterion(clf(xb), yb)
-        opt.zero_grad(set_to_none=True)
-        loss.backward()
-        opt.step()
-
-    def pretrain_classifier(
-        self,
-        X: _FeaturesArg,
-        y: Any,
-        *,
-        epochs: int = 50,
-        lr: float = 1e-5,
-        batch_size: int = 16,
-        curriculum: Sequence[Mapping[str, Any]] | None = None,
-        random_state: int | None = None,
-    ) -> Dict[str, torch.Tensor]:
-        """Pretrain a classifier on randomly-masked partial states.
-
-        Faithfully mirrors the standalone ``pretrain_classifier.py`` curriculum:
-        early epochs reveal all slots, later epochs reveal progressively fewer,
-        so the classifier learns to predict from *partial* information. The
-        returned ``state_dict`` is meant to warm-start training via
-        ``fit(pretrained_classifier=...)`` — which is what makes the MCTS reward
-        (and therefore the learned policy) meaningful.
-
-        This does not mutate the model; it returns weights to pass to ``fit``.
-        For a leakage-free cross-validation, call this on each fold's training
-        data only.
-
-        Args:
-            X: Slot features (dict ``name -> (n, dim)`` or list aligned to slots).
-            y: Binary labels (length ``n``, values in ``{0, 1}``).
-            epochs: Number of passes over the data.
-            lr: Adam learning rate.
-            batch_size: Mini-batch size.
-            curriculum: Optional list of ``{"min_k", "max_k", "frac"}`` phases
-                (``frac`` should sum to ~1). Defaults to a full->medium->light
-                schedule derived from the number of slots.
-            random_state: Seed for masking/shuffling (falls back to the
-                instance's ``random_state``).
-
-        Returns:
-            A classifier ``state_dict`` of CPU tensors.
-        """
-        Xd = self._coerce_x(X)
-        y_arr = self._validate_fit(Xd, y)
-        n = len(y_arr)
-        inferred = {s: int(Xd[s].shape[1]) for s in self.slot_names}
-        if self.slot_dims is not None and self.slot_dims != inferred:
-            raise DataError(
-                f"slot dims {inferred} do not match configured {self.slot_dims}"
-            )
-        self.slot_dims = inferred
-
-        seed = random_state if random_state is not None else self.random_state
-        if seed is not None:
-            torch.manual_seed(seed)
-        rng = np.random.default_rng(seed)
-
-        device = torch.device(self.device)
-        state_dim = self.state_dim
-        assert state_dim is not None
-        clf = Classifier(state_dim, hidden=self.config.clf_hidden).to(device)
-        opt = torch.optim.Adam(clf.parameters(), lr=lr)
-        criterion = nn.BCEWithLogitsLoss()
-
-        phases = (
-            list(curriculum) if curriculum is not None else self._default_curriculum()
-        )
-        n_slots = len(self.slot_names)
-
-        clf.train()
-        for epoch in range(epochs):
-            phase = self._curriculum_phase(phases, epoch, epochs)
-            min_k = max(1, min(int(phase["min_k"]), n_slots))
-            max_k = max(min_k, min(int(phase["max_k"]), n_slots))
-            bx: List[np.ndarray] = []
-            by: List[float] = []
-            for i in rng.permutation(n):
-                k = int(rng.integers(min_k, max_k + 1))
-                reveal = rng.choice(n_slots, size=k, replace=False)
-                state = self._make_state(Xd, int(i))
-                for j in reveal:
-                    state.query(self.slot_names[int(j)])
-                bx.append(state.get_state_vector())
-                by.append(float(y_arr[int(i)]))
-                if len(bx) == batch_size:
-                    self._clf_step(clf, opt, criterion, bx, by, device)
-                    bx, by = [], []
-            if bx:
-                self._clf_step(clf, opt, criterion, bx, by, device)
-
-        return {k: v.detach().cpu().clone() for k, v in clf.state_dict().items()}
-
-    def _run_episode(
-        self, state: ObservationState, label: int, profile: str | None
-    ) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-        cfg = self.config
-        n_info = len(self.slot_names)
-        spv_list: List[Dict[str, Any]] = []
-        sample_list: List[Dict[str, Any]] = []
-
-        for _ in range(cfg.max_steps):
-            pi = self._biased_probs(state, profile)
-            if self._rng.random() < cfg.eps:
-                action = int(self._rng.integers(len(pi)))
-            else:
-                action = int(np.argmax(pi))
-
-            if action == n_info:  # STOP
-                break
-            state.query(self.slot_names[action])
-            spv, samples = self._compute_tree_targets(state, label)
-            spv_list.append(spv)
-            sample_list.extend(samples)
-
-        return spv_list, sample_list
-
-    def _compute_tree_targets(
-        self, state: ObservationState, label: int
-    ) -> tuple[Dict[str, Any], List[Dict[str, Any]]]:
-        cfg = self.config
-        device = torch.device(self.device)
-        state_vec = state.get_state_vector()
-
-        x = torch.from_numpy(state_vec).float().to(device)
-        with torch.no_grad():
-            pi_root = self._pol(x).detach().cpu().numpy()
-
-        rollout_clf = self._rollout_clf
-        q_info, dataset = tree_value_map(
-            state,
-            self._pol,
-            rollout_clf,
-            label,
-            cfg,
-            device,
-            self._rng,
-        )
-        q_info_arr = np.asarray(q_info, dtype=np.float32)
-
-        if state.n_observed() < cfg.min_queries:
-            q_stop = -1e9
-        else:
-            q_stop, _ = compute_reward(state, rollout_clf, label, cfg, device)
-        q_stop = float(q_stop)
-
-        q_all = np.concatenate([q_info_arr / cfg.tau_info, [q_stop / cfg.tau_stop]])
-        p_info = torch.softmax(torch.from_numpy(q_info_arr / cfg.tau_info), dim=0)
-        p_stop = torch.sigmoid(torch.tensor(q_stop / cfg.tau_stop))
-        p_all = torch.cat([p_info, p_stop.view(1)], dim=0)
-        pai = (p_all / p_all.sum()).numpy().astype(np.float32)
-
-        v = float(np.dot(pi_root[: len(q_all)], q_all))
-        spv = {"s": state_vec.copy(), "pai": pai, "v": v}
-        return spv, dataset
-
-    def _sample(self, buf: List[Dict[str, Any]], k: int) -> List[Dict[str, Any]]:
-        if k <= 0 or len(buf) <= k:
-            return list(buf)
-        idx = self._rng.choice(len(buf), size=k, replace=False)
-        return [buf[i] for i in idx]
-
-    def _train_policy(
-        self,
-        spv: List[Dict[str, Any]],
-        opt: torch.optim.Optimizer,
-        device: torch.device,
-    ) -> float:
-        if not spv:
-            return 0.0
-        cfg = self.config
-        states = torch.from_numpy(np.stack([d["s"] for d in spv])).float()
-        targets = torch.from_numpy(np.stack([d["pai"] for d in spv])).float()
-        loader = DataLoader(
-            TensorDataset(states, targets), batch_size=cfg.policy_batch, shuffle=True
-        )
-        policy = self._pol
-        policy.train()
-        total, batches = 0.0, 0
-        for _ in range(cfg.train_epochs):
-            for xb, pi_tgt in loader:
-                xb, pi_tgt = xb.to(device), pi_tgt.to(device)
-                pi_pred = policy(xb)
-                pi_pred = pi_pred[:, : pi_tgt.size(1)]
-                loss = -(pi_tgt * torch.log(pi_pred + 1e-8)).sum(dim=1).mean()
-                opt.zero_grad(set_to_none=True)
-                loss.backward()
-                if cfg.grad_clip:
-                    nn.utils.clip_grad_norm_(policy.parameters(), cfg.grad_clip)
-                opt.step()
-                total += float(loss.item())
-                batches += 1
-        return total / max(batches, 1)
-
-    def _train_classifier(
-        self,
-        samples: List[Dict[str, Any]],
-        opt: torch.optim.Optimizer,
-        device: torch.device,
-    ) -> float:
-        if not samples:
-            return 0.0
-        cfg = self.config
-        xs = torch.from_numpy(np.stack([s["x"] for s in samples])).float()
-        ys = torch.tensor([int(s["y"]) for s in samples], dtype=torch.float32)
-        loader = DataLoader(
-            TensorDataset(xs, ys), batch_size=cfg.clf_batch, shuffle=True
-        )
-        criterion = nn.BCEWithLogitsLoss()
-        classifier = self._clf
-        classifier.train()
-        total, batches = 0.0, 0
-        for _ in range(cfg.train_epochs):
-            for xb, yb in loader:
-                xb, yb = xb.to(device), yb.to(device)
-                logits = classifier(xb)
-                loss = criterion(logits, yb)
-                opt.zero_grad(set_to_none=True)
-                loss.backward()
-                if cfg.grad_clip:
-                    nn.utils.clip_grad_norm_(classifier.parameters(), cfg.grad_clip)
-                opt.step()
-                total += float(loss.item())
-                batches += 1
-        return total / max(batches, 1)
-
-    # ------------------------------------------------------------------
-    # Prediction
-    # ------------------------------------------------------------------
-
-    def _predict_one(
-        self, state: ObservationState, profile: str | None
-    ) -> tuple[float, List[str], List[str]]:
-        cfg = self.config
-        device = torch.device(self.device)
-        n_info = len(self.slot_names)
-        queried = 0
-        used: List[str] = []
-        path: List[str] = []
-
-        for _ in range(cfg.max_steps):
-            pi = self._biased_probs(state, profile)
-            if cfg.greedy:
-                action = int(np.argmax(pi))
-            else:
-                p = pi / pi.sum()
-                action = int(self._rng.choice(len(p), p=p))
-
-            if action == n_info and queried < cfg.predict_min_queries:
-                pi = pi.copy()
-                pi[n_info] = -1.0
-                action = int(np.argmax(pi))
-
-            if action == n_info:
-                path.append("stop")
-                break
-
-            slot = self.slot_names[action]
-            path.append(slot)
-            if not state.observed[slot]:
-                used.append(slot)
-            state.query(slot)
-            queried += 1
-
-        x = torch.from_numpy(state.get_state_vector()).float().to(device)
-        with torch.no_grad():
-            prob = float(torch.sigmoid(self._clf(x)).item())
-        return prob, used, path
-
-    def predict_paths(
-        self, X: _FeaturesArg, *, profiles: Sequence[str] | None = None
-    ) -> List[QueryResult]:
-        """Run the policy on each sample and return full decision traces."""
-        self._check_fitted()
-        Xd = self._coerce_x(X)
-        n = self._validate_predict(Xd, profiles)
-        self._pol.eval()
-        self._clf.eval()
-
-        results: List[QueryResult] = []
-        for i in range(n):
-            state = self._make_state(Xd, i)
-            profile = profiles[i] if profiles is not None else None
-            prob, used, path = self._predict_one(state, profile)
-            pred = int(prob >= self.config.predict_threshold)
-            results.append(
-                QueryResult(
-                    probability=prob,
-                    prediction=pred,
-                    slots_used=used,
-                    decision_path=path,
-                )
-            )
-        return results
-
     def predict_proba(
-        self, X: _FeaturesArg, *, profiles: Sequence[str] | None = None
-    ) -> np.ndarray:
-        """Return per-sample success probabilities (shape ``(n,)``)."""
-        return np.array(
-            [r.probability for r in self.predict_paths(X, profiles=profiles)]
+        self, X: SlotFeatures, *, slot_texts: SlotTexts | None = None
+    ) -> npt.NDArray[np.float64]:
+        """Class probabilities, columns in ``classes_`` order."""
+        check_is_fitted(self)
+        positive = self._final_proba(self._layout(X), slot_texts)
+        proba = np.empty((len(positive), 2))
+        proba[:, self._pos_index()], proba[:, 1 - self._pos_index()] = (
+            positive,
+            1 - positive,
         )
+        return proba
 
     def predict(
-        self, X: _FeaturesArg, *, profiles: Sequence[str] | None = None
-    ) -> np.ndarray:
-        """Return per-sample binary predictions (shape ``(n,)``)."""
-        return np.array(
-            [r.prediction for r in self.predict_paths(X, profiles=profiles)]
+        self, X: SlotFeatures, *, slot_texts: SlotTexts | None = None
+    ) -> npt.NDArray[np.object_]:
+        """The predicted label of each sample."""
+        positive = (
+            self.predict_proba(X, slot_texts=slot_texts)[:, self._pos_index()]
+            >= self.threshold_
         )
+        return self.classes_[
+            np.where(positive, self._pos_index(), 1 - self._pos_index())
+        ]
 
-    # ------------------------------------------------------------------
-    # Persistence
-    # ------------------------------------------------------------------
+    def decision_paths(
+        self, X: SlotFeatures, *, slot_texts: SlotTexts | None = None
+    ) -> list[list[str]]:
+        """The slots revealed for each sample, in order."""
+        check_is_fitted(self)
+        _, paths = self._reveal(self._layout(X), slot_texts)
+        return [[self.slot_names_[s] for s in path] for path in paths]
 
-    def save(self, path: str | PathLike[str]) -> None:
-        """Save weights + config to a directory."""
-        self._check_fitted()
-        out = Path(path)
-        out.mkdir(parents=True, exist_ok=True)
-        torch.save(
-            {
-                "policy_state_dict": self._pol.state_dict(),
-                "clf_state_dict": self._clf.state_dict(),
-            },
-            out / "model.pt",
-        )
-        meta = {
-            "slot_names": self.slot_names,
-            "slot_dims": self.slot_dims,
-            "config": asdict(self.config),
-            "device": self.device,
-            "random_state": self.random_state,
-        }
-        (out / "meta.json").write_bytes(orjson.dumps(meta))
+    def _final_proba(
+        self, features: npt.NDArray[np.float32], slot_texts: SlotTexts | None
+    ) -> npt.NDArray[np.float64]:
+        masks, _ = self._reveal(features, slot_texts)
+        with torch.no_grad():
+            logits = self.classifier_(self._states(features, masks))
+        return torch.sigmoid(logits).cpu().numpy().astype(np.float64)
 
-    @classmethod
-    def load(
-        cls,
-        path: str | PathLike[str],
-        *,
-        supervisor: ActionSupervisor | None = None,
-        device: str | None = None,
-    ) -> "VerifiableRL":
-        """Load a model saved with :meth:`save`."""
-        src = Path(path)
-        meta = orjson.loads((src / "meta.json").read_bytes())
-        cfg = VerifiableRLConfig(**meta["config"])
-        slots = {s: meta["slot_dims"][s] for s in meta["slot_names"]}
-        model = cls(
-            slots=slots,
-            config=cfg,
-            supervisor=supervisor,
-            device=device or meta["device"],
-            random_state=meta["random_state"],
-        )
-        model._build_networks()
-        ckpt = torch.load(
-            src / "model.pt",
-            map_location=torch.device(model.device),
-            weights_only=True,
-        )
-        model._pol.load_state_dict(ckpt["policy_state_dict"])
-        model._clf.load_state_dict(ckpt["clf_state_dict"])
-        model._pol.eval()
-        model._clf.eval()
-        model._fitted = True
-        return model
-
-    @classmethod
-    def from_state_dicts(
-        cls,
-        path: str | PathLike[str],
-        slots: Mapping[str, int],
-        *,
-        config: VerifiableRLConfig | None = None,
-        supervisor: ActionSupervisor | None = None,
-        device: str = "cpu",
-    ) -> "VerifiableRL":
-        """Load a raw checkpoint of ``policy_state_dict`` + ``clf_state_dict``.
-
-        This consumes the standalone ``runs/model_*/final_model.pt`` format.
-        ``slots`` must be a ``name -> dimension`` mapping (the dimensions are
-        required to rebuild the networks) whose total matches the checkpoint's
-        ``state_dim`` and whose count matches ``action_dim - 1``.
-        """
-        if not isinstance(slots, Mapping):
-            raise ValueError("slots must be a name->dim mapping for from_state_dicts")
-        model = cls(
-            slots=slots,
-            config=config,
-            supervisor=supervisor,
-            device=device,
-        )
-        model._build_networks()
-        ckpt = torch.load(
-            Path(path), map_location=torch.device(model.device), weights_only=True
-        )
-        policy_sd = ckpt.get("policy_state_dict", ckpt.get("policy"))
-        clf_sd = ckpt.get("clf_state_dict", ckpt.get("classifier", ckpt.get("clf")))
-        if policy_sd is None or clf_sd is None:
-            raise DataError(
-                "checkpoint must contain 'policy_state_dict' and 'clf_state_dict'"
+    def _reveal(
+        self, features: npt.NDArray[np.float32], slot_texts: SlotTexts | None
+    ) -> tuple[npt.NDArray[np.bool_], list[list[int]]]:
+        """Reveal slots greedily for every sample at once; never a slot already seen."""
+        supervisor = self._supervisor(LLMSession(usage=self.usage_), slot_texts)
+        n, n_slots = len(features), len(self.slot_names_)
+        masks, paths = np.zeros((n, n_slots), dtype=bool), [[] for _ in range(n)]
+        active = np.ones(n, dtype=bool)
+        for _ in range(self.max_steps):
+            rows = np.flatnonzero(active)
+            if not len(rows):
+                break
+            probs = policy_probs(
+                self.policy_, self._states(features[rows], masks[rows])
             )
-        model._pol.load_state_dict(policy_sd)
-        model._clf.load_state_dict(clf_sd)
-        model._pol.eval()
-        model._clf.eval()
-        model._fitted = True
-        return model
+            for row, p in zip(rows, probs):
+                action = self._act(p, masks[row], supervisor, slot_texts, row)
+                if action == n_slots:
+                    active[row] = False
+                else:
+                    masks[row, action] = True
+                    paths[row].append(action)
+            active &= ~masks.all(axis=1)
+        return masks, paths
+
+    def _act(
+        self,
+        probs: npt.NDArray[np.float64],
+        mask: npt.NDArray[np.bool_],
+        supervisor: Supervisor | None,
+        slot_texts: SlotTexts | None,
+        row: int,
+    ) -> int:
+        """The greedy action, among unseen slots, with STOP after enough queries."""
+        n_slots = len(mask)
+        probs = probs.copy()
+        probs[:n_slots][mask] = 0.0
+        if mask.sum() < self.predict_min_queries:
+            probs[n_slots] = 0.0
+        return int(np.argmax(self._nudged(probs, mask, supervisor, slot_texts, row)))
+
+    def _nudged(
+        self,
+        probs: npt.NDArray[np.float64],
+        mask: npt.NDArray[np.bool_],
+        supervisor: Supervisor | None,
+        slot_texts: SlotTexts | None,
+        row: int,
+    ) -> npt.NDArray[np.float64]:
+        n_slots = len(mask)
+        if (
+            supervisor is None
+            or slot_texts is None
+            or not is_uncertain(probs, n_slots, self.uncertain_delta)
+        ):
+            return probs
+        names = self.slot_names_
+        seen = {names[s]: slot_texts[names[s]][row] for s in np.flatnonzero(mask)}
+        pick = supervisor.pick(seen, [names[s] for s in np.flatnonzero(~mask)])
+        return probs if pick is None else boost(probs, n_slots, pick, self.llm_bias)
+
+    def _states(
+        self, features: npt.NDArray[np.float32], masks: npt.NDArray[np.bool_]
+    ) -> torch.Tensor:
+        return torch.from_numpy(features * masks[:, self.columns_]).to(self.device)
+
+    def _layout(
+        self, X: SlotFeatures, *, fitting: bool = False
+    ) -> npt.NDArray[np.float32]:
+        """Features as one float array with the slots' columns in order."""
+        if not self.slots:
+            raise ValueError("VerifiableRL needs slots={name: n_columns, ...}.")
+        names = list(self.slots)
+        matrix = (
+            np.hstack([np.asarray(X[s]) for s in names])
+            if isinstance(X, Mapping)
+            else np.asarray(X)
+        )
+        if (
+            matrix.ndim != 2
+            or matrix.shape[1] != sum(self.slots.values())
+            or not len(matrix)
+        ):
+            raise DataError(
+                f"X needs {sum(self.slots.values())} columns for the slots "
+                f"{dict(self.slots)}."
+            )
+        if fitting:
+            self.slot_names_ = names
+            self.columns_ = np.repeat(
+                np.arange(len(names)), list(self.slots.values())
+            ).astype(np.intp)
+            costs = self.slot_costs or {}
+            self.costs_ = np.array([costs.get(s, 0.0) for s in names], dtype=float)
+        return matrix.astype(np.float32)
+
+    def _pos_index(self) -> int:
+        if self.pos_label is None:
+            return 1
+        labels = [str(c) for c in self.classes_]
+        if self.pos_label not in labels:
+            raise ValueError(f"pos_label={self.pos_label!r} is not one of {labels}.")
+        return labels.index(self.pos_label)
+
+    def _supervisor(
+        self, session: LLMSession, slot_texts: SlotTexts | None
+    ) -> Supervisor | None:
+        if self.supervisor is None or slot_texts is None:
+            return None
+        models = resolve_models(self.supervisor, param="supervisor", task="generate")
+        return Supervisor(models, session, self.slot_names_)
+
+    def _build_networks(self, rng: np.random.Generator) -> None:
+        state_dim = len(self.columns_)
+        with torch.random.fork_rng(devices=[]):
+            torch.manual_seed(int(rng.integers(2**31)))
+            self.policy_ = PolicyNet(
+                state_dim, len(self.slot_names_), self.policy_hidden
+            ).to(self.device)
+            self.classifier_ = Classifier(state_dim, self.clf_hidden).to(self.device)
+
+    def _pretrain(
+        self,
+        features: npt.NDArray[np.float32],
+        positive: npt.NDArray[np.float32],
+        rng: np.random.Generator,
+    ) -> None:
+        """Train the classifier on random reveals: all slots first, then fewer."""
+        n_slots = len(self.slot_names_)
+        optimiser = torch.optim.Adam(self.classifier_.parameters(), lr=self.pretrain_lr)
+        loss = nn.BCEWithLogitsLoss()
+        for epoch in range(self.pretrain_epochs):
+            low, high = _curriculum(epoch / self.pretrain_epochs, n_slots)
+            for batch in np.array_split(
+                rng.permutation(len(features)),
+                max(1, len(features) // self.pretrain_batch),
+            ):
+                masks = _random_masks(len(batch), n_slots, low, high, rng)
+                _step(
+                    optimiser,
+                    loss(
+                        self.classifier_(self._states(features[batch], masks)),
+                        torch.from_numpy(positive[batch]),
+                    ),
+                    self.classifier_,
+                    self.grad_clip,
+                )
+
+    def _search(self) -> Search:
+        return Search(
+            self.n_rollouts,
+            self.max_depth,
+            self.min_queries,
+            self.tau_info,
+            self.tau_stop,
+            self.reward_tp,
+            self.reward_fp,
+            self.reward_tn,
+            self.reward_fn,
+            self.step_penalty,
+            self.repeat_penalty,
+            self.reward_threshold,
+        )
+
+
+@dataclass(slots=True)
+class _Trainer:
+    """The two-network training loop of one ``fit``."""
+
+    model: VerifiableRL
+    features: npt.NDArray[np.float32]
+    positive: npt.NDArray[np.float32]
+    supervisor: Supervisor | None
+    rng: np.random.Generator
+    shuffle: torch.Generator = field(default_factory=torch.Generator)
+    policy_examples: list[tuple[torch.Tensor, npt.NDArray[np.float32], float]] = field(
+        default_factory=list
+    )
+    clf_examples: list[tuple[torch.Tensor, float]] = field(default_factory=list)
+    updates: int = 0
+
+    def run(self) -> None:
+        model = self.model
+        self.shuffle.manual_seed(int(self.rng.integers(2**31)))
+        target = self._frozen_copy() if model.clf_target_update_every else None
+        optimisers = (
+            torch.optim.Adam(model.policy_.parameters(), lr=model.policy_lr),
+            torch.optim.Adam(model.classifier_.parameters(), lr=model.clf_lr),
+        )
+        for _ in range(model.n_iterations):
+            for count, i in enumerate(self.rng.permutation(len(self.features)), 1):
+                self._episode(int(i), target or model.classifier_)
+                if count % model.update_every == 0:
+                    self._update(optimisers, target)
+            self._update(optimisers, target)
+
+    def _episode(self, i: int, rollout_classifier: Classifier) -> None:
+        """Visit states of one sample, recording policy targets at each."""
+        model, n_slots = self.model, len(self.model.slot_names_)
+        sample = Sample(
+            torch.from_numpy(self.features[i]).to(model.device),
+            model.columns_,
+            model.costs_,
+        )
+        mask, label = np.zeros(n_slots, dtype=bool), int(self.positive[i])
+        for _ in range(model.max_steps):
+            info, stop, finals = targets(
+                sample,
+                mask,
+                (model.policy_, rollout_classifier),
+                label,
+                model._search(),
+                self.rng,
+            )
+            state = sample.states(mask[None, :])[0]
+            self.policy_examples.append((state, info, stop))
+            self.clf_examples.extend((row, float(label)) for row in finals)
+            action = self._explore(sample, mask)
+            if action == n_slots:
+                break
+            mask[action] = True
+            if mask.all():
+                break
+        self.policy_examples = self.policy_examples[-model.policy_replay :]
+        self.clf_examples = self.clf_examples[-model.clf_replay :]
+
+    def _explore(self, sample: Sample, mask: npt.NDArray[np.bool_]) -> int:
+        n_slots = len(mask)
+        unseen = [*np.flatnonzero(~mask), n_slots]
+        if self.rng.random() < self.model.eps:
+            return int(self.rng.choice(unseen))
+        probs = policy_probs(self.model.policy_, sample.states(mask[None, :]))[0]
+        probs[:n_slots][mask] = 0.0
+        return int(np.argmax(probs))
+
+    def _update(
+        self,
+        optimisers: tuple[torch.optim.Optimizer, torch.optim.Optimizer],
+        target: Classifier | None,
+    ) -> None:
+        model = self.model
+        self.updates += 1
+        self._train_policy(optimisers[0])
+        if self.updates >= model.freeze_clf_updates:
+            self._train_classifier(optimisers[1])
+        if target is not None and self.updates % model.clf_target_update_every == 0:
+            target.load_state_dict(model.classifier_.state_dict())
+
+    def _train_policy(self, optimiser: torch.optim.Optimizer) -> None:
+        model = self.model
+        examples = _sample(self.policy_examples, model.policy_sample, self.rng)
+        if not examples:
+            return
+        states = torch.stack([s for s, _, _ in examples])
+        info = torch.from_numpy(np.stack([t for _, t, _ in examples])).to(states)
+        stop = torch.tensor([t for _, _, t in examples]).to(states)
+        for _ in range(model.train_epochs):
+            for batch in torch.randperm(len(states), generator=self.shuffle).split(
+                model.policy_batch
+            ):
+                logits = model.policy_(states[batch])
+                loss = (
+                    -(info[batch] * torch.log_softmax(logits[:, :-1], dim=1))
+                    .sum(dim=1)
+                    .mean()
+                )
+                loss = loss + nn.functional.binary_cross_entropy_with_logits(
+                    logits[:, -1], stop[batch]
+                )
+                _step(optimiser, loss, model.policy_, model.grad_clip)
+
+    def _train_classifier(self, optimiser: torch.optim.Optimizer) -> None:
+        model = self.model
+        examples = _sample(self.clf_examples, model.clf_sample, self.rng)
+        if not examples:
+            return
+        states = torch.stack([s for s, _ in examples])
+        labels = torch.tensor([y for _, y in examples]).to(states)
+        for _ in range(model.train_epochs):
+            for batch in torch.randperm(len(states), generator=self.shuffle).split(
+                model.clf_batch
+            ):
+                loss = nn.functional.binary_cross_entropy_with_logits(
+                    model.classifier_(states[batch]), labels[batch]
+                )
+                _step(optimiser, loss, model.classifier_, model.grad_clip)
+
+    def _frozen_copy(self) -> Classifier:
+        """A frozen copy for the rollouts (a deep copy draws no random numbers)."""
+        return copy.deepcopy(self.model.classifier_).requires_grad_(False).eval()
+
+
+def _sample[E](examples: list[E], size: int, rng: np.random.Generator) -> list[E]:
+    if size <= 0 or len(examples) <= size:
+        return examples
+    return [examples[i] for i in rng.choice(len(examples), size=size, replace=False)]
+
+
+def _step(
+    optimiser: torch.optim.Optimizer,
+    loss: torch.Tensor,
+    network: nn.Module,
+    grad_clip: float,
+) -> None:
+    optimiser.zero_grad(set_to_none=True)
+    loss.backward()
+    if grad_clip:
+        nn.utils.clip_grad_norm_(network.parameters(), grad_clip)
+    optimiser.step()
+
+
+def _random_masks(
+    n: int, n_slots: int, low: int, high: int, rng: np.random.Generator
+) -> npt.NDArray[np.bool_]:
+    """``n`` masks, each revealing a random number in [low, high] of random slots."""
+    counts = rng.integers(max(1, low), max(1, high) + 1, size=n)
+    order = np.argsort(rng.random((n, n_slots)), axis=1)
+    return order < counts[:, None]
+
+
+def _curriculum(progress: float, n_slots: int) -> tuple[int, int]:
+    """Slots revealed in pretraining: all, then a middle range, then one or two."""
+    if progress < 0.3:
+        return n_slots, n_slots
+    if progress < 0.7:
+        return min(2, n_slots), max(min(2, n_slots), n_slots - 1)
+    return 1, min(2, n_slots)

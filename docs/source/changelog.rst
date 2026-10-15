@@ -1,8 +1,12 @@
 Changelog
 =========
 
-Unreleased
-----------
+0.2.0
+-----
+**Breaking:** code that relied on answers defaulting to the generation model now answers with Jev and needs
+``TYPESAFE_API_KEY`` (or pass the chat model as ``qanswer_llmc`` / ``predict_llmc``), and new Random Rule Forest
+instances use the elastic-net combiner unless ``aggregation_method="vote"`` is passed.
+
 - Jev, Typesafe's System One model, is the default answering model: ``qanswer_llmc`` in Random Rule Forest and
   GPTree and ``predict_llmc`` in Policy Induction default to ``[JevChoice()]`` instead of the generation model.
   Question and policy generation, critics and instructions still use chat models.
@@ -42,6 +46,9 @@ Unreleased
 - New ``LLM.answer`` and ``LLM.answer_many`` answer typed questions (``NoulQuestion``, ``ChoiceQuestion``) with Jev,
   falling back to chat models.
 - ``httpx`` is now a direct dependency.
+- ``cross_validate_aggregation(method="elasticnet")`` cross-validates the elastic-net combiner.
+- Elastic-net (Random Rule Forest, ``cross_validate_aggregation``) and Policy Induction's weight fit pick their
+  scikit-learn arguments by version, so they keep working on scikit-learn 1.8 and later.
 
 0.1.0
 -----

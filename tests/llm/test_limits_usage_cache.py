@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from think_reason_learn.core.exceptions import BudgetExceededError
+from think_reason_learn.exceptions import BudgetExceededError
 from think_reason_learn.llm import (
     LLM,
     Budget,

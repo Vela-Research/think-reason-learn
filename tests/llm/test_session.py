@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel
 
-from think_reason_learn.core.exceptions import (
+from think_reason_learn.exceptions import (
     BudgetExceededError,
     LLMError,
     ProviderAuthError,

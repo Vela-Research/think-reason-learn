@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Final, Literal
 
 import pandas as pd
 
-from think_reason_learn.core.exceptions import BudgetExceededError
+from think_reason_learn.exceptions import BudgetExceededError
 
 if TYPE_CHECKING:
     from ._spec import Endpoint

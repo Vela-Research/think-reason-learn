@@ -8,7 +8,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Final, Literal
 
-from think_reason_learn.core.exceptions import MissingAPIKeyError
+from think_reason_learn.exceptions import MissingAPIKeyError
 
 from ._usage import Price
 
@@ -68,6 +68,13 @@ class LLM:
             raise ValueError(
                 f"questions_per_call must be >= 1, got {self.questions_per_call}."
             )
+
+    def __getstate__(self) -> tuple[object, ...]:
+        """Pickle without the API key: saved models never hold secrets."""
+        return tuple(
+            None if name == "api_key" else getattr(self, name)
+            for name in self.__dataclass_fields__
+        )
 
 
 type Model = ModelName | LLM

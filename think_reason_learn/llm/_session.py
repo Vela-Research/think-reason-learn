@@ -17,7 +17,7 @@ from typing import Final, TypeIs, overload
 
 from pydantic import BaseModel, ValidationError
 
-from think_reason_learn.core.exceptions import (
+from think_reason_learn.exceptions import (
     BudgetExceededError,
     LLMError,
     ProviderAuthError,

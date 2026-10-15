@@ -11,3 +11,15 @@ class LLMError(Exception):
 
 class CorruptionError(Exception):
     """Internal state corruption detected. A model's state is corrupted."""
+
+
+class JevAuthError(LLMError):
+    """Typesafe rejected the TYPESAFE_API_KEY (HTTP 401 or 403)."""
+
+
+class JevCostCapError(LLMError):
+    """A Jev run would pass, or has passed, its cost cap (``max_cost_usd``)."""
+
+
+class MissingAPIKeyError(ValueError):
+    """A model was chosen whose API key is not set."""

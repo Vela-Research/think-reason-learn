@@ -38,6 +38,7 @@ import numpy as np
 import numpy.typing as npt
 import orjson
 import pandas as pd
+import sklearn
 from joblib import dump as joblib_dump
 from numpy.typing import NDArray
 from pydantic import BaseModel, Field
@@ -47,11 +48,30 @@ from sklearn.model_selection import StratifiedKFold
 from tqdm.auto import tqdm
 
 from think_reason_learn.core.exceptions import DataError, LLMError
-from think_reason_learn.core.llms import LLMChoice, TokenCounter, llm
+from think_reason_learn.core.llms import (
+    JevChoice,
+    JevQuestion,
+    JevRequest,
+    LLMChoice,
+    NoulQuestion,
+    TokenCounter,
+    llm,
+)
+from think_reason_learn.core.llms._jev.client import (
+    MAX_QUESTIONS_PER_REQUEST,
+    loading_saved_model,
+    require_typesafe_key,
+)
+from think_reason_learn.core.llms._jev.schemas import (
+    YES_THRESHOLD,
+    answers_with_jev,
+    yes_no,
+)
 from ._prompts import (
     POLICY_GEN_INSTRUCTIONS,
     POLICY_PREDICT_BATCH_INSTRUCTIONS,
     POLICY_PREDICT_INSTRUCTIONS,
+    POLICY_PREDICT_JEV_TEMPLATE,
     max_policy_num_tag,
 )
 
@@ -60,6 +80,26 @@ logger = logging.getLogger(__name__)
 # Compact terminal-style progress bar: "[TAG] ████░░░░ n/total · rate/s · eta MM:SS"
 _BAR_FORMAT = "{desc} {bar} {n_fmt}/{total_fmt} · {rate_fmt} · eta {remaining}"
 _BAR_ASCII = "░█"
+
+
+def _penalty_kwargs(
+    penalty: Literal["l1", "l2"], sklearn_version: str = sklearn.__version__
+) -> Dict[str, Any]:
+    """Arguments that give ``LogisticRegression`` an L1 or L2 penalty.
+
+    scikit-learn 1.8 deprecated ``penalty`` (removed in 1.10) in favour of
+    ``l1_ratio``: 1 for L1, 0 for L2. Before 1.8, ``l1_ratio`` is ignored unless
+    ``penalty="elasticnet"``, so ``penalty`` must still be passed there.
+
+    Raises:
+        ValueError: ``penalty`` is not ``"l1"`` or ``"l2"``.
+    """
+    if penalty not in ("l1", "l2"):
+        raise ValueError(f"penalty must be 'l1' or 'l2', got {penalty!r}")
+    match = re.match(r"(\d+)\.(\d+)", sklearn_version)
+    if match is None or (int(match.group(1)), int(match.group(2))) < (1, 8):
+        return {"penalty": penalty}
+    return {"l1_ratio": 1.0 if penalty == "l1" else 0.0}
 
 
 # ── Schemas ────────────────────────────────────────────────────────────────────
@@ -126,7 +166,10 @@ class PolicyInduction:
 
     Args:
         gen_llmc: LLMs for policy generation, in priority order.
-        predict_llmc: LLMs for prediction. Defaults to gen_llmc.
+        predict_llmc: LLMs for prediction. Defaults to Jev (``[JevChoice()]``),
+            which needs ``TYPESAFE_API_KEY``; pass a chat model here to predict
+            with it instead. With Jev first, each sample is sent once with every policy
+            to score, and Jev's probability counts as YES at or above 0.5.
         config: Weight training configuration.
         gen_temperature: Sampling temperature for generation.
         predict_temperature: Sampling temperature for prediction.
@@ -190,7 +233,10 @@ class PolicyInduction:
             predict_temperature=predict_temperature,
         )
         self.gen_llmc = gen_llmc
-        self.predict_llmc = predict_llmc or gen_llmc
+        self.predict_llmc: List[LLMChoice] = predict_llmc or [JevChoice()]
+        require_typesafe_key(
+            self.predict_llmc, method="PolicyInduction", param="predict_llmc"
+        )
         self.gen_temperature = gen_temperature
         self.predict_temperature = predict_temperature
         self._llm_semaphore_limit = llm_semaphore_limit
@@ -458,6 +504,21 @@ class PolicyInduction:
 
     # ── Request confirmation ────────────────────────────────────────────────────
 
+    @property
+    def _scores_with_jev(self) -> bool:
+        return answers_with_jev(self.predict_llmc)
+
+    def _jev_question(self, policy: str) -> NoulQuestion:
+        return NoulQuestion(
+            instructions=POLICY_PREDICT_JEV_TEMPLATE.format(
+                task_description=self._task_description, policy=policy
+            )
+        )
+
+    @staticmethod
+    def _jev_requests_per_sample(n_policies: int) -> int:
+        return math.ceil(n_policies / MAX_QUESTIONS_PER_REQUEST)
+
     @staticmethod
     def _llmc_label(llmc: LLMChoice) -> str:
         return llmc["model"] if isinstance(llmc, dict) else llmc.model
@@ -515,6 +576,10 @@ class PolicyInduction:
             for c in missing_per_sample.values()
             if c
         )
+        if self._scores_with_jev and score_remaining:
+            score_remaining = len(sample_keys) * self._jev_requests_per_sample(
+                n_policies
+            )
 
         return {
             f"{self._llmc_label(self.gen_llmc[0])} (generation)": gen_remaining,
@@ -540,10 +605,12 @@ class PolicyInduction:
         else:
             n_policies = self.max_policy_length
         label = self._llmc_label(self.predict_llmc[0])
-        return {
-            f"{label} (predict)": remaining_samples
-            * math.ceil(n_policies / self.policy_batch_size)
-        }
+        per_sample = (
+            self._jev_requests_per_sample(n_policies)
+            if self._scores_with_jev
+            else math.ceil(n_policies / self.policy_batch_size)
+        )
+        return {f"{label} (predict)": remaining_samples * per_sample}
 
     # ── Checkpointing ───────────────────────────────────────────────────────────
 
@@ -936,6 +1003,14 @@ class PolicyInduction:
             for i in range(0, len(pids), bs)
         ]
 
+        if self._scores_with_jev:
+            open_pids = {pid for pids in pending.values() for pid in pids}
+            await self._score_policies_jev(
+                [pid for pid in self._policy_memory.index if pid in open_pids]
+            )
+            logger.info("Scoring complete.")
+            return
+
         total_cells = len(self._policy_memory) * len(self._X)
         pending_cells = sum(len(p) for p in pending.values())
         logger.info(
@@ -1007,6 +1082,46 @@ class PolicyInduction:
                 self._save_scoring_ckpt()
 
         logger.info("Scoring complete.")
+
+    async def _score_policies_jev(self, policy_ids: List[Any]) -> None:
+        """Score policies with Jev: one request per sample, all its open policies."""
+        X = cast(pd.DataFrame, self._X)
+        series: Dict[Any, pd.Series] = {}
+        for pid in policy_ids:
+            existing = self._policy_memory.at[pid, "predictions"]
+            series[pid] = (
+                existing.copy()
+                if isinstance(existing, pd.Series)
+                else pd.Series([None] * len(X), index=X.index, dtype="object")
+            )
+        qid_to_pid = {f"p{pid}": pid for pid in policy_ids}
+
+        requests: List[JevRequest] = []
+        sample_ids: List[Any] = []
+        for idx, row in X.iterrows():
+            questions: Dict[str, JevQuestion] = {
+                qid: self._jev_question(str(self._policy_memory.at[pid, "policy"]))
+                for qid, pid in qid_to_pid.items()
+                if pd.isna(series[pid].at[idx])
+            }
+            if questions:
+                sample_str = "\n".join(f"{col}: {row[col]}" for col in row.index)
+                requests.append(JevRequest(state=sample_str, questions=questions))
+                sample_ids.append(idx)
+
+        results = await llm.answer_many(
+            self.predict_llmc,
+            requests,
+            token_counter=self._token_counter,
+            caller="PolicyInduction.score_policy",
+        )
+        for idx, result in zip(sample_ids, results):
+            for qid, value in result.answers.items():
+                if isinstance(value, float):
+                    series[qid_to_pid[qid]].at[idx] = yes_no(value)
+        for pid, scored in series.items():
+            self._policy_memory.at[pid, "predictions"] = scored  # type: ignore
+        self._save_scoring_ckpt()
 
     # ── Weight fitting ──────────────────────────────────────────────────────────
 
@@ -1084,7 +1199,7 @@ class PolicyInduction:
             for tr_idx, val_idx in skf.split(X, y):
                 lr = LogisticRegression(
                     C=C,
-                    penalty=cfg.penalty,
+                    **_penalty_kwargs(cfg.penalty),
                     solver="liblinear",
                     max_iter=500,
                     class_weight="balanced" if cfg.class_weight_balanced else None,
@@ -1115,7 +1230,7 @@ class PolicyInduction:
 
         final_lr = LogisticRegression(
             C=best_C,
-            penalty=cfg.penalty,
+            **_penalty_kwargs(cfg.penalty),
             solver="liblinear",
             max_iter=1000,
             class_weight="balanced" if cfg.class_weight_balanced else None,
@@ -1242,6 +1357,43 @@ class PolicyInduction:
 
         return sample_index, results, self._lr_predict(results)
 
+    async def _predict_many_jev(
+        self, samples: pd.DataFrame, token_counter: TokenCounter
+    ) -> List[Tuple[Any, NDArray, Literal["YES", "NO"]]]:
+        """Predict samples with Jev: one request per sample, weighted policies."""
+        if not hasattr(self, "_feature_order_") or self._lr is None:
+            raise RuntimeError("Model not fitted. Call fit() first.")
+        policies = self._policy_memory["policy"].copy()
+        policies.index = policies.index.map(str)
+        policies = policies.reindex(self._feature_order_)
+        weights = self._lr.coef_[0]
+        questions: Dict[str, JevQuestion] = {
+            f"p{pos}": self._jev_question(pt)
+            for pos, pt in enumerate(policies.fillna("").astype(str).values)
+            if pt.strip() and weights[pos] != 0
+        }
+        rows = list(samples.iterrows())
+        results = await llm.answer_many(
+            self.predict_llmc,
+            [
+                JevRequest(
+                    state="\n".join(f"{col}: {val}" for col, val in row.items()),
+                    questions=questions,
+                )
+                for _, row in rows
+            ],
+            token_counter=token_counter,
+            caller="PolicyInduction.predict_single",
+        )
+        records: List[Tuple[Any, NDArray, Literal["YES", "NO"]]] = []
+        for (idx, _), result in zip(rows, results):
+            vec = np.zeros(len(self._feature_order_), dtype=float)
+            for qid, value in result.answers.items():
+                if isinstance(value, float) and value >= YES_THRESHOLD:
+                    vec[int(qid[1:])] = 1.0
+            records.append((idx, vec, self._lr_predict(vec)))
+        return records
+
     # ── Public API ──────────────────────────────────────────────────────────────
 
     def get_memory(self) -> pd.DataFrame:
@@ -1267,6 +1419,10 @@ class PolicyInduction:
         Returns:
             Self.
         """
+        # A model loaded without the key must not spend on generation first.
+        require_typesafe_key(
+            self.predict_llmc, method="PolicyInduction", param="predict_llmc"
+        )
         self._set_data(X, y)
         self._confirm_requests(self._estimate_fit_requests())
         start = time.monotonic()
@@ -1344,6 +1500,19 @@ class PolicyInduction:
                     "token_counter": token_counter.to_dict(),
                 },
             )
+
+        if self._scores_with_jev:
+            if len(remaining_samples):
+                records = await self._predict_many_jev(
+                    cast(pd.DataFrame, remaining_samples), token_counter
+                )
+                for sidx, vec, pred in records:
+                    completed[str(sidx)] = (vec.tolist(), pred)
+                save_ckpt()
+                for record in records:
+                    yield record + (token_counter,)
+            self._del_ckpt(self._PREDICT_CKPT_NAME)
+            return
 
         queue: asyncio.Queue = asyncio.Queue()
         sem = asyncio.Semaphore(self.llm_semaphore_limit)
@@ -1711,7 +1880,8 @@ class PolicyInduction:
             dir_path: Directory produced by save().
         """
         try:
-            return cls._load(dir_path)
+            with loading_saved_model():
+                return cls._load(dir_path)
         except KeyError as e:
             raise ValueError(f"Manifest corrupted or missing key: {e}") from e
 

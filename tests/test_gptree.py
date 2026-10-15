@@ -20,6 +20,7 @@ def _make_tree(**kwargs: Any) -> GPTree:
         qgen_llmc=kwargs.pop("qgen_llmc", _DUMMY_LLM),
         critic_llmc=kwargs.pop("critic_llmc", _DUMMY_LLM),
         qgen_instr_llmc=kwargs.pop("qgen_instr_llmc", _DUMMY_LLM),
+        qanswer_llmc=kwargs.pop("qanswer_llmc", _DUMMY_LLM),
         **kwargs,
     )
 

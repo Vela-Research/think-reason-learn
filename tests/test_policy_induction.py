@@ -38,6 +38,8 @@ def make_pi(tmp_path, fake: FakePolicyLLM, **kw) -> PolicyInduction:
     """A PolicyInduction wired to the fake, with a task already set."""
     kw.setdefault("policy_batch_size", 3)
     kw.setdefault("llm_semaphore_limit", 3)
+    # Chat answering: the default answerer is Jev.
+    kw.setdefault("predict_llmc", [OpenAIChoice(model="gpt-4.1-nano")])
     pi = PolicyInduction(
         gen_llmc=[OpenAIChoice(model="gpt-4.1-nano")],
         confirm_requests=False,

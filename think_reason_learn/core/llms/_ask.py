@@ -67,6 +67,16 @@ def _has_output(response: LLMResponse[Any] | None, response_format: type) -> boo
     return output is not None and isinstance(output, response_format)
 
 
+def _with_discarded_tokens(
+    response: LLMResponse[T], discarded: LLMResponse[Any] | None
+) -> LLMResponse[T]:
+    """``response`` charged with the tokens of replies discarded before it."""
+    if discarded is None or discarded.total_tokens is None:
+        return response
+    tokens = discarded.total_tokens + (response.total_tokens or 0)
+    return response.model_copy(update={"total_tokens": tokens})
+
+
 class _YesNo(BaseModel):
     answer: Literal["YES", "NO"]
 
@@ -250,10 +260,10 @@ class LLM(metaclass=SingletonMeta):
                 )
 
             if _has_output(response, response_format):
-                return cast(LLMResponse[T], response)
+                return _with_discarded_tokens(cast(LLMResponse[T], response), empty)
             if response is not None:
                 logger.warning(f"No usable output from {llmp.model}.")
-                empty = response
+                empty = _with_discarded_tokens(response, empty)
 
         if empty is not None:
             return empty.model_copy(update={"response": None})
@@ -374,10 +384,10 @@ class LLM(metaclass=SingletonMeta):
                 )
 
             if _has_output(response, response_format):
-                return cast(LLMResponse[T], response)
+                return _with_discarded_tokens(cast(LLMResponse[T], response), empty)
             if response is not None:
                 logger.warning(f"No usable output from {llmp.model}.")
-                empty = response
+                empty = _with_discarded_tokens(response, empty)
 
         if empty is not None:
             return empty.model_copy(update={"response": None})

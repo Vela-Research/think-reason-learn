@@ -26,9 +26,9 @@ class Out(BaseModel):
     answer: str
 
 
-def _resp(value: Any, choice: Any) -> LLMResponse[Any]:
+def _resp(value: Any, choice: Any, tokens: int | None = 1) -> LLMResponse[Any]:
     return LLMResponse(
-        response=value, logprobs=[], total_tokens=1, provider_model=choice
+        response=value, logprobs=[], total_tokens=tokens, provider_model=choice
     )
 
 
@@ -41,8 +41,14 @@ def llm() -> Iterator[LLM]:
     instance.openai_llm, instance.google_llm = saved
 
 
-def _providers(llm: LLM, openai_value: Any, google_value: Any) -> None:
-    first, second = _resp(openai_value, PRIORITY[0]), _resp(google_value, PRIORITY[1])
+def _providers(
+    llm: LLM,
+    openai_value: Any,
+    google_value: Any,
+    tokens: tuple[int | None, int | None] = (1, 1),
+) -> None:
+    first = _resp(openai_value, PRIORITY[0], tokens[0])
+    second = _resp(google_value, PRIORITY[1], tokens[1])
     llm.openai_llm = MagicMock(
         respond_sync=MagicMock(return_value=first),
         respond=AsyncMock(return_value=first),
@@ -92,6 +98,30 @@ async def test_all_empty_returns_no_output_instead_of_raising(
     _providers(llm, None, "")
     response = await _respond(llm, sync, Out)
     assert response.response is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("sync", [True, False])
+@pytest.mark.parametrize(
+    ("tokens", "total"), [((900, 5), 905), ((None, 5), 5), ((900, None), 900)]
+)
+async def test_tokens_of_a_discarded_reply_are_counted(
+    llm: LLM, sync: bool, tokens: tuple[int | None, int | None], total: int
+) -> None:
+    """A refusal is billed; the reply that is returned carries its tokens too."""
+    _providers(llm, None, Out(answer="ok"), tokens)
+    response = await _respond(llm, sync, Out)
+    assert response.response == Out(answer="ok")
+    assert response.total_tokens == total
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("sync", [True, False])
+async def test_tokens_add_up_when_every_reply_is_empty(llm: LLM, sync: bool) -> None:
+    _providers(llm, None, "", (900, 7))
+    response = await _respond(llm, sync, Out)
+    assert response.response is None
+    assert response.total_tokens == 907
 
 
 # --- Anthropic: the tool call need not be the first content block ---------------

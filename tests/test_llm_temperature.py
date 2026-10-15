@@ -127,3 +127,40 @@ def test_other_errors_are_not_retried() -> None:
         )
     assert create.call_count == 2
     assert "gpt-4.1-nano" not in _temperature._REJECTING_MODELS
+
+
+def test_anthropic_adapter_sends_temperature_in_the_body() -> None:
+    """The Anthropic SDK no longer takes ``temperature``; it goes in the body."""
+    import json
+
+    import anthropic
+    import httpx2
+
+    from think_reason_learn.core.llms._anthropic.ask import AnthropicLLM
+
+    bodies: list[dict[str, object]] = []
+
+    def reply(request: httpx2.Request) -> httpx2.Response:
+        bodies.append(json.loads(request.content))
+        return httpx2.Response(
+            200,
+            json={
+                "id": "m",
+                "type": "message",
+                "role": "assistant",
+                "model": "claude-haiku-4-5",
+                "content": [{"type": "text", "text": "hi"}],
+                "stop_reason": "end_turn",
+                "stop_sequence": None,
+                "usage": {"input_tokens": 1, "output_tokens": 1},
+            },
+        )
+
+    adapter = AnthropicLLM.__new__(AnthropicLLM)
+    adapter.client = anthropic.Anthropic(
+        api_key="k", http_client=httpx2.Client(transport=httpx2.MockTransport(reply))
+    )
+    adapter.respond_sync(model="claude-haiku-4-5", query="q", temperature=0.0)
+    adapter.respond_sync(model="claude-haiku-4-5", query="q")
+
+    assert [b.get("temperature") for b in bodies] == [0.0, None]

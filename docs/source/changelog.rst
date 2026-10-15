@@ -1,6 +1,27 @@
 Changelog
 =========
 
+Unreleased
+----------
+The redesign: one way to call every model, built in steps. The new modules ship alongside the old ones until
+every model uses them.
+
+- ``think_reason_learn.llm``: one interface to every model. A model is a ``"provider:model"`` string
+  (``"openai:gpt-5-mini"``, ``"anthropic:claude-sonnet-5-5"``, ``"ollama:qwen3:8b"``, ``"jev"``) or an
+  ``LLM(...)`` with settings (temperature, reasoning effort, base URL, key, price). One OpenAI-compatible adapter
+  covers OpenAI, Gemini, xAI, OpenRouter, Groq, Together, DeepSeek, Mistral, Azure, Ollama, vLLM, LM Studio and
+  llama.cpp; Anthropic, Jev's System One format (also Microsoft-Decision-1 and Jev on OpenRouter) and OpenAI's
+  Decisions API have their own. Decision models answer and cannot write: a role that writes rejects them.
+- ``LLMSession`` makes every call: fallbacks, retries that honour ``Retry-After``, a shared limiter per model and
+  account (``set_limits``; concurrency halves on a rate limit and recovers), a disk cache so no answer is paid
+  for twice, one usage record per call with tokens and cost (``Usage``), and a run budget for every provider
+  (``config_context(max_cost_usd=...)``). Calls run on one event loop owned by the library, so sync code works in
+  notebooks too.
+- ``think_reason_learn.testing``: ``FakeLLM`` and ``fake_llms`` fit and check models offline, with scripted
+  replies and injected failures.
+- Requires ``openai`` 3.x and ``anthropic`` 1.x. The Anthropic SDK no longer takes ``temperature``; the old
+  adapter now sends it in the request body when set.
+
 0.2.0
 -----
 **Breaking:** code that relied on answers defaulting to the generation model now answers with Jev and needs

@@ -2,7 +2,7 @@ from typing import TypeAlias, Literal, TypedDict
 
 from pydantic import BaseModel
 from anthropic.types import Model
-from anthropic._types import NOT_GIVEN as NOT_GIVEN, NotGiven as NotGiven
+from anthropic import Omit as NotGiven, omit as NOT_GIVEN
 
 
 AnthropicChatModel: TypeAlias = Model
@@ -20,3 +20,12 @@ class AnthropicChoiceDict(TypedDict):
 
     provider: Literal["anthropic"]
     model: AnthropicChatModel
+
+
+__all__ = [
+    "NOT_GIVEN",
+    "AnthropicChatModel",
+    "AnthropicChoice",
+    "AnthropicChoiceDict",
+    "NotGiven",
+]

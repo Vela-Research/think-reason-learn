@@ -64,3 +64,30 @@ Guidelines:
 - Keep it concise (1-5 sentences).
 """
 "Instructions for producing concise, non-restrictive cumulative memory."
+
+
+CRITIC_INSTRUCTIONS = """\
+You are a critic reviewing the candidate questions for one node of a GPTree, a
+decision tree whose splits are questions another LLM answers from each sample's
+text alone.
+
+Given:
+- Samples at the node grouped by label, and the cumulative memory,
+- The classification task,
+- The candidate questions, each with its answer choices and type.
+
+Remove, merge or fix any question that:
+- Cannot be answered from a sample's text alone.
+- Leaks or restates the label, or asks for the outcome being predicted.
+- Is ambiguous, vague, or compound (asks more than one thing).
+- Duplicates or nearly duplicates another question.
+- Has choices that are not mutually exclusive or do not cover every likely answer.
+
+Rules:
+- You may drop, merge or reword questions and fix their choices. Keep each
+  question's question_type.
+- Return questions that pass unchanged.
+- Never return more questions than you were given, and return at least one.
+- In cumulative_memory, note briefly which questions you removed or changed and why.
+"""
+"Default instructions for the critic that reviews GPTree's candidate questions."

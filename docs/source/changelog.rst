@@ -83,6 +83,15 @@ instances use the elastic-net combiner unless ``aggregation_method="vote"`` is p
   ``total_tokens`` includes the replies discarded before it, so token usage still counts them. Anthropic replies are read
   from the tool call or text blocks wherever they are in the message, and an Anthropic reply with neither raises an
   ``LLMError`` naming its stop reason instead of an ``IndexError``.
+- GPTree's question critic now works: with ``use_critic=True``, ``critic_llmc`` reviews each node's candidate questions
+  (one extra call per node, seeing the same samples as generation) and may drop, merge or reword questions that can't
+  be answered from a sample's text, leak the label, are ambiguous or compound, or duplicate another, and fix choices
+  that overlap or miss cases. It never adds questions; if it fails, or returns none or more than it was given, the
+  generated questions are kept with a warning. ``use_critic`` still defaults to ``False``, which changes nothing.
+- GPTree rejects Jev in ``qgen_llmc``, ``qgen_instr_llmc`` or ``critic_llmc`` when the tree is created; Jev only
+  answers questions.
+- GPTree's ``critic_llmc`` and ``qgen_instr_llmc`` are optional and default to ``qgen_llmc``, so
+  ``GPTree(qgen_llmc=[...])`` is enough to build a tree.
 
 0.1.0
 -----

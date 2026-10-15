@@ -95,6 +95,9 @@ _NEW_CV_ATTRIBUTES: Dict[str, Any] = (
 # RRF's default founder-level combiner; cross_validate_aggregation defaults to
 # the same so it evaluates the model RRF fits by default.
 _DEFAULT_AGGREGATION_METHOD: Final[Literal["vote", "elasticnet"]] = "elasticnet"
+_DEFAULT_AGGREGATION_METRIC: Final[
+    Literal["f1", "f_beta", "accuracy", "precision", "recall"]
+] = "f1"
 _DEFAULT_ELASTICNET_CS: Final[Tuple[float, ...]] = (1.0,)
 _DEFAULT_ELASTICNET_L1_RATIOS: Final[Tuple[float, ...]] = (0.1, 0.5)
 _DEFAULT_ELASTICNET_CV: Final[int] = 3
@@ -335,7 +338,7 @@ class RRF:
         semantic_similarity_threshold: float = 0.9,
         aggregation_metric: Literal[
             "f1", "f_beta", "accuracy", "precision", "recall"
-        ] = "f1",
+        ] = _DEFAULT_AGGREGATION_METRIC,
         aggregation_max_k: int | None = None,
         aggregation_method: Literal["vote", "elasticnet"] = _DEFAULT_AGGREGATION_METHOD,
         elasticnet_cs: Tuple[float, ...] = _DEFAULT_ELASTICNET_CS,

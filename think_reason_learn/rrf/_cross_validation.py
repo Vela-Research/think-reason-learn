@@ -45,6 +45,7 @@ from think_reason_learn.core.llms._jev.schemas import YES_THRESHOLD
 from ._rrf import (
     RRF,
     _DEFAULT_AGGREGATION_METHOD,
+    _DEFAULT_AGGREGATION_METRIC,
     _DEFAULT_ELASTICNET_CS,
     _DEFAULT_ELASTICNET_CV,
     _DEFAULT_ELASTICNET_L1_RATIOS,
@@ -277,7 +278,7 @@ def cross_validate_aggregation(
     *,
     n_splits: int = 10,
     n_repeats: int = 10,
-    metric: str = "f_beta",
+    metric: str = _DEFAULT_AGGREGATION_METRIC,
     beta: float = 0.5,
     max_k: int | None = None,
     random_state: int = 42,
@@ -315,8 +316,10 @@ def cross_validate_aggregation(
         n_splits: Number of folds per repeat.
         n_repeats: Number of times to repeat the k-fold split.
         metric: Metric to optimise when tuning (K, T) or the elastic-net
-            threshold.  Any value accepted by :meth:`RRF._compute_metric`
-            (e.g. ``"f_beta"``, ``"f1"``, ``"precision"``).
+            threshold: ``"f1"`` (the default, as ``RRF``'s
+            ``aggregation_metric``), ``"f_beta"`` (with ``beta``),
+            ``"accuracy"``, ``"precision"`` or ``"recall"``.  Every metric is
+            reported whichever is tuned for.
         beta: Beta parameter for F-beta scoring and tuning.
         max_k: Upper bound on K during grid search.  ``None`` = use all
             questions.

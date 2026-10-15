@@ -60,8 +60,9 @@ instances use the elastic-net combiner unless ``aggregation_method="vote"`` is p
   samples. Scoring warns how many (policy, sample) cells got no answer; they count as NO.
 - **Behaviour change:** ``cross_validate_aggregation`` now evaluates Random Rule Forest's default model by default:
   ``method="elasticnet"`` instead of ``"vote"``, and ``elasticnet_cs=(1.0,)`` instead of ``(0.05, 0.1, 0.5)``, with
-  ``method``, ``elasticnet_cs``, ``elasticnet_l1_ratios`` and ``elasticnet_cv`` defaulting to Random Rule Forest's
-  own. Pass ``method="vote"`` for the top-K / T vote. Its elastic-net fit is now Random Rule Forest's (the threshold
+  ``method``, ``metric`` (now ``"f1"`` instead of ``"f_beta"``), ``elasticnet_cs``, ``elasticnet_l1_ratios`` and
+  ``elasticnet_cv`` defaulting to Random Rule Forest's own. Pass ``method="vote"`` for the top-K / T vote, or
+  ``metric="f_beta", beta=0.5`` (or ``"recall"``, ``"precision"``, ...) to tune for another metric. Its elastic-net fit is now Random Rule Forest's (the threshold
   is chosen among the fitted probabilities instead of a 0.05 to 0.95 grid), so each fold's model is the one
   ``RRF(aggregation_method="elasticnet")`` fits on that fold's training split.
 - ``cross_validate_aggregation`` accepts Jev's probabilities (``RRF.get_answer_probabilities()``) as well as YES/NO

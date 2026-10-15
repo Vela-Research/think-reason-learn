@@ -478,7 +478,7 @@ def test_cv_elasticnet_on_probabilities_matches_rrf(tmp_path: Path) -> None:
     splits = StratifiedKFold(n_splits=4, shuffle=True, random_state=42)
     for fold, (train, test) in enumerate(splits.split(probs, labels)):
         # The harness tunes the threshold for F-0.5 by default, RRF for F1.
-        rrf = _rrf(tmp_path, aggregation_metric="f_beta", question_scoring_f_beta=0.5)
+        rrf = _rrf(tmp_path)  # RRF's defaults, as the harness's
         _holding(rrf, probs.iloc[train], list(labels[train]))._tune_aggregation()
         expected = rrf._elasticnet_proba(probs.iloc[test])
         threshold = rrf._aggregation_threshold or 0.0
@@ -519,5 +519,6 @@ def test_cv_defaults_follow_rrf() -> None:
     rrf = inspect.signature(RRF).parameters
 
     assert cv["method"].default == rrf["aggregation_method"].default
+    assert cv["metric"].default == rrf["aggregation_metric"].default
     for name in ("elasticnet_cs", "elasticnet_l1_ratios", "elasticnet_cv"):
         assert cv[name].default == rrf[name].default

@@ -58,6 +58,31 @@ instances use the elastic-net combiner unless ``aggregation_method="vote"`` is p
 - Policy Induction's ``predict()`` skips a sample for which no policy answer could be obtained, instead of predicting
   from an all-NO vector, and keeps its checkpoint so a later run retries it. A checkpoint is resumed only for the same
   samples. Scoring warns how many (policy, sample) cells got no answer; they count as NO.
+- ``save()`` on Random Rule Forest and GPTree writes to ``save_path`` itself, as Policy Induction already did,
+  instead of ``<save_path>/<name>``. By default that is ``./rrfs/<name>`` or ``./gptrees/<name>`` (previously one level
+  deeper), and a loaded model saves back to the directory it was loaded from instead of nesting a new directory
+  inside it on every load and save. Pass ``dir_path`` to ``save()`` to choose another directory. A loaded Reasoned Rule
+  Mining model also saves back to the directory it was loaded from instead of its parent.
+- Policy Induction accepts ``yes`` / ``no`` labels in any case, as Random Rule Forest does.
+- **Breaking:** Random Rule Forest, GPTree, Policy Induction and Reasoned Rule Mining subclass the new abstract base
+  class ``think_reason_learn.core.TRLModel``, which requires ``set_task``, ``fit``, ``predict``, ``save`` and ``load``.
+  For one API across the four:
+
+  - ``GPTree.fit()`` builds the whole tree and returns it instead of yielding nodes. Replace
+    ``async for node in tree.fit(X, y)`` with ``await tree.fit(X, y)``, or with
+    ``async for node in tree.fit_iter(X, y)`` to keep getting each node as it is built, for example to ``stop()`` the
+    tree or give it ``advice()`` between nodes. ``resume_fit()`` still yields nodes.
+  - Random Rule Forest and GPTree take their task with ``set_task(task_description, instructions_template=None)``, as
+    Policy Induction does. ``set_tasks(instructions_template, task_description)``, with the arguments in the old
+    order, still works but is deprecated and warns.
+  - ``GPTree.load()`` takes ``dir_path`` instead of ``path``. Positional calls are unchanged; replace
+    ``GPTree.load(path=...)`` with ``GPTree.load(dir_path=...)``.
+- A chat model's empty or refused reply (no structured answer, blank text, or text where a structured answer was
+  asked for) now falls back to the next model in the priority list instead of being returned as the answer. If every
+  model replies that way, the response has ``response=None``, as callers already expect. The returned reply's
+  ``total_tokens`` includes the replies discarded before it, so token usage still counts them. Anthropic replies are read
+  from the tool call or text blocks wherever they are in the message, and an Anthropic reply with neither raises an
+  ``LLMError`` naming its stop reason instead of an ``IndexError``.
 - GPTree's question critic now works: with ``use_critic=True``, ``critic_llmc`` reviews each node's candidate questions
   (one extra call per node, seeing the same samples as generation) and may drop, merge or reword questions that can't
   be answered from a sample's text, leak the label, are ambiguous or compound, or duplicate another, and fix choices

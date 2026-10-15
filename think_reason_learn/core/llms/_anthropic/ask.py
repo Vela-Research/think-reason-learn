@@ -12,12 +12,34 @@ from anthropic.types import (
 )
 
 from think_reason_learn.core._singleton import SingletonMeta
+from think_reason_learn.core.exceptions import LLMError
 from .schemas import AnthropicChatModel, NOT_GIVEN, NotGiven
 from .._schemas import LLMResponse, T, AnthropicChoice
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_TOKENS = 4096
+
+
+def _output(message: Message, response_format: Type[T]) -> T:
+    """The tool call's arguments or the text of a message.
+
+    The forced tool call need not be the first content block (a thinking or text
+    block may come first), and a message cut short may carry neither.
+    """
+    if issubclass(response_format, BaseModel):
+        for block in message.content:
+            if block.type == "tool_use":
+                return cast(T, response_format(**cast(Dict[str, Any], block.input)))
+        missing = "tool call"
+    else:
+        text = "".join(b.text for b in message.content if b.type == "text")
+        if text:
+            return cast(T, text)
+        missing = "text"
+    raise LLMError(
+        f"Anthropic returned no {missing} (stop_reason: {message.stop_reason})."
+    )
 
 
 class AnthropicInput(TypedDict):
@@ -122,13 +144,8 @@ class AnthropicLLM(metaclass=SingletonMeta):
             )
             response = cast(Message, response)
 
-            if issubclass(response_format, BaseModel):
-                output = response_format(**response.content[0].input)  # type: ignore
-            else:
-                output = cast(T, response.content[0].text)  # type: ignore
-
             return LLMResponse(
-                response=output,
+                response=_output(response, response_format),
                 logprobs=[],
                 total_tokens=response.usage.output_tokens + response.usage.input_tokens,
                 provider_model=AnthropicChoice(model=model),
@@ -169,13 +186,8 @@ class AnthropicLLM(metaclass=SingletonMeta):
             )
             response = cast(Message, response)
 
-            if issubclass(response_format, BaseModel):
-                output = response_format(**response.content[0].input)  # type: ignore
-            else:
-                output = cast(T, response.content[0].text)  # type: ignore
-
             return LLMResponse(
-                response=output,
+                response=_output(response, response_format),
                 logprobs=[],
                 total_tokens=response.usage.output_tokens + response.usage.input_tokens,
                 provider_model=AnthropicChoice(model=model),

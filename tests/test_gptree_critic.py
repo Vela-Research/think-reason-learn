@@ -109,11 +109,10 @@ async def _fit(
     fake = FakeCriticLLM(critic)
     monkeypatch.setattr(gptree_module, "llm", fake)
     tree = _tree(tmp_path, **kwargs)
-    await tree.set_tasks(
+    await tree.set_task(
         instructions_template=f"Ask {num_questions_tag} questions about founders."
     )
-    async for _ in tree.fit(pd.DataFrame({"text": ROWS}), LABELS):
-        pass
+    await tree.fit(pd.DataFrame({"text": ROWS}), LABELS)
     return tree, fake
 
 
@@ -191,7 +190,7 @@ async def test_custom_critic_instructions_survive_save_and_load(
     tree._critic_instructions_template = "Be strict."
     tree.save()
 
-    loaded = GPTree.load(tmp_path / "critic_tree")
+    loaded = GPTree.load(tmp_path)
     assert loaded.use_critic and loaded.critic_instructions_template == "Be strict."
     assert _root_questions(loaded) == [q.value for q in REVISED]
 

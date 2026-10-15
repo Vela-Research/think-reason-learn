@@ -11,13 +11,8 @@ from think_reason_learn.core._config import settings
 from think_reason_learn.core.exceptions import MissingAPIKeyError
 from think_reason_learn.core.llms import JevChoice, LLMChoice, OpenAIChoice
 from think_reason_learn.policy_induction import PolicyInduction
-from think_reason_learn.rrf import RRF
 
 CHAT: list[LLMChoice] = [OpenAIChoice(model="gpt-4.1-nano")]
-
-
-def _rrf(tmp_path: Path, **kwargs: Any) -> RRF:
-    return RRF(qgen_llmc=CHAT, save_path=tmp_path, **kwargs)
 
 
 def _pi(tmp_path: Path, **kwargs: Any) -> PolicyInduction:
@@ -27,7 +22,6 @@ def _pi(tmp_path: Path, **kwargs: Any) -> PolicyInduction:
 
 
 METHODS: list[tuple[str, Callable[..., Any], str]] = [
-    ("RRF", _rrf, "qanswer_llmc"),
     ("PolicyInduction", _pi, "predict_llmc"),
 ]
 
@@ -122,24 +116,3 @@ def test_saved_jev_models_load_without_the_key(
     assert [
         c if isinstance(c, dict) else c.model_dump() for c in getattr(loaded, param)
     ] == [JevChoice().model_dump()]
-
-
-@pytest.mark.asyncio
-async def test_a_loaded_jev_model_checks_the_key_before_spending_on_chat(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    import pandas as pd
-
-    from tests.fake_llm import FakeLLM
-
-    monkeypatch.setattr(settings, "TYPESAFE_API_KEY", "test-key")
-    _rrf(tmp_path).save(tmp_path / "saved")
-    monkeypatch.setattr(settings, "TYPESAFE_API_KEY", "")
-    loaded = RRF.load(tmp_path / "saved")
-    fake = FakeLLM()
-    loaded._llm_instance = fake
-
-    with pytest.raises(MissingAPIKeyError):
-        await loaded.fit(pd.DataFrame({"data": ["a", "b"]}), ["YES", "NO"], reset=True)
-
-    assert fake.calls == []

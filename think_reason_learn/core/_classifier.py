@@ -15,7 +15,7 @@ from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from os import PathLike
 from pathlib import Path
-from typing import Self
+from typing import ClassVar, Self
 
 import joblib
 import numpy as np
@@ -25,6 +25,7 @@ from sklearn.utils import Tags
 from sklearn.utils.validation import check_is_fitted
 
 from think_reason_learn.core._data import LabelInput, TextInput, encode_labels, to_texts
+from think_reason_learn.core._prompts import write_instructions
 from think_reason_learn.exceptions import DataError
 from think_reason_learn.llm import (
     LLM,
@@ -53,6 +54,11 @@ class TRLClassifier(ClassifierMixin, BaseEstimator, ABC):
     model call of a fitted model is recorded in ``usage_``.
     """
 
+    _instructions_purpose: ClassVar[str | None] = None
+    """What a model's ``instructions`` guide; ``None`` if it takes none."""
+
+    task: str | None
+    instructions: str | None
     classes_: npt.NDArray[np.object_]
     n_features_in_: int
     feature_names_in_: npt.NDArray[np.object_]
@@ -100,6 +106,17 @@ class TRLClassifier(ClassifierMixin, BaseEstimator, ABC):
         proba = await self.apredict_proba(X)
         return self.classes_[self._decide(proba)]
 
+    def write_instructions(self) -> str:
+        """Write the instructions now, to read or edit before ``fit``.
+
+        One call to the generator, which turns ``task`` into instructions. The
+        result is stored in ``instructions``, so ``fit`` uses it; set
+        ``instructions`` yourself to use your own.
+        """
+        writer = self._models("generator", "generate")
+        self.instructions = run_sync(self._written_instructions(LLMSession(), writer))
+        return self.instructions
+
     def save(self, path: str | PathLike[str]) -> Path:
         """Save the model to a folder: ``model.joblib`` and a readable ``model.json``.
 
@@ -143,6 +160,31 @@ class TRLClassifier(ClassifierMixin, BaseEstimator, ABC):
     def _decide(self, proba: Proba) -> Labels:
         """Label codes from probabilities: the most likely class."""
         return np.argmax(proba, axis=1).astype(np.intp)
+
+    async def _instructions(
+        self, session: LLMSession, writer: tuple[Endpoint, ...]
+    ) -> str:
+        """``instructions`` if set, else written from ``task`` by the generator."""
+        if self.instructions:
+            return self.instructions
+        return await self._written_instructions(session, writer)
+
+    async def _written_instructions(
+        self, session: LLMSession, writer: tuple[Endpoint, ...]
+    ) -> str:
+        if self._instructions_purpose is None:
+            raise NotImplementedError(f"{type(self).__name__} takes no instructions.")
+        return await write_instructions(
+            session, writer, self._task(), self._instructions_purpose
+        )
+
+    def _task(self) -> str:
+        """The task description, which every model needs."""
+        if not self.task or not self.task.strip():
+            raise ValueError(
+                f"{type(self).__name__} needs task=..., what to predict in plain words."
+            )
+        return self.task
 
     def _models(self, param: str, task: Task) -> tuple[Endpoint, ...]:
         """The models of a role setting, checked for its task."""

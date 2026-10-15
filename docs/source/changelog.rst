@@ -34,6 +34,19 @@ every model uses them.
   ``min_samples_split``, ``min_impurity_decrease``, ``max_leaf_nodes`` and ``criterion="entropy"``; the critic is
   ``critic=True`` or a model. Removed: ``qgen_instr_llmc`` (unused), ``fit_iter``, ``resume_fit``, ``stop``,
   ``decision_threshold`` (use scikit-learn's ``TunedThresholdClassifierCV``) and the code question type.
+- **RRF, rebuilt** on ``TRLClassifier``, following the paper by default: questions are written from a held-out,
+  class-balanced generation set (``generation_size=500``; 25 prompts of 20 examples and 10 questions), so they are
+  never scored on samples the generator saw; questions are ranked by F0.5, those at or below the positive rate and
+  near-duplicates by Hamming distance (``hamming_threshold=0.15``) are dropped; and the default ``combiner="vote"``
+  predicts positive when at least T of the top N questions say YES, with (N, T) tuned by cross-validation.
+  ``combiner="elasticnet"`` remains. Prediction answers only the questions used. Fixes: large datasets no longer
+  get zero questions, ranking and tuning use one ``beta``, and fit and predict ask questions the same way.
+  ``screening_size`` keeps the cost-saving screening step; ``answers(X)`` shows each rule's answers. Removed:
+  ``predict_founder_level`` (use ``predict``/``predict_proba``), ``cross_validate_aggregation`` (refitting reuses
+  cached questions and answers, and scikit-learn's ``cross_val_score`` works), prompt presets, cumulative memory and
+  embedding-based filtering.
+- ``core._combine``: one logistic combiner and F-beta threshold search shared by the models; thresholds are tuned
+  on out-of-fold scores of the final model's settings.
 - Requires ``openai`` 3.x and ``anthropic`` 1.x. The Anthropic SDK no longer takes ``temperature``; the old
   adapter now sends it in the request body when set.
 

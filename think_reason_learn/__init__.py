@@ -46,4 +46,21 @@ def _detect_version() -> str:
 
 __version__: str = _detect_version()
 
-__all__ = ["__version__"]
+from think_reason_learn.llm import (  # noqa: E402
+    LLM,
+    Price,
+    config_context,
+    get_config,
+    set_config,
+    set_limits,
+)
+
+__all__ = [
+    "LLM",
+    "Price",
+    "__version__",
+    "config_context",
+    "get_config",
+    "set_config",
+    "set_limits",
+]

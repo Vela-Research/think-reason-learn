@@ -8,7 +8,7 @@ from collections.abc import Callable, Mapping
 import httpx2
 import pytest
 
-from think_reason_learn.core.exceptions import LLMError, ProviderAuthError
+from think_reason_learn.exceptions import LLMError, ProviderAuthError
 from think_reason_learn.llm import (
     LLM,
     Answers,

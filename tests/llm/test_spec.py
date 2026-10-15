@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from think_reason_learn.core.exceptions import MissingAPIKeyError
+from think_reason_learn.exceptions import MissingAPIKeyError
 from think_reason_learn.llm import LLM, resolve, resolve_models
 
 

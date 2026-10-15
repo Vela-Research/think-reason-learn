@@ -19,6 +19,11 @@ every model uses them.
   notebooks too.
 - ``think_reason_learn.testing``: ``FakeLLM`` and ``fake_llms`` fit and check models offline, with scripted
   replies and injected failures.
+- ``TRLClassifier``: the scikit-learn base of every model. ``fit``, ``predict`` and ``predict_proba`` work in
+  scripts and notebooks, with ``afit``, ``apredict`` and ``apredict_proba`` for async code; settings are stored
+  untouched so ``clone``, ``get_params`` and grid search work; any labels; ``usage_`` records every call;
+  ``save``/``load`` write ``model.joblib`` plus a readable ``model.json`` and never store API keys.
+  ``think_reason_learn.testing.check_classifier`` checks a model against this contract offline.
 - Requires ``openai`` 3.x and ``anthropic`` 1.x. The Anthropic SDK no longer takes ``temperature``; the old
   adapter now sends it in the request body when set.
 

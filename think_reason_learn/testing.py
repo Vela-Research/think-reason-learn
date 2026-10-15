@@ -10,13 +10,25 @@ Example:
 
 from __future__ import annotations
 
+import pickle
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Final, Literal
 
+import numpy as np
 from pydantic import BaseModel
+from sklearn.base import clone
+from sklearn.exceptions import NotFittedError
+from sklearn.utils.estimator_checks import (
+    check_get_params_invariance,
+    check_no_attributes_set_in_init,
+    check_set_params,
+)
 
+from think_reason_learn.core._classifier import TRLClassifier
+from think_reason_learn.core._data import LabelInput, TextInput
 from think_reason_learn.llm import _spec
 from think_reason_learn.llm._adapters import (
     ADAPTERS,
@@ -199,4 +211,67 @@ def scripted(
     return reply
 
 
-__all__ = ["FakeCall", "FakeLLM", "Failure", "GenerateRequest", "fake_llms", "scripted"]
+def check_classifier(
+    make: Callable[[], TRLClassifier], X: TextInput, y: LabelInput, tmp_dir: Path
+) -> None:
+    """Check a classifier keeps the library's contract.
+
+    It must behave as a scikit-learn classifier (settings stored untouched,
+    ``clone``, ``get_params``, fitted attributes, prediction shapes), refit,
+    pickle, and save and load without API keys. Run it inside ``fake_llms``.
+
+    Args:
+        make: Builds the classifier with fake models.
+        X: Samples to fit on and predict.
+        y: Their labels.
+        tmp_dir: A folder to save the model to.
+    """
+    model = make()
+    name = type(model).__name__
+    for check in _SKLEARN_CHECKS:
+        check(name, make())
+    type(model)()  # every setting has a default
+    clone(model)
+    try:
+        model.predict(X)
+    except NotFittedError:
+        pass
+    else:
+        raise AssertionError("predict before fit must raise NotFittedError")
+
+    assert model.fit(X, y) is model, "fit must return the model"
+    proba = model.predict_proba(X)
+    n_samples = len(X)
+    assert proba.shape == (n_samples, len(model.classes_)), proba.shape
+    assert np.allclose(proba.sum(axis=1), 1) and (proba >= 0).all(), proba
+    predicted = model.predict(X)
+    assert len(predicted) == n_samples and set(predicted) <= set(model.classes_)
+    assert set(model.classes_) == set(np.asarray(y, dtype=object)), model.classes_
+    assert model.usage_.calls > 0, "model calls must be recorded in usage_"
+
+    restored = pickle.loads(pickle.dumps(model))
+    assert (restored.predict(X) == predicted).all(), (
+        "a pickled model must predict the same"
+    )
+    folder = model.save(tmp_dir / name)
+    assert "api_key" not in (folder / "model.json").read_text()
+    assert (type(model).load(folder).predict(X) == predicted).all()
+    assert model.fit(X, y) is model, "a fitted model must refit"
+
+
+_SKLEARN_CHECKS: Final = (
+    check_no_attributes_set_in_init,
+    check_get_params_invariance,
+    check_set_params,
+)
+
+
+__all__ = [
+    "FakeCall",
+    "FakeLLM",
+    "Failure",
+    "GenerateRequest",
+    "check_classifier",
+    "fake_llms",
+    "scripted",
+]

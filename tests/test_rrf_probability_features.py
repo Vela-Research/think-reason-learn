@@ -51,7 +51,7 @@ def _rrf(tmp_path: Path, **kwargs: Any) -> RRF:
 
 
 async def _fit(rrf: RRF) -> RRF:
-    await rrf.set_tasks(task_description="Classify founders")
+    await rrf.set_task(task_description="Classify founders")
     return await rrf.fit(pd.DataFrame({"data": PEOPLE}), LABELS)
 
 
@@ -123,7 +123,7 @@ async def test_response_matrix_holds_probabilities_for_elasticnet(
 ) -> None:
     rrf = await _fit(_rrf(tmp_path, **ELASTICNET))
 
-    matrix = await rrf._build_response_matrix(X)
+    matrix, _ = await rrf._build_response_matrix(X)
 
     expected = np.array([PROB[label] for label in LABELS])
     for qid in matrix.columns:
@@ -134,7 +134,7 @@ async def test_response_matrix_holds_probabilities_for_elasticnet(
 async def test_response_matrix_holds_yes_no_for_the_vote(tmp_path: Path) -> None:
     rrf = await _fit(_rrf(tmp_path, aggregation_method="vote"))
 
-    matrix = await rrf._build_response_matrix(X)
+    matrix, _ = await rrf._build_response_matrix(X)
 
     assert set(np.unique(matrix.to_numpy())) == {1}
 
@@ -234,7 +234,7 @@ async def test_rare_positives_still_get_yes_predictions(tmp_path: Path) -> None:
         max_generated_questions=4,
         _llm=FakeJevLLM(prob=prob, questions_per_call=1),
     )
-    await rrf.set_tasks(task_description="Classify founders")
+    await rrf.set_task(task_description="Classify founders")
     await rrf.fit(
         pd.DataFrame({"data": rows}), ["YES"] * positives + ["NO"] * (n - positives)
     )
@@ -252,7 +252,7 @@ async def test_rare_positives_still_get_yes_predictions(tmp_path: Path) -> None:
 @pytest.mark.parametrize("rows", [2, 4])
 async def test_tiny_training_sets_fit(tmp_path: Path, rows: int) -> None:
     rrf = _rrf(tmp_path)
-    await rrf.set_tasks(task_description="Classify founders")
+    await rrf.set_task(task_description="Classify founders")
 
     await rrf.fit(pd.DataFrame({"data": PEOPLE[:rows]}), LABELS[:rows])
 
@@ -351,7 +351,7 @@ async def test_threshold_can_predict_all_no(tmp_path: Path) -> None:
         max_generated_questions=1,
         _llm=FakeJevLLM(prob=prob, questions_per_call=1),
     )
-    await rrf.set_tasks(task_description="Classify founders")
+    await rrf.set_task(task_description="Classify founders")
     await rrf.fit(
         pd.DataFrame({"data": [f"sample {i}" for i in range(n)]}),
         ["YES"] * 2 + ["NO"] * (n - 2),
@@ -408,6 +408,36 @@ async def test_yes_no_paths_keep_rows_apart_with_repeated_index_labels(
     score = "yes_count" if config["aggregation_method"] == "vote" else "probability"
     for column in ("prediction", score):
         assert list(repeated[column]) == list(plain[column])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "config",
+    [
+        {"aggregation_method": "vote"},
+        ELASTICNET,
+        {**ELASTICNET, "answer_features": "binary"},
+    ],
+)
+async def test_samples_with_failed_answers_are_flagged(
+    tmp_path: Path, config: dict[str, Any], caplog: pytest.LogCaptureFixture
+) -> None:
+    def prob(state: str, instructions: str) -> float | None:
+        label = LABELS["ABCDEF".index(state.split(": ", 1)[1][0])]
+        return 0.9 if label == "YES" else 0.3
+
+    fake = FakeJevLLM(prob=prob)
+    rrf = await _fit(_rrf(tmp_path, _llm=fake, **config))
+    fake.prob = lambda state, instr: None if "C: " in state else prob(state, instr)
+    fake.answer_requests.clear()
+
+    with caplog.at_level("WARNING"):
+        result = await rrf.predict_founder_level(X)
+
+    asked = len(fake.answer_requests[0].questions)
+    assert asked > 0
+    assert list(result["n_answered"]) == [asked, asked, 0, asked, asked, asked]
+    assert "1 of 6 samples" in caplog.text
 
 
 @pytest.mark.asyncio

@@ -26,13 +26,13 @@ class FakeLLM:
 
     Dispatches based on ``response_format`` to handle the 4 RRF call sites:
 
-    1. ``set_tasks``  (``str``)  -- template with ``<number_of_questions>`` tag
+    1. ``set_task``  (``str``)  -- template with ``<number_of_questions>`` tag
     2. ``_generate_questions``  (``Questions``)  -- pydantic model
     3. ``_answer_single_question``  (``Answer``)  -- pydantic model
     4. ``_answer_questions_batch``  (``str``)  -- JSON list
 
     The two ``str``-typed sites are distinguished by query content:
-    ``set_tasks`` sends ``"Generate YES/NO questions for:..."`` while
+    ``set_task`` sends ``"Generate YES/NO questions for:..."`` while
     batch sends ``"You are a VC analyst..."``.
 
     Args:
@@ -91,16 +91,16 @@ class FakeLLM:
                 f"FakeLLM: unknown response_format {response_format!r}. "
                 "Add a handler for this new call site."
             )
-        # response_format is str — distinguish set_tasks vs batch by query
+        # response_format is str — distinguish set_task vs batch by query
         if "generate yes/no" in query.lower():
-            return self._set_tasks_response()
+            return self._set_task_response()
         return self._batch_answer_response(query)
 
     # ------------------------------------------------------------------
     # Canned responses
     # ------------------------------------------------------------------
 
-    def _set_tasks_response(self) -> LLMResponse[str]:
+    def _set_task_response(self) -> LLMResponse[str]:
         return LLMResponse(
             response=(
                 f"Generate {num_questions_tag} YES/NO questions to determine "

@@ -29,7 +29,17 @@ from copy import deepcopy
 from dataclasses import asdict
 from os import PathLike
 from pathlib import Path
-from typing import Any, AsyncGenerator, Dict, List, Literal, Self, Sequence, Tuple
+from typing import (
+    Any,
+    AsyncGenerator,
+    Dict,
+    Final,
+    List,
+    Literal,
+    Self,
+    Sequence,
+    Tuple,
+)
 
 import numpy as np
 import orjson
@@ -55,6 +65,8 @@ from ._types import ExtractedRule, RRMConfig, Vote
 logger = logging.getLogger(__name__)
 
 _RULE_OUTCOME_RE = re.compile(r"label\s*=\s*(YES|NO)", re.IGNORECASE)
+_NO_LOGPROB_PROVIDERS: Final[frozenset[str]] = frozenset({"openai", "anthropic"})
+"""Providers whose adapters return no token log probabilities."""
 
 
 class ReasonedRuleMining(TRLModel):
@@ -396,6 +408,8 @@ class ReasonedRuleMining(TRLModel):
             rule_text = "IF [conditions] THEN label = " + outcome
             perplexity = 1000.0
         else:
+            if not response.logprobs:
+                raise LLMError(_no_logprobs(response, "extract_llmc"))
             perplexity = self._perplexity(response.logprobs)
         return ExtractedRule(
             rule=self._align_outcome(rule_text, outcome),
@@ -453,7 +467,7 @@ class ReasonedRuleMining(TRLModel):
         label = str(response.response.vote).strip().upper()
         conf = response.average_confidence
         if conf is None:
-            conf = 0.5
+            raise LLMError(_no_logprobs(response, "predict_llmc"))
         conf = float(min(max(conf, 0.0), 1.0))
         p_yes = conf if label == "YES" else 1.0 - conf
         return label, p_yes
@@ -716,11 +730,16 @@ class ReasonedRuleMining(TRLModel):
             The fitted instance.
 
         Raises:
-            ValueError: If ``set_task`` has not been called, or data is missing.
+            ValueError: If ``set_task`` has not been called, data is missing, or
+                ``extract_llmc`` / ``predict_llmc`` holds a model that returns no
+                token log probabilities (OpenAI and Anthropic).
             DataError: If the data is invalid.
+            LLMError: If a model returned no log probabilities.
         """
         if self._task_description is None:
             raise ValueError("Call set_task(...) before fit().")
+        _require_logprob_models(extract_llmc=self.extract_llmc)
+        _require_logprob_models(predict_llmc=self.predict_llmc)
 
         if reset or X is not None or y is not None:
             if X is None or y is None:
@@ -814,10 +833,14 @@ class ReasonedRuleMining(TRLModel):
         Raises:
             RuntimeError: If the model has not been fitted.
             DataError: If ``samples`` is not a non-empty DataFrame.
+            ValueError: If ``predict_llmc`` holds a model that returns no token
+                log probabilities (OpenAI and Anthropic).
+            LLMError: If a model returned no log probabilities.
         """
         self._check_fitted()
         if not isinstance(samples, pd.DataFrame) or samples.shape[0] == 0:
             raise DataError("samples must be a non-empty DataFrame")
+        _require_logprob_models(predict_llmc=self.predict_llmc)
 
         indices = list(samples.index)
         texts = self._sample_texts(samples)
@@ -932,3 +955,26 @@ class ReasonedRuleMining(TRLModel):
         if manifest.get("mod_platt_file"):
             inst._mod_platt = joblib_load(base / manifest["mod_platt_file"])
         return inst
+
+
+def _require_logprob_models(**llmc: List[LLMChoice]) -> None:
+    """Raise before any call if a role holds a model without log probabilities."""
+    for param, choices in llmc.items():
+        for choice in choices:
+            provider = (
+                choice["provider"] if isinstance(choice, dict) else choice.provider
+            )
+            if provider in _NO_LOGPROB_PROVIDERS:
+                raise ValueError(
+                    f"Reasoned Rule Mining reads token log probabilities from "
+                    f"{param}, and {provider} models return none. Use a Google or "
+                    f"xAI model that returns log probabilities for {param}."
+                )
+
+
+def _no_logprobs(response: Any, param: str) -> str:
+    model = response.provider_model
+    return (
+        f"{model.provider} model {model.model} returned no token log probabilities, "
+        f"which Reasoned Rule Mining needs. Use a model that returns them for {param}."
+    )

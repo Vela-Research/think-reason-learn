@@ -15,7 +15,13 @@ import pandas as pd
 import pytest
 
 from think_reason_learn.core.exceptions import DataError
-from think_reason_learn.core.llms import LLMResponse, OpenAIChoice
+from think_reason_learn.core.exceptions import LLMError
+from think_reason_learn.core.llms import (
+    AnthropicChoice,
+    GoogleChoice,
+    LLMResponse,
+    OpenAIChoice,
+)
 from think_reason_learn.reasoned_rule_mining import (
     ExtractedRule,
     ReasonedRuleMining,
@@ -23,8 +29,8 @@ from think_reason_learn.reasoned_rule_mining import (
     Vote,
 )
 
-_PROVIDER = OpenAIChoice(model="gpt-4.1-nano")
-_DUMMY_LLMC: List[Any] = [OpenAIChoice(model="gpt-4.1-nano")]
+_PROVIDER = GoogleChoice(model="gemini-2.5-flash")
+_DUMMY_LLMC: List[Any] = [GoogleChoice(model="gemini-2.5-flash")]
 
 
 class FakeRRMLLM:
@@ -35,9 +41,16 @@ class FakeRRMLLM:
     probabilities so Platt scaling + the combiner grid can fit.
     """
 
-    def __init__(self, vote_logprob: float = -0.05, rule_logprob: float = 0.0) -> None:
+    def __init__(
+        self,
+        vote_logprob: float = -0.05,
+        rule_logprob: float = 0.0,
+        *,
+        logprobs: bool = True,
+    ) -> None:
         self.vote_logprob = vote_logprob
         self.rule_logprob = rule_logprob
+        self.logprobs = logprobs
         self.calls: List[dict] = []
 
     async def respond(
@@ -75,7 +88,7 @@ class FakeRRMLLM:
         vote = "YES" if "good" in sample_part else "NO"
         return LLMResponse(
             response=Vote(vote=vote),
-            logprobs=[(vote, self.vote_logprob)],
+            logprobs=[(vote, self.vote_logprob)] if self.logprobs else [],
             total_tokens=10,
             provider_model=_PROVIDER,
         )
@@ -83,7 +96,11 @@ class FakeRRMLLM:
     def _rule(self, query: str) -> LLMResponse[str]:
         return LLMResponse(
             response="IF the sample is strong THEN label = YES",
-            logprobs=[("t", self.rule_logprob), ("u", self.rule_logprob)],
+            logprobs=(
+                [("t", self.rule_logprob), ("u", self.rule_logprob)]
+                if self.logprobs
+                else []
+            ),
             total_tokens=20,
             provider_model=_PROVIDER,
         )
@@ -414,3 +431,32 @@ class TestPersistence:
         test_X = pd.DataFrame([{"text": "strong good profile"}])
         out = [label async for _, _, label, _ in loaded.predict(test_X)]
         assert out == ["YES"]
+
+
+class TestLogprobModels:
+    """RRM reads token log probabilities; models without them fail clearly."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("param", ["extract_llmc", "predict_llmc"])
+    @pytest.mark.parametrize(
+        "choice",
+        [OpenAIChoice(model="gpt-4.1-nano"), AnthropicChoice(model="claude-haiku-4-5")],
+    )
+    async def test_rejected_before_any_call(self, param: str, choice: Any) -> None:
+        fake = FakeRRMLLM()
+        rrm = _make_rrm(fake, config=_fast_config(), **{param: [choice]})
+        await rrm.set_task("task")
+        X, y = _toy_data()
+
+        with pytest.raises(ValueError, match=param):
+            await rrm.fit(X, y)
+        assert fake.calls == []
+
+    @pytest.mark.asyncio
+    async def test_model_returning_no_logprobs_raises(self) -> None:
+        rrm = _make_rrm(FakeRRMLLM(logprobs=False), config=_fast_config())
+        await rrm.set_task("task")
+        X, y = _toy_data()
+
+        with pytest.raises(LLMError, match="no token log probabilities"):
+            await rrm.fit(X, y)

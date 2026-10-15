@@ -117,6 +117,10 @@ instances use the elastic-net combiner unless ``aggregation_method="vote"`` is p
   those calls ran at the provider's default temperature (usually 1) instead. A model that rejects a temperature, such
   as OpenAI's reasoning models, is retried once without it and then uses its default for the rest of the process,
   with a warning.
+- Reasoned Rule Mining reads token log probabilities, which OpenAI and Anthropic models do not return here. With
+  one of them as ``extract_llmc`` or ``predict_llmc``, ``fit`` dropped every rule, scored every vote 0.5 and then
+  failed. ``fit`` and ``predict`` now raise ``ValueError`` before any call, and a model that returns no log
+  probabilities raises ``LLMError`` instead of being scored 0.5.
 
 0.1.0
 -----

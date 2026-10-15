@@ -9,7 +9,7 @@ from typing import Any, List
 import pandas as pd
 import pytest
 
-from think_reason_learn.core.llms import LLMChoice, OpenAIChoice
+from think_reason_learn.core.llms import JevChoice, LLMChoice, OpenAIChoice
 from think_reason_learn.core.llms._schemas import LLMResponse
 from think_reason_learn.gptree import GPTree
 from think_reason_learn.gptree import _gptree as gptree_module
@@ -200,3 +200,19 @@ async def test_custom_critic_instructions_survive_save_and_load(
     async for _ in loaded.resume_fit(0):
         pass
     assert fake.critic_calls[-1]["instructions"] == "Be strict."
+
+
+@pytest.mark.parametrize("param", ["qgen_llmc", "qgen_instr_llmc", "critic_llmc"])
+def test_jev_is_rejected_for_generation_when_the_tree_is_made(
+    tmp_path: Path, param: str
+) -> None:
+    """Jev only answers; finding out at the first node (or never, for the critic)
+    is too late."""
+    llmc: dict[str, Any] = {
+        "qgen_llmc": CHAT,
+        "critic_llmc": CHAT,
+        "qgen_instr_llmc": CHAT,
+        param: [JevChoice()],
+    }
+    with pytest.raises(ValueError, match=f"{param}.*cannot generate"):
+        GPTree(qanswer_llmc=CHAT, save_path=tmp_path, **llmc)

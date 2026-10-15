@@ -39,7 +39,8 @@ from think_reason_learn.core.llms._jev.client import (
     loading_saved_model,
     require_typesafe_key,
 )
-from think_reason_learn.core.llms._jev.schemas import answers_with_jev
+from think_reason_learn.core.llms._ask import JEV_CANNOT_GENERATE
+from think_reason_learn.core.llms._jev.schemas import answers_with_jev, is_jev
 from think_reason_learn.core.exceptions import DataError, LLMError, CorruptionError
 from ._types import QuestionType, Criterion
 from ._prompts import INSTRUCTIONS_FOR_GENERATING_QUESTION_GEN_INSTRUCTIONS
@@ -331,6 +332,9 @@ class GPTree:
         n_samples_as_context = kwargs["n_samples_as_context"]
         class_ratio = kwargs["class_ratio"]
 
+        for param in ("qgen_llmc", "qgen_instr_llmc", "critic_llmc"):
+            if any(is_jev(c) for c in kwargs[param]):
+                raise ValueError(f"{param}: {JEV_CANNOT_GENERATE}")
         if qgen_temperature < 0 or qgen_temperature > 2:
             raise ValueError("qgen_temperature must be >= 0 and <= 2")
         if critic_temperature < 0 or critic_temperature > 2:

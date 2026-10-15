@@ -61,7 +61,8 @@ instances use the elastic-net combiner unless ``aggregation_method="vote"`` is p
 - ``save()`` on Random Rule Forest and GPTree writes to ``save_path`` itself, as Policy Induction already did,
   instead of ``<save_path>/<name>``. By default that is ``./rrfs/<name>`` or ``./gptrees/<name>`` (previously one level
   deeper), and a loaded model saves back to the directory it was loaded from instead of nesting a new directory
-  inside it on every load and save. Pass ``dir_path`` to ``save()`` to choose another directory.
+  inside it on every load and save. Pass ``dir_path`` to ``save()`` to choose another directory. A loaded Reasoned Rule
+  Mining model also saves back to the directory it was loaded from instead of its parent.
 - Policy Induction accepts ``yes`` / ``no`` labels in any case, as Random Rule Forest does.
 
 0.1.0

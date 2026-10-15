@@ -9,6 +9,8 @@ import pytest
 
 from think_reason_learn.core.llms import LLMChoice, OpenAIChoice
 from think_reason_learn.gptree import GPTree
+from think_reason_learn.policy_induction import PolicyInduction
+from think_reason_learn.reasoned_rule_mining import ReasonedRuleMining
 from think_reason_learn.rrf import RRF
 
 CHAT: list[LLMChoice] = [OpenAIChoice(model="gpt-4.1-nano")]
@@ -29,9 +31,21 @@ def _tree(**kwargs: Any) -> GPTree:
     )
 
 
+def _pi(**kwargs: Any) -> PolicyInduction:
+    return PolicyInduction(
+        gen_llmc=CHAT, predict_llmc=CHAT, name="m", confirm_requests=False, **kwargs
+    )
+
+
+def _rrm(**kwargs: Any) -> ReasonedRuleMining:
+    return ReasonedRuleMining(reason_llmc=CHAT, name="m", **kwargs)
+
+
 MODELS: list[tuple[Callable[..., Any], Any, str, str]] = [
     (_rrf, RRF, "rrf.json", "rrfs"),
     (_tree, GPTree, "gptree.json", "gptrees"),
+    (_pi, PolicyInduction, "policy_induction.json", "policy_induction"),
+    (_rrm, ReasonedRuleMining, "reasoned_rule_mining.json", "reasoned_rule_mining"),
 ]
 
 

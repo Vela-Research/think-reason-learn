@@ -937,7 +937,7 @@ class ReasonedRuleMining:
             reason_temperature=manifest["reason_temperature"],
             predict_temperature=manifest["predict_temperature"],
             llm_semaphore_limit=manifest["llm_semaphore_limit"],
-            save_path=str(base.parent),
+            save_path=str(base),
             name=manifest["name"],
         )
         inst._task_description = manifest.get("task_description")

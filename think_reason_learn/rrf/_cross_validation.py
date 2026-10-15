@@ -39,7 +39,7 @@ import pandas as pd
 from sklearn.linear_model import LogisticRegressionCV
 from sklearn.model_selection import StratifiedKFold
 
-from ._rrf import RRF
+from ._rrf import RRF, _NEW_CV_ATTRIBUTES, _elasticnet_penalty
 
 
 # ---------------------------------------------------------------------------
@@ -200,16 +200,18 @@ def _elasticnet_fold(
     eff_cv = max(2, min(cv, min_class)) if min_class >= 2 else 2
 
     model = LogisticRegressionCV(
-        penalty="elasticnet",
         solver="saga",
         Cs=list(cs),  # type: ignore[arg-type]
-        l1_ratios=list(l1_ratios),
+        # scikit-learn >= 1.8 stubs type this as str (a sentinel default).
+        l1_ratios=list(l1_ratios),  # type: ignore[arg-type]
         cv=eff_cv,
         scoring="roc_auc",
         max_iter=5000,
         random_state=random_state,
         n_jobs=1,
         refit=True,
+        **_elasticnet_penalty(),
+        **_NEW_CV_ATTRIBUTES,
     )
     model.fit(train_binary.astype(float), train_y)
 

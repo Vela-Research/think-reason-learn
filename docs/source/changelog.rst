@@ -58,6 +58,18 @@ instances use the elastic-net combiner unless ``aggregation_method="vote"`` is p
 - Policy Induction's ``predict()`` skips a sample for which no policy answer could be obtained, instead of predicting
   from an all-NO vector, and keeps its checkpoint so a later run retries it. A checkpoint is resumed only for the same
   samples. Scoring warns how many (policy, sample) cells got no answer; they count as NO.
+- **Behaviour change:** ``cross_validate_aggregation`` now evaluates Random Rule Forest's default model by default:
+  ``method="elasticnet"`` instead of ``"vote"``, and ``elasticnet_cs=(1.0,)`` instead of ``(0.05, 0.1, 0.5)``, with
+  ``method``, ``elasticnet_cs``, ``elasticnet_l1_ratios`` and ``elasticnet_cv`` defaulting to Random Rule Forest's
+  own. Pass ``method="vote"`` for the top-K / T vote. Its elastic-net fit is now Random Rule Forest's (the threshold
+  is chosen among the fitted probabilities instead of a 0.05 to 0.95 grid), so each fold's model is the one
+  ``RRF(aggregation_method="elasticnet")`` fits on that fold's training split.
+- ``cross_validate_aggregation`` accepts Jev's probabilities (``RRF.get_answer_probabilities()``) as well as YES/NO
+  answers. Elastic-net uses the probabilities as features, as ``answer_features="probability"`` does; the vote counts a
+  probability at or above 0.5 as YES. Values that are neither, a mix of the two, or labels other than one ``"YES"`` or
+  ``"NO"`` per row with both present raise ``ValueError``; missing answers still count as NO.
+- ``cross_validate_aggregation(method="elasticnet")`` skips, with a warning, a fold whose training split holds one
+  class instead of failing in scikit-learn, and fits without inner CV when the smaller class has one training sample.
 
 0.1.0
 -----

@@ -1,9 +1,10 @@
 """Cross-validation for RRF aggregation tuning.
 
 Provides :func:`cross_validate_aggregation`, a standalone function that
-evaluates (K, T) aggregation quality using repeated stratified k-fold
-cross-validation.  Operates entirely on a pre-computed answer matrix and
-labels — no LLM calls are made.
+evaluates RRF's founder-level combiner (elastic-net by default, or the
+top-(K, T) vote) using repeated stratified k-fold cross-validation.
+Operates entirely on a pre-computed answer matrix (Jev's probabilities of
+YES or YES/NO answers) and labels — no LLM calls are made.
 
 .. warning::
     The *answer_matrix* passed to :func:`cross_validate_aggregation` must
@@ -16,7 +17,7 @@ Example::
     from think_reason_learn.rrf import cross_validate_aggregation
 
     result = cross_validate_aggregation(
-        answer_matrix=answers_df,   # n_samples × n_questions, "YES"/"NO"
+        answer_matrix=probs_df,     # n_samples × n_questions, P(YES) or "YES"/"NO"
         y=labels,                   # "YES"/"NO" per sample
         n_splits=10,
         n_repeats=10,
@@ -29,6 +30,7 @@ Example::
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
@@ -36,10 +38,20 @@ from typing import Literal
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
-from sklearn.linear_model import LogisticRegressionCV
 from sklearn.model_selection import StratifiedKFold
 
-from ._rrf import RRF, _NEW_CV_ATTRIBUTES, _elasticnet_penalty
+from think_reason_learn.core.llms._jev.schemas import YES_THRESHOLD
+
+from ._rrf import (
+    RRF,
+    _DEFAULT_AGGREGATION_METHOD,
+    _DEFAULT_ELASTICNET_CS,
+    _DEFAULT_ELASTICNET_CV,
+    _DEFAULT_ELASTICNET_L1_RATIOS,
+    _fit_elasticnet,
+)
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -53,11 +65,15 @@ class CVResult:
 
     Attributes:
         fold_metrics: One row per (repeat, fold).  Columns: ``repeat``,
-            ``fold``, ``k``, ``t``, ``precision``, ``recall``, ``f1``,
-            ``f_beta``, ``accuracy``, ``n_train``, ``n_test``.
-        per_founder: One row per (sample, repeat).  Columns:
-            ``sample_idx``, ``repeat``, ``fold``, ``y_true``, ``y_pred``,
-            ``yes_count``.
+            ``fold``, ``precision``, ``recall``, ``f1``, ``f_beta``,
+            ``accuracy``, ``n_train``, ``n_test``, plus ``threshold`` (the
+            decision threshold on P(YES)) for elastic-net or ``k`` and ``t``
+            for the vote.  Elastic-net skips folds whose training split
+            holds one class, so they have no row.
+        per_founder: One row per (sample, repeat) in an evaluated fold.
+            Columns: ``sample_idx``, ``repeat``, ``fold``, ``y_true``,
+            ``y_pred``, plus ``probability`` (P(YES)) for elastic-net or
+            ``yes_count`` for the vote.
         summary: Mean and standard deviation of each metric across folds.
             Keys follow the pattern ``"<metric>_mean"`` and
             ``"<metric>_std"`` (e.g. ``"f_beta_mean"``).
@@ -173,10 +189,43 @@ def _evaluate_fold(
     }
 
 
+def _answer_features(
+    answer_matrix: pd.DataFrame,
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.int_]]:
+    """Split the answer matrix into elastic-net features and vote answers.
+
+    YES/NO answers give 1/0 for both.  Probabilities of YES are the features
+    as they are and count as YES at or above 0.5, as RRF records Jev's
+    answers.  Missing cells are 0 (NO), as in RRF.
+
+    Returns:
+        ``(features, binary)``, both ``(n_samples, n_questions)``.
+
+    Raises:
+        ValueError: If the matrix holds anything else, or mixes the two.
+    """
+    hint = (
+        "answer_matrix must hold either 'YES'/'NO' answers (RRF.get_answers()) "
+        "or probabilities of YES in [0, 1] (RRF.get_answer_probabilities())"
+    )
+    if all(pd.api.types.is_numeric_dtype(dtype) for dtype in answer_matrix.dtypes):
+        probs = answer_matrix.to_numpy(dtype=float)
+        if (out_of_range := (probs < 0) | (probs > 1)).any():
+            raise ValueError(f"{hint}; found {float(probs[out_of_range][0])!r}")
+        probs = np.nan_to_num(probs, nan=0.0)
+        return probs, (probs >= YES_THRESHOLD).astype(np.int_)
+    valid = (answer_matrix.isin(["YES", "NO"]) | answer_matrix.isna()).to_numpy()
+    if not valid.all():
+        found = answer_matrix.to_numpy(dtype=object)[~valid][0]
+        raise ValueError(f"{hint}, not a mix of the two; found {found!r}")
+    binary = answer_matrix.isin(["YES"]).to_numpy(dtype=np.int_)
+    return binary.astype(np.float64), binary
+
+
 def _elasticnet_fold(
-    train_binary: npt.NDArray[np.int_],
+    train_x: npt.NDArray[np.float64],
     train_y: npt.NDArray[np.int_],
-    test_binary: npt.NDArray[np.int_],
+    test_x: npt.NDArray[np.float64],
     test_y: npt.NDArray[np.int_],
     *,
     metric: str,
@@ -188,42 +237,24 @@ def _elasticnet_fold(
 ) -> tuple[dict[str, float], npt.NDArray[np.int_], npt.NDArray[np.float64], float]:
     """Fit elastic-net on a train fold and evaluate on the test fold.
 
-    Mirrors the ``RRF`` learned-weights aggregator: an elastic-net logistic
-    regression (``C``/``l1_ratio`` chosen by inner CV) plus a decision threshold
-    tuned on the **train** fold only (no test leakage). The inner-CV fold count
-    is capped at the smaller class's size so tiny folds don't crash.
+    Uses ``RRF``'s own elastic-net fit: ``C``/``l1_ratio`` chosen by inner CV
+    and a decision threshold tuned on the **train** fold only (no test
+    leakage).  The train fold must hold both classes.
 
     Returns:
         ``(test_metrics, test_preds, test_proba, threshold)``.
     """
-    min_class = int(np.bincount(train_y).min()) if len(train_y) else 0
-    eff_cv = max(2, min(cv, min_class)) if min_class >= 2 else 2
-
-    model = LogisticRegressionCV(
-        solver="saga",
-        Cs=list(cs),  # type: ignore[arg-type]
-        # scikit-learn >= 1.8 stubs type this as str (a sentinel default).
-        l1_ratios=list(l1_ratios),  # type: ignore[arg-type]
-        cv=eff_cv,
-        scoring="roc_auc",
-        max_iter=5000,
+    model, best_thr, _ = _fit_elasticnet(
+        train_x,
+        train_y,
+        cs=cs,
+        l1_ratios=l1_ratios,
+        cv=cv,
         random_state=random_state,
-        n_jobs=1,
-        refit=True,
-        **_elasticnet_penalty(),
-        **_NEW_CV_ATTRIBUTES,
+        metric=metric,
+        beta=beta,
     )
-    model.fit(train_binary.astype(float), train_y)
-
-    train_proba = model.predict_proba(train_binary.astype(float))[:, 1]
-    best_score, best_thr = -1.0, 0.5
-    for thr in np.arange(0.05, 0.951, 0.01):
-        preds = (train_proba >= thr).astype(np.int_)
-        score = RRF._compute_metric(preds, train_y, metric, beta=beta)
-        if score > best_score:
-            best_score, best_thr = score, float(thr)
-
-    test_proba = model.predict_proba(test_binary.astype(float))[:, 1]
+    test_proba = model.predict_proba(test_x)[:, 1]
     test_preds = (test_proba >= best_thr).astype(np.int_)
     test_metrics = {
         "precision": RRF._compute_metric(test_preds, test_y, "precision"),
@@ -250,14 +281,18 @@ def cross_validate_aggregation(
     beta: float = 0.5,
     max_k: int | None = None,
     random_state: int = 42,
-    method: Literal["vote", "elasticnet"] = "vote",
-    elasticnet_cs: Sequence[float] = (0.05, 0.1, 0.5),
-    elasticnet_l1_ratios: Sequence[float] = (0.1, 0.5),
-    elasticnet_cv: int = 3,
+    method: Literal["vote", "elasticnet"] = _DEFAULT_AGGREGATION_METHOD,
+    elasticnet_cs: Sequence[float] = _DEFAULT_ELASTICNET_CS,
+    elasticnet_l1_ratios: Sequence[float] = _DEFAULT_ELASTICNET_L1_RATIOS,
+    elasticnet_cv: int = _DEFAULT_ELASTICNET_CV,
 ) -> CVResult:
     """Evaluate RRF aggregation via repeated stratified k-fold CV.
 
-    For each fold the function:
+    For each fold the function fits the combiner on the **training** split
+    and evaluates it on the **test** split.  With ``method="elasticnet"``
+    (the default, as in ``RRF``) the fit is ``RRF``'s own: an elastic-net
+    logistic regression over all questions plus a decision threshold.  With
+    ``method="vote"`` it:
 
     1. Scores every question on the **training** split (f-beta).
     2. Ranks questions by that score (descending).
@@ -268,44 +303,60 @@ def cross_validate_aggregation(
     answer matrix.
 
     Args:
-        answer_matrix: ``(n_samples, n_questions)`` DataFrame with
-            ``"YES"``/``"NO"`` values.  **Must not include samples whose
-            labels were seen during question generation.**
+        answer_matrix: ``(n_samples, n_questions)`` DataFrame of either
+            Jev's probabilities of YES in [0, 1]
+            (``RRF.get_answer_probabilities()``) or ``"YES"``/``"NO"``
+            answers (``RRF.get_answers()``); missing cells count as NO.
+            Elastic-net uses the values as features, as
+            ``RRF(answer_features="probability")`` does; the vote counts a
+            probability at or above 0.5 as YES.  **Must not include samples
+            whose labels were seen during question generation.**
         y: True labels (``"YES"``/``"NO"``), one per sample.
         n_splits: Number of folds per repeat.
         n_repeats: Number of times to repeat the k-fold split.
-        metric: Metric to optimise when tuning (K, T).  Any value
-            accepted by :meth:`RRF._compute_metric` (e.g. ``"f_beta"``,
-            ``"f1"``, ``"precision"``).
+        metric: Metric to optimise when tuning (K, T) or the elastic-net
+            threshold.  Any value accepted by :meth:`RRF._compute_metric`
+            (e.g. ``"f_beta"``, ``"f1"``, ``"precision"``).
         beta: Beta parameter for F-beta scoring and tuning.
         max_k: Upper bound on K during grid search.  ``None`` = use all
             questions.
         random_state: Base random seed; each repeat uses
             ``random_state + repeat``.
-        method: Aggregation evaluated. ``"vote"`` (default) tunes the
-            unit-weight top-(K, T) scheme per fold; ``"elasticnet"`` instead
-            refits an elastic-net logistic regression per fold (inner CV for
-            ``C``/``l1_ratio``, threshold tuned on the train fold) — mirroring
-            ``RRF(aggregation_method="elasticnet")``. In ``"elasticnet"`` mode
-            ``max_k`` is unused, ``fold_metrics`` reports ``threshold`` instead
-            of ``k``/``t``, and ``per_founder`` reports ``probability`` instead
-            of ``yes_count``.
+        method: Aggregation evaluated, ``RRF``'s default combiner by
+            default.  ``"elasticnet"`` refits
+            ``RRF(aggregation_method="elasticnet")``'s model per fold (inner
+            CV for ``C``/``l1_ratio``, threshold tuned on the train fold) and
+            skips, with a warning, folds whose training split holds one
+            class; ``"vote"`` tunes the unit-weight top-(K, T) scheme per
+            fold.  In ``"elasticnet"`` mode ``max_k`` is unused,
+            ``fold_metrics`` reports ``threshold`` instead of ``k``/``t``,
+            and ``per_founder`` reports ``probability`` instead of
+            ``yes_count``.
         elasticnet_cs: Inverse-regularisation grid for the per-fold inner CV
-            (``"elasticnet"`` only).
+            (``"elasticnet"`` only).  Defaults, like the two below, to
+            ``RRF``'s.
         elasticnet_l1_ratios: Elastic-net mixing grid for the inner CV.
         elasticnet_cv: Inner-CV folds (capped at the smaller class's size).
 
     Returns:
         A :class:`CVResult` with fold-level metrics, per-founder
         predictions, and an aggregated summary.
+
+    Raises:
+        ValueError: If ``method`` is unknown, ``answer_matrix`` holds
+            anything but YES/NO answers or probabilities, or ``y`` is not
+            one ``"YES"``/``"NO"`` label per row with both present.
     """
     if method not in ("vote", "elasticnet"):
         raise ValueError("method must be 'vote' or 'elasticnet'")
+    if len(y) != len(answer_matrix) or set(y) != {"YES", "NO"}:
+        raise ValueError(
+            "y must hold one 'YES' or 'NO' label per row of answer_matrix, "
+            "with both labels present"
+        )
 
     y_arr = np.array([1 if yi == "YES" else 0 for yi in y], dtype=np.int_)
-    binary_full: npt.NDArray[np.int_] = np.asarray(
-        answer_matrix.apply(lambda col: (col == "YES").astype(np.int_)).values
-    )
+    features_full, binary_full = _answer_features(answer_matrix)
     fold_rows: list[dict[str, object]] = []
     founder_rows: list[dict[str, object]] = []
 
@@ -324,12 +375,21 @@ def cross_validate_aggregation(
             test_y: npt.NDArray[np.int_] = y_arr[test_idx]
 
             if method == "elasticnet":
+                if len(np.unique(train_y)) < 2:
+                    # As in RRF, elastic-net cannot be fitted on one class.
+                    logger.warning(
+                        "Repeat %d, fold %d: the training split holds one "
+                        "class; skipping the fold.",
+                        repeat,
+                        fold,
+                    )
+                    continue
                 # Refit a learned-weight model per fold (nested CV inside),
                 # threshold tuned on the train fold; evaluate on the test fold.
                 test_metrics, preds, proba, thr = _elasticnet_fold(
-                    train_binary,
+                    features_full[train_idx],
                     train_y,
-                    test_binary,
+                    features_full[test_idx],
                     test_y,
                     metric=metric,
                     beta=beta,

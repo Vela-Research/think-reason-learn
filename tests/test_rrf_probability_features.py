@@ -427,3 +427,97 @@ async def test_chat_answerer_predicts_with_a_string_index(tmp_path: Path) -> Non
     result = await rrf.predict_founder_level(X_named)
 
     assert list(result.index) == list("abcdef")
+
+
+# ---------------------------------------------------------------------------
+# cross_validate_aggregation on Jev's probabilities
+# ---------------------------------------------------------------------------
+
+
+def _probabilities(n: int = 40, positives: int = 12) -> tuple[pd.DataFrame, list[str]]:
+    """A matrix shaped like ``get_answer_probabilities()``, with its labels."""
+    rng = np.random.default_rng(0)
+    y = ["YES"] * positives + ["NO"] * (n - positives)
+    shift = np.where(np.array(y) == "YES", 0.15, -0.15)[:, None]
+    probs = np.clip(0.5 + shift + rng.normal(0, 0.2, (n, 4)), 0, 1)
+    return pd.DataFrame({f"q{i}": probs[:, i] for i in range(4)}), y
+
+
+def _holding(rrf: RRF, probs: pd.DataFrame, y: list[str]) -> RRF:
+    """``rrf`` as if Jev had answered with ``probs`` on samples labelled ``y``."""
+    from think_reason_learn.core.llms._jev.schemas import yes_no
+
+    questions = rrf._get_initial_questions_df()
+    for qid in probs.columns:
+        questions.loc[qid] = {
+            "question": qid,
+            "embedding": None,
+            "exclusion": None,
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1_score": 0.0,
+            "f_beta_score": 0.0,
+            "accuracy": 0.0,
+        }
+    rrf._questions = questions
+    rrf._answer_probs = probs.reset_index(drop=True)
+    rrf._answers = rrf._answer_probs.map(yes_no)
+    rrf._y = np.array(y)
+    return rrf
+
+
+def test_cv_elasticnet_on_probabilities_matches_rrf(tmp_path: Path) -> None:
+    from sklearn.model_selection import StratifiedKFold
+
+    from think_reason_learn.rrf import cross_validate_aggregation
+
+    probs, y = _probabilities()
+    result = cross_validate_aggregation(probs, y, n_splits=4, n_repeats=1)
+
+    labels = np.array(y)
+    splits = StratifiedKFold(n_splits=4, shuffle=True, random_state=42)
+    for fold, (train, test) in enumerate(splits.split(probs, labels)):
+        # The harness tunes the threshold for F-0.5 by default, RRF for F1.
+        rrf = _rrf(tmp_path, aggregation_metric="f_beta", question_scoring_f_beta=0.5)
+        _holding(rrf, probs.iloc[train], list(labels[train]))._tune_aggregation()
+        expected = rrf._elasticnet_proba(probs.iloc[test])
+        threshold = rrf._aggregation_threshold or 0.0
+        rows = result.per_founder[result.per_founder["fold"] == fold]
+
+        # Equal up to rounding: the same features in another memory layout
+        # change the order BLAS sums in.
+        assert result.fold_metrics.loc[fold, "threshold"] == pytest.approx(
+            threshold, rel=1e-12
+        )
+        assert list(rows["sample_idx"]) == list(test)
+        np.testing.assert_allclose(rows["probability"], expected)
+        assert list(rows["y_pred"]) == [
+            "YES" if p >= threshold else "NO" for p in expected
+        ]
+
+
+def test_cv_vote_counts_probabilities_at_or_above_half() -> None:
+    from think_reason_learn.rrf import cross_validate_aggregation
+
+    probs = pd.DataFrame({"q0": [0.5, 0.49, 0.9, 0.1] * 10})
+    y = ["YES", "NO", "YES", "NO"] * 10
+
+    result = cross_validate_aggregation(
+        probs, y, n_splits=4, n_repeats=1, method="vote"
+    )
+
+    yes_counts = result.per_founder.sort_values("sample_idx")["yes_count"]
+    assert list(yes_counts) == [1, 0, 1, 0] * 10
+
+
+def test_cv_defaults_follow_rrf() -> None:
+    import inspect
+
+    from think_reason_learn.rrf import cross_validate_aggregation
+
+    cv = inspect.signature(cross_validate_aggregation).parameters
+    rrf = inspect.signature(RRF).parameters
+
+    assert cv["method"].default == rrf["aggregation_method"].default
+    for name in ("elasticnet_cs", "elasticnet_l1_ratios", "elasticnet_cv"):
+        assert cv[name].default == rrf[name].default

@@ -1,6 +1,14 @@
 Changelog
 =========
 
+Unreleased
+----------
+- GPTree's question critic now works: with ``use_critic=True``, ``critic_llmc`` reviews each node's candidate questions
+  (one extra call per node, seeing the same samples as generation) and may drop, merge or reword questions that can't
+  be answered from a sample's text, leak the label, are ambiguous or compound, or duplicate another, and fix choices
+  that overlap or miss cases. It never adds questions; if it fails, or returns none or more than it was given, the
+  generated questions are kept with a warning. ``use_critic`` still defaults to ``False``, which changes nothing.
+
 0.2.0
 -----
 **Breaking:** code that relied on answers defaulting to the generation model now answers with Jev and needs

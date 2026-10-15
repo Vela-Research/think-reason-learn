@@ -44,7 +44,7 @@ from think_reason_learn.core.exceptions import DataError, LLMError, CorruptionEr
 from ._types import QuestionType, Criterion
 from ._prompts import INSTRUCTIONS_FOR_GENERATING_QUESTION_GEN_INSTRUCTIONS
 from ._prompts import num_questions_tag, QUESTION_ANSWER_INSTRUCTIONS
-from ._prompts import CUMULATIVE_MEMORY_INSTRUCTIONS
+from ._prompts import CUMULATIVE_MEMORY_INSTRUCTIONS, CRITIC_INSTRUCTIONS
 
 
 logger = logging.getLogger(__name__)
@@ -201,7 +201,8 @@ class GPTree:
 
     Args:
         qgen_llmc: LLMs to use for question generation, in priority order.
-        critic_llmc: LLMs to use for question critique, in priority order.
+        critic_llmc: LLMs that review each node's candidate questions when
+            ``use_critic`` is True, in priority order. Unused otherwise.
         qgen_instr_llmc: LLMs for generating instructions.
         qanswer_llmc: LLMs to use for answering questions, in priority order.
             If None, Jev (``[JevChoice()]``), which needs ``TYPESAFE_API_KEY``;
@@ -224,7 +225,14 @@ class GPTree:
         expert_advice: Human-provided hints for generation.
         n_samples_as_context: Number of samples used as context in generation.
         class_ratio: Strategy for class sampling ("balanced" or dict of ratios).
-        use_critic: Whether to critique generated questions.
+        use_critic: Whether ``critic_llmc`` reviews each node's candidate
+            questions before they are answered (one extra call per node). The
+            critic sees the same samples as generation and may drop, merge or
+            reword questions that can't be answered from a sample's text, leak
+            the label, are ambiguous or compound, or duplicate another, and fix
+            choices that overlap or miss cases. It never adds questions; if it
+            fails, or returns none or more than it was given, the generated
+            questions are kept.
         save_path: Directory to save checkpoints/models.
         name: Name of the tree instance.
         random_state: Random seed.
@@ -483,7 +491,7 @@ class GPTree:
 
     @property
     def critic_instructions_template(self) -> str | None:
-        """Get the critic instructions template."""
+        """Get the critic instructions template, or None for the default."""
         return self._critic_instructions_template
 
     @property
@@ -908,10 +916,59 @@ class GPTree:
             )
 
         if self.use_critic:
-            # TODO: Implement critic
-            pass
+            questions = await self._critique_questions(questions, query, instructions)
 
         return questions
+
+    async def _critique_questions(
+        self, questions: Questions, query: str, instructions: str
+    ) -> Questions:
+        """Have the critic revise a node's candidates; keep them if it misbehaves."""
+        candidates = questions.model_dump_json(include={"questions"}, indent=2)
+        critic_query = (
+            f"{query}\n\nTASK\n{self._task_description or instructions}\n\n"
+            f"Each question may have at most {self.max_node_width} choices.\n\n"
+            f"CANDIDATE QUESTIONS\n{candidates}"
+        )
+        n = len(questions.questions)
+        try:
+            async with self._llm_semaphore:
+                response = await llm.respond(
+                    query=critic_query,
+                    llm_priority=self.critic_llmc,
+                    response_format=Questions,
+                    instructions=self._critic_instructions_template
+                    or CRITIC_INSTRUCTIONS,
+                    temperature=self.critic_temperature,
+                )
+        except Exception:  # any provider error; the critic must not fail the fit
+            logger.warning(
+                "Critic failed; keeping the generated questions.", exc_info=True
+            )
+            return questions
+        await self._token_counter.append(
+            provider=response.provider_model.provider,
+            model=response.provider_model.model,
+            value=response.total_tokens,
+            caller="GPTree._critique_questions",
+        )
+        revised = response.response
+        if revised is None or not 0 < len(revised.questions) <= n:
+            got = (
+                "nothing" if revised is None else f"{len(revised.questions)} questions"
+            )
+            logger.warning(
+                f"Critic returned {got} for {n} candidates; "
+                "keeping the generated questions."
+            )
+            return questions
+        logger.info(
+            f"Critic kept {len(revised.questions)} of {n} questions: "
+            f"{revised.cumulative_memory}"
+        )
+        return Questions(
+            questions=revised.questions, cumulative_memory=questions.cumulative_memory
+        )
 
     @property
     def _answers_with_jev(self) -> bool:

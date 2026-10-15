@@ -24,16 +24,17 @@ Graphviz installed.
 
    llm = [OpenAIChoice(model="gpt-4o-mini")]
    tree = GPTree(qgen_llmc=llm, critic_llmc=llm, qgen_instr_llmc=llm, max_depth=2)
-   await tree.set_tasks(task_description="Predict whether a founder succeeds or fails from their background.")
-
-   async for node in tree.fit(X, y, reset=True):
-       pass  # each step yields the node just built
+   await tree.set_task("Predict whether a founder succeeds or fails from their background.")
+   await tree.fit(X, y, reset=True)
 
    display(Image(tree.view_node(tree.get_root_id())))
    print(tree.get_questions())
 
    async for index, question, answer, node_id, usage in tree.predict(X):
        print(index, question, answer)
+
+``fit()`` returns once the whole tree is built. To get each node as it is built, for example to ``stop()`` the tree
+or give it ``advice()`` between nodes, iterate ``tree.fit_iter(X, y)`` instead.
 
 Other providers work the same way. Use ``AnthropicChoice``, ``GoogleChoice`` or ``XAIChoice`` from
 ``think_reason_learn.core.llms`` with the matching API key. The API reference covers

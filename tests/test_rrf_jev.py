@@ -53,7 +53,7 @@ def _rrf(tmp_path: Path, fake: FakeJevLLM, **kwargs: Any) -> RRF:
 
 
 async def _fit(rrf: RRF) -> RRF:
-    await rrf.set_tasks(task_description="Classify founders")
+    await rrf.set_task(task_description="Classify founders")
     return await rrf.fit(pd.DataFrame({"data": PEOPLE}), LABELS)
 
 
@@ -204,7 +204,7 @@ async def test_answers_line_up_with_rows_for_any_index(
 ) -> None:
     fake = FakeJevLLM(prob=_prob)
     rrf = _rrf(tmp_path, fake)
-    await rrf.set_tasks(task_description="Classify founders")
+    await rrf.set_task(task_description="Classify founders")
     await rrf.fit(pd.DataFrame({"data": PEOPLE}, index=pd.Index(index)), LABELS)
 
     probs = rrf.get_answer_probabilities()
@@ -216,7 +216,7 @@ async def test_answers_line_up_with_rows_for_any_index(
 async def test_chat_answers_any_index(tmp_path: Path) -> None:
     fake = FakeJevLLM(prob=_prob)
     rrf = _rrf(tmp_path, fake, qanswer_llmc=LLM_CHOICE)
-    await rrf.set_tasks(task_description="Classify founders")
+    await rrf.set_task(task_description="Classify founders")
     await rrf.fit(pd.DataFrame({"data": PEOPLE}, index=range(10, 16)), LABELS)
 
     assert bool(rrf.get_answers().notna().to_numpy().all())

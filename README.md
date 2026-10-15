@@ -118,9 +118,8 @@ async def main():
     )
     print(qgit)
 
-    fitter = tree.fit(X, y, reset=True)
-    async for node in fitter:
-        root = node
+    await tree.fit(X, y, reset=True)
+    # Or build it node by node: async for node in tree.fit_iter(X, y, reset=True)
 
     # Visualize (requires Graphviz system package installed)
     display(Image(tree.view_tree()))

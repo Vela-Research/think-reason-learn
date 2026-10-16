@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Final, Literal
@@ -27,10 +26,11 @@ from think_reason_learn.core._classifier import Labels, Proba, TRLClassifier
 from think_reason_learn.core._data import (
     ClassRatio,
     TextInput,
+    count,
     example_batches,
     to_texts,
 )
-from think_reason_learn.core._prompts import examples_block, write_instructions
+from think_reason_learn.core._prompts import examples_block
 from think_reason_learn.llm import (
     Answer,
     ChoiceQuestion,
@@ -153,27 +153,13 @@ class GPTree(TRLClassifier):
         self.random_state = random_state
         self.verbose = verbose
 
+    _instructions_purpose = INSTRUCTIONS_PURPOSE
     criterion: Criterion
     example_class_ratio: ClassRatio
     class_weight: Literal["balanced"] | Mapping[str, float] | None
     instructions_: str
     insights_: str
     tree_: Tree
-
-    def write_instructions(self) -> str:
-        """Write the instructions for questions now, to read or edit before ``fit``.
-
-        One call to the generator. The result is stored in ``instructions``, so
-        ``fit`` uses it; change ``instructions`` to use your own.
-        """
-        self._check_task()
-        writer = self._models("generator", "generate")
-        self.instructions = run_sync(
-            write_instructions(
-                LLMSession(), writer, self.task or "", INSTRUCTIONS_PURPOSE
-            )
-        )
-        return self.instructions
 
     def apply(self, X: TextInput) -> npt.NDArray[np.intp]:
         """The leaf each sample reaches."""
@@ -192,11 +178,9 @@ class GPTree(TRLClassifier):
         self.tree_.prune(node_id)
 
     async def _afit(self, texts: list[str], y: Labels, session: LLMSession) -> None:
-        self._check_task()
+        self._task()
         grower = _Grower.start(self, texts, y, session)
-        self.instructions_ = self.instructions or await write_instructions(
-            session, grower.writer, self.task or "", INSTRUCTIONS_PURPOSE
-        )
+        self.instructions_ = await self._instructions(session, grower.writer)
         self.insights_ = await grower.insights() if self.insights else ""
         self.tree_ = await grower.grow()
 
@@ -251,10 +235,6 @@ class GPTree(TRLClassifier):
         )
         return {int(c): idx[children == c] for c in np.unique(children)}
 
-    def _check_task(self) -> None:
-        if not self.task or not self.task.strip():
-            raise ValueError("GPTree needs task=..., what to predict in plain words.")
-
     def _summary(self) -> Mapping[str, object]:
         frame = self.tree_.to_frame(list(self.classes_)).reset_index()
         nodes: object = json.loads(frame.to_json(orient="records") or "[]")
@@ -298,8 +278,8 @@ class _Grower:
             _critic(model.critic, writer),
             model._models("answerer", "answer"),
             np.random.default_rng(model.random_state),
-            max(1, _count(model.min_samples_leaf, n)),
-            max(2, _count(model.min_samples_split, n)),
+            max(1, count(model.min_samples_leaf, n)),
+            max(2, count(model.min_samples_split, n)),
         )
 
     async def insights(self) -> str:
@@ -529,11 +509,6 @@ def _critic(
     if critic is True:
         return writer
     return resolve_models(critic, param="critic", task="generate")
-
-
-def _count(value: int | float, n: int) -> int:
-    """An int count as is; a float as that fraction of ``n``, rounded up."""
-    return value if isinstance(value, int) else math.ceil(value * n)
 
 
 def _sample_weights(

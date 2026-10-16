@@ -13,9 +13,24 @@ from think_reason_learn.core.llms._schemas import (
     NotGiven,
     T,
 )
+from pydantic import BaseModel
+
 from think_reason_learn.core.llms import OpenAIChoice
-from think_reason_learn.rrf._rrf import Answer, Questions
-from think_reason_learn.rrf._prompts import num_questions_tag
+
+num_questions_tag = "<number_of_questions>"
+
+
+class Questions(BaseModel):
+    """The old RRF's question schema, kept for the old layer's tests."""
+
+    questions: List[str]
+    cumulative_memory: str
+
+
+class Answer(BaseModel):
+    """The old RRF's answer schema, kept for the old layer's tests."""
+
+    answer: Literal["YES", "NO"]
 
 
 _FAKE_PROVIDER = OpenAIChoice(model="gpt-4.1-nano")

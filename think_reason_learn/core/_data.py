@@ -6,6 +6,7 @@ every prompt, at fit and at predict.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
 from typing import Literal
 
@@ -92,6 +93,14 @@ def example_batches(
         rng.shuffle(batch)
         batches.append(batch)
     return batches
+
+
+def count(value: int | float, n: int) -> int:
+    """An int as is; a float as that fraction of ``n``, rounded up.
+
+    For settings like ``min_samples_leaf`` that take a count or a share.
+    """
+    return value if isinstance(value, int) else math.ceil(value * n)
 
 
 def _row_text(names: Sequence[str], values: tuple[object, ...]) -> str:

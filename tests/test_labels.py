@@ -10,14 +10,9 @@ import pytest
 from think_reason_learn.core.exceptions import DataError
 from think_reason_learn.core.llms import LLMChoice, OpenAIChoice
 from think_reason_learn.policy_induction import PolicyInduction
-from think_reason_learn.rrf import RRF
 
 CHAT: list[LLMChoice] = [OpenAIChoice(model="gpt-4.1-nano")]
 X = pd.DataFrame({"text": ["a", "b", "c", "d"]})
-
-
-def _rrf(tmp_path: Path) -> RRF:
-    return RRF(qgen_llmc=CHAT, qanswer_llmc=CHAT, save_path=tmp_path)
 
 
 def _pi(tmp_path: Path) -> PolicyInduction:
@@ -26,14 +21,14 @@ def _pi(tmp_path: Path) -> PolicyInduction:
     )
 
 
-@pytest.mark.parametrize("make", [_rrf, _pi])
+@pytest.mark.parametrize("make", [_pi])
 def test_mixed_case_labels_are_accepted(tmp_path: Path, make: object) -> None:
     model = make(tmp_path)  # type: ignore[operator]
     model._set_data(X, ["yes", "No", "YES", "nO"], **_copy_kwarg(model))
     assert list(model._y) == ["YES", "NO", "YES", "NO"]
 
 
-@pytest.mark.parametrize("make", [_rrf, _pi])
+@pytest.mark.parametrize("make", [_pi])
 def test_other_labels_are_rejected(tmp_path: Path, make: object) -> None:
     model = make(tmp_path)  # type: ignore[operator]
     with pytest.raises(DataError, match="YES"):
@@ -41,4 +36,4 @@ def test_other_labels_are_rejected(tmp_path: Path, make: object) -> None:
 
 
 def _copy_kwarg(model: object) -> dict[str, bool]:
-    return {"copy_data": True} if isinstance(model, RRF) else {}
+    return {}

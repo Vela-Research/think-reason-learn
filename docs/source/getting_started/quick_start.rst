@@ -25,6 +25,7 @@ founder, and the tree learns which answers predict success.
        min_samples_leaf=1,
    )
    tree.write_instructions()      # optional: read or edit before the expensive fit
+   tree.estimate_cost(X, y)       # optional: calls, tokens and dollars, before any is sent
    tree.fit(X, y)
 
    tree.predict(["Sam is a staff engineer who sold a company."])

@@ -15,6 +15,7 @@ regression weighs them.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
 from typing import Literal
 
@@ -23,12 +24,25 @@ import numpy.typing as npt
 import pandas as pd
 from pydantic import BaseModel
 
-from think_reason_learn.core._classifier import BinaryTRLClassifier, Labels, Proba
+from think_reason_learn.core._classifier import (
+    BinaryTRLClassifier,
+    Labels,
+    Proba,
+    positive_index,
+)
 from think_reason_learn.core._answers import yes_probabilities
 from think_reason_learn.core._combine import LinearCombiner, fit_logistic, n_folds
 from think_reason_learn.core._data import balanced_subset, example_batches
 from think_reason_learn.core._prompts import examples_block
-from think_reason_learn.llm import Endpoint, LLMSession, Models
+from think_reason_learn.llm import (
+    Endpoint,
+    LLMSession,
+    Models,
+    UsageRecord,
+    estimate_answers,
+    estimate_generations,
+)
+from think_reason_learn.llm._estimate import QUESTION_TOKENS, mean_tokens
 
 from ._prompts import (
     INSTRUCTIONS_PURPOSE,
@@ -188,6 +202,42 @@ class PolicyInduction(BinaryTRLClassifier):
         self.history_ = pd.DataFrame(history, columns=columns)
         return tuple(policy), scores
 
+    def _fit_plan(
+        self, texts: list[str], y: Labels, classes: npt.NDArray[np.object_]
+    ) -> list[UsageRecord]:
+        writer = self._models("generator", "generate")
+        answerer = self._models("answerer", "answer")
+        rng = np.random.default_rng(self.random_state)
+        cases = balanced_subset(y, 2, self.n_samples, rng)
+        refinements = self.n_rounds * math.ceil(len(cases) / self.batch_size)
+        policy, example = self.max_rules * QUESTION_TOKENS, mean_tokens(texts)
+        planned = self._instructions_plan()
+        if not self.initial_policy:
+            planned.append(estimate_generations(writer, self.n_examples * example))
+        planned += [
+            estimate_generations(
+                writer, policy + self.batch_size * example, calls=refinements
+            ),
+            estimate_answers(
+                answerer, [texts[i] for i in cases], [policy], times=1 + refinements
+            ),
+        ]
+        if self.predictor == "rules":
+            positive = y == positive_index(classes, self.pos_label)
+            rows = [texts[i] for i in self._rule_rows(positive, cases)]
+            planned.append(
+                estimate_answers(answerer, rows, [QUESTION_TOKENS] * self.max_rules)
+            )
+        return planned
+
+    def _predict_plan(self, texts: list[str]) -> list[UsageRecord]:
+        answerer = self._models("answerer", "answer")
+        if self.combiner_ is None:
+            question = policy_question(_numbered(self.policy_), self._positive_label())
+            return [estimate_answers(answerer, texts, [question])]
+        rules = [rule_question(rule) for rule in self.weighted_rules_]
+        return [estimate_answers(answerer, texts, rules)]
+
     async def _apredict_proba(self, texts: list[str], session: LLMSession) -> Proba:
         if self.combiner_ is None:
             return self._binary_proba(await self._judge(self.policy_, texts, session))
@@ -291,8 +341,7 @@ class PolicyInduction(BinaryTRLClassifier):
         session: LLMSession,
     ) -> None:
         """Weigh the rules on samples the policy was not written from, if enough."""
-        rest = np.setdiff1d(np.arange(len(texts)), cases)
-        rows = rest if n_folds(self.cv, positive[rest]) >= 2 else np.arange(len(texts))
+        rows = self._rule_rows(positive, cases)
         answers = await self._rule_answers(
             [texts[i] for i in rows], self.policy_, session
         )
@@ -312,6 +361,15 @@ class PolicyInduction(BinaryTRLClassifier):
             fitted.coef[used], fitted.intercept, fitted.threshold
         )
         self.threshold_ = fitted.threshold
+
+    def _rule_rows(
+        self, positive: npt.NDArray[np.bool_], cases: npt.NDArray[np.intp]
+    ) -> npt.NDArray[np.intp]:
+        """Samples the policy was not written from, or all if too few of a class."""
+        rest = np.setdiff1d(np.arange(len(positive)), cases).astype(np.intp)
+        if n_folds(self.cv, positive[rest]) >= 2:
+            return rest
+        return np.arange(len(positive), dtype=np.intp)
 
     def _summary(self) -> Mapping[str, object]:
         return {

@@ -27,6 +27,7 @@ from ._adapters import ADAPTERS, Answers, GenerateRequest, ProviderError, Reply
 from ._cache import JSON, Cache, cache_key, open_cache
 from ._calls import send
 from ._config import get_config
+from ._estimate import ANSWER_OUTPUT_TOKENS, GENERATE_OUTPUT_TOKENS, call_tokens
 from ._limiter import apply_limits
 from ._questions import Answer, Question
 from ._spec import Endpoint
@@ -36,8 +37,6 @@ logger = logging.getLogger(__name__)
 
 _WINDOW: Final = 256
 """Answer requests scheduled at once; the limiter decides how many are sent."""
-_GENERATE_OUTPUT_ESTIMATE: Final = 2000
-_ANSWER_OUTPUT_ESTIMATE: Final = 8
 
 
 class LLMSession:
@@ -129,8 +128,8 @@ class LLMSession:
                     role,
                     lambda dropped: adapter.generate(endpoint, request, dropped),
                     TokenCounts(
-                        input=_tokens(prompt, instructions, prefix),
-                        output=_GENERATE_OUTPUT_ESTIMATE,
+                        input=call_tokens(prompt, instructions, prefix),
+                        output=GENERATE_OUTPUT_TOKENS,
                     ),
                 )
             except ProviderError as error:
@@ -405,7 +404,7 @@ class _AnswerPass:
             return
         tokens = TokenCounts(
             input=sum(self._estimate(r) for r in requests),
-            output=sum(len(r.qids) for r in requests) * _ANSWER_OUTPUT_ESTIMATE,
+            output=sum(len(r.qids) for r in requests) * ANSWER_OUTPUT_TOKENS,
         )
         cost = call_cost(self.endpoint, tokens, None)[0]
         what = f"Answering with {self.endpoint.name} ({len(requests)} calls)"
@@ -418,7 +417,7 @@ class _AnswerPass:
 
     def _estimate(self, request: _Request) -> int:
         texts = [self.questions[qid].text for qid in request.qids]
-        return _tokens(self.samples[request.sample], *texts)
+        return call_tokens(self.samples[request.sample], *texts)
 
     async def _send(
         self, request: _Request, results: list[Answers], errors: list[str]
@@ -444,7 +443,7 @@ class _AnswerPass:
             lambda dropped: adapter.answer(endpoint, sample, asked, dropped),
             TokenCounts(
                 input=self._estimate(request),
-                output=len(asked) * _ANSWER_OUTPUT_ESTIMATE,
+                output=len(asked) * ANSWER_OUTPUT_TOKENS,
             ),
         )
         stored: dict[str, JSON] = {}
@@ -545,15 +544,3 @@ def _load_answer(stored: JSON, question: Question) -> Answer | None:
         label,
         {k: float(v) for k, v in probabilities.items() if isinstance(v, (int, float))},
     )
-
-
-def _tokens(*texts: str | None) -> int:
-    """A rough token count, plus framing.
-
-    Four ASCII characters a token; any other character (CJK, emoji) one each.
-    """
-    total = 0
-    for text in filter(None, texts):
-        ascii_chars = len(text.encode("ascii", "ignore"))
-        total += ascii_chars // 4 + len(text) - ascii_chars
-    return 100 + total

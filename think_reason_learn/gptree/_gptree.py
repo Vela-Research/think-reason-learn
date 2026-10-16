@@ -12,8 +12,9 @@ splits the node. Nodes of one level grow concurrently.
 from __future__ import annotations
 
 import asyncio
-import logging
 import json
+import logging
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Final, Literal
@@ -48,10 +49,14 @@ from think_reason_learn.llm import (
     Model,
     Models,
     Question,
+    UsageRecord,
     YesNoQuestion,
+    estimate_answers,
+    estimate_generations,
     resolve_models,
     run_sync,
 )
+from think_reason_learn.llm._estimate import QUESTION_TOKENS, mean_tokens, text_tokens
 
 from ._prompts import (
     CHOICE,
@@ -205,6 +210,66 @@ class GPTree(TRLClassifier):
         self.insights_ = await grower.insights() if self.insights else ""
         self.tree_ = await grower.grow()
         self.threshold_ = grower.threshold()
+
+    def _fit_plan(
+        self, texts: list[str], y: Labels, classes: npt.NDArray[np.object_]
+    ) -> list[UsageRecord]:
+        """Insights, then each level's questions, answered by every sample."""
+        writer = self._models("generator", "generate")
+        n, example = len(texts), mean_tokens(texts)
+        smallest = max(
+            2, count(self.min_samples_split, n), 2 * count(self.min_samples_leaf, n)
+        )
+        levels = self._levels(n, smallest)
+        nodes = sum(min(2**k, n // smallest) for k in range(levels))
+        prompt = self.n_examples * example
+        planned = [
+            *self._instructions_plan(),
+            *self._insights_plan(writer, y, example),
+            estimate_generations(writer, prompt, calls=nodes),
+        ]
+        if (critic := _critic(self.critic, writer)) is not None:
+            planned.append(
+                estimate_generations(critic, prompt, calls=nodes, role="critic")
+            )
+        questions = [QUESTION_TOKENS] * self.max_questions
+        answerer = self._models("answerer", "answer")
+        return [*planned, estimate_answers(answerer, texts, questions, times=levels)]
+
+    def _predict_plan(self, texts: list[str]) -> list[UsageRecord]:
+        """One question per level along each path, as often as in training."""
+        nodes = self.tree_.nodes
+        asked = [node.question.text for node in nodes if node.question is not None]
+        if not asked:
+            return []
+        visits = sum(n.n_samples for n in nodes if not n.is_leaf) / nodes[0].n_samples
+        question = round(sum(map(text_tokens, asked)) / len(asked))
+        answerer = self._models("answerer", "answer")
+        return [estimate_answers(answerer, texts, [question], times=visits)]
+
+    def _levels(self, n: int, smallest: int) -> int:
+        """Levels split, halving nodes until they are too small to split."""
+        if n < smallest:
+            return 0
+        limits = [int(math.log2(n / smallest)) + 1]
+        if self.max_depth is not None:
+            limits.append(self.max_depth)
+        if self.max_leaf_nodes is not None:
+            limits.append(math.ceil(math.log2(max(self.max_leaf_nodes, 2))))
+        return min(limits)
+
+    def _insights_plan(
+        self, writer: tuple[Endpoint, ...], y: Labels, example: float
+    ) -> list[UsageRecord]:
+        if not self.insights:
+            return []
+        size = self.insight_batch_size
+        batches = [
+            min(math.ceil(int(np.count_nonzero(y == c)) / size), _MAX_INSIGHT_BATCHES)
+            for c in np.unique(y)
+        ]
+        calls = sum(b + 1 if b > 1 else b for b in batches)  # several are merged
+        return [estimate_generations(writer, size * example, calls=calls)]
 
     def _decide(self, proba: Proba) -> Labels:
         if self.threshold_ is None:

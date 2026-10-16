@@ -24,7 +24,12 @@ import numpy as np
 import numpy.typing as npt
 from pydantic import BaseModel
 
-from think_reason_learn.core._classifier import BinaryTRLClassifier, Labels, Proba
+from think_reason_learn.core._classifier import (
+    BinaryTRLClassifier,
+    Labels,
+    Proba,
+    positive_index,
+)
 from think_reason_learn.core._answers import yes_probabilities
 from think_reason_learn.core._combine import LinearCombiner, fit_logistic, n_folds
 from think_reason_learn.core._data import balanced_subset
@@ -32,7 +37,15 @@ from think_reason_learn.llm import (
     Endpoint,
     LLMSession,
     Models,
+    UsageRecord,
+    estimate_answers,
+    estimate_generations,
     resolve_models,
+)
+from think_reason_learn.llm._estimate import (
+    GENERATE_OUTPUT_TOKENS,
+    QUESTION_TOKENS,
+    mean_tokens,
 )
 
 from ._prompts import (
@@ -122,6 +135,8 @@ class ReasonedRuleMining(BinaryTRLClassifier):
     rules_: tuple[tuple[str, str], ...]
     policy_: str
     combiner_: LinearCombiner
+    harsh_share_: float
+    """Share of the calibration samples that got the second look."""
 
     async def _afit(self, texts: list[str], y: Labels, session: LLMSession) -> None:
         self._task()
@@ -133,6 +148,7 @@ class ReasonedRuleMining(BinaryTRLClassifier):
         self.policy_ = await self._compile(writer, session)
         calibrate = self._calibration_samples(positive, mined)
         features = await self._features([texts[i] for i in calibrate], session)
+        self.harsh_share_ = float(features[:, 2].mean()) if len(features) else 0.0
         self.combiner_ = fit_logistic(
             features,
             positive[calibrate],
@@ -144,6 +160,53 @@ class ReasonedRuleMining(BinaryTRLClassifier):
             random_state=self.random_state,
         )
         self.threshold_ = self.combiner_.threshold
+
+    def _fit_plan(
+        self, texts: list[str], y: Labels, classes: npt.NDArray[np.object_]
+    ) -> list[UsageRecord]:
+        """Mining, compiling, then judging; the positives get the second look."""
+        writer = self._models("generator", "generate")
+        mined = self._mined_samples(y, np.random.default_rng(self.random_state))
+        positive = y == positive_index(classes, self.pos_label)
+        calibrate = self._calibration_samples(positive, mined)
+        policy = GENERATE_OUTPUT_TOKENS  # the compiled policy is a whole reply
+        return [
+            estimate_generations(writer, mean_tokens(texts), calls=len(mined)),
+            estimate_generations(writer, len(mined) * QUESTION_TOKENS),
+            *self._judging_plan(
+                [texts[i] for i in calibrate],
+                [texts[i] for i in calibrate if positive[i]],
+                policy,
+                policy,
+            ),
+        ]
+
+    def _predict_plan(self, texts: list[str]) -> list[UsageRecord]:
+        positive = self._positive_label()
+        return self._judging_plan(
+            texts,
+            texts[: round(len(texts) * self.harsh_share_)],
+            vote_question(self.policy_, positive),
+            harsh_question(self.policy_, positive, self.harsh_level),
+        )
+
+    def _judging_plan(
+        self,
+        texts: Sequence[str],
+        promoted: Sequence[str],
+        question: str | int,
+        harsh: str | int,
+    ) -> list[UsageRecord]:
+        answerer = self._models("answerer", "answer")
+        planned = [
+            estimate_answers(answerer, texts, [question], times=self._draws(answerer))
+        ]
+        if self.use_harsh and promoted:
+            models = self._harsh_models()
+            planned.append(
+                estimate_answers(models, promoted, [harsh], times=self._draws(models))
+            )
+        return planned
 
     def _calibration_samples(
         self, positive: npt.NDArray[np.bool_], mined: npt.NDArray[np.intp]
@@ -248,16 +311,19 @@ class ReasonedRuleMining(BinaryTRLClassifier):
         session: LLMSession,
     ) -> npt.NDArray[np.float64]:
         """Mean probability of yes over the ensemble (one draw for decision models)."""
-        draws = 1 if all(m.kind == "decision" for m in models) else self.ensemble_size
         runs = await asyncio.gather(
             *(
                 yes_probabilities(
                     session, models, texts, [question], missing=0.5, draw=d
                 )
-                for d in range(draws)
+                for d in range(self._draws(models))
             )
         )
         return np.mean([run[:, 0] for run in runs], axis=0)
+
+    def _draws(self, models: Sequence[Endpoint]) -> int:
+        """One call for decision models; ``ensemble_size`` for reasoning models."""
+        return 1 if all(m.kind == "decision" for m in models) else self.ensemble_size
 
     def _harsh_models(self) -> tuple[Endpoint, ...]:
         if self.harsh_answerer is None:

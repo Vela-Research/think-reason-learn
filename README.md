@@ -102,6 +102,7 @@ environment.
 import think_reason_learn as trl
 
 trl.set_limits("openai:gpt-5-mini", max_concurrency=64, rpm=5_000, tpm=4_000_000)
+model.estimate_cost(X, y).cost_usd  # what fit(X, y) would spend; nothing is sent
 with trl.config_context(max_cost_usd=5):
     model.fit(X, y)
 
@@ -112,6 +113,8 @@ model.usage_.by("role", "model")   # calls, tokens and dollars
   flight, halve on a rate limit and recover; `Retry-After` is honoured.
 - Every answer is cached on disk, so nothing is paid for twice: reruns after a crash or a budget stop resume, and
   refitting with other settings reuses questions and answers.
+- `estimate_cost(X, y)` counts the calls, tokens and dollars of `fit(X, y)` (or of `predict(X)` without `y`)
+  before anything is sent.
 - `max_cost_usd` refuses work estimated over the cap and stops when spending passes it.
 
 ## scikit-learn

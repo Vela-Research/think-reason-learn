@@ -52,13 +52,16 @@ class OpenAICompatAdapter(ReasoningAdapter):
             raise classify(exc.status_code, exc.message, exc.response.headers) from exc
         except openai.APIConnectionError as exc:
             raise classify(None, str(exc), {}) from exc
-        completion = await read_reply(raw.parse, ChatCompletion)
-        return Reply(
-            _output(completion, request.schema),
-            _tokens(completion.usage),
-            completion.model,
-            _provider_cost(completion.usage),
-            dict(raw.headers),
+        return await read_reply(
+            raw.parse,
+            ChatCompletion,
+            lambda completion: Reply(
+                _output(completion, request.schema),
+                _tokens(completion.usage),
+                completion.model,
+                _provider_cost(completion.usage),
+                dict(raw.headers),
+            ),
         )
 
 

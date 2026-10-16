@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import dataclasses
-import fnmatch
 import json
 import logging
 import math
@@ -47,6 +46,12 @@ class Price:
     output: float = 0.0
     cached_input: float | None = None
     cache_write: float | None = None
+
+    def __post_init__(self) -> None:
+        """Check that every price is an amount: finite, and 0 or more."""
+        prices = (self.input, self.output, self.cached_input, self.cache_write)
+        if not all(0 <= price < math.inf for price in prices if price is not None):
+            raise ValueError(f"Prices must be finite and 0 or more, got {self}.")
 
     def cost(self, tokens: TokenCounts) -> float:
         """The cost in US dollars of ``tokens``."""
@@ -137,9 +142,13 @@ class Usage:
         )
 
     def by(self, *keys: str) -> pd.DataFrame:
-        """Calls, tokens and cost summed by ``keys``, e.g. ``by("role", "model")``."""
+        """Calls, answers from the cache, tokens and cost summed by ``keys``.
+
+        E.g. ``by("role", "model")``.
+        """
         summed = [
             "calls",
+            "from_cache",
             "input_tokens",
             "cache_read_tokens",
             "output_tokens",
@@ -147,6 +156,9 @@ class Usage:
             "cost_usd",
         ]
         frame = self.to_frame()
+        cached = frame["cached"].astype(bool)
+        frame["from_cache"] = frame["calls"].where(cached, 0)
+        frame["calls"] = frame["calls"].where(~cached, 0)
         return (
             frame.groupby(list(keys or ("model",)), dropna=False)[summed]
             .sum()
@@ -175,10 +187,14 @@ class Usage:
 def call_cost(
     endpoint: Endpoint, tokens: TokenCounts, provider_cost: float | None
 ) -> tuple[float | None, CostSource]:
-    """A call's cost: the provider's, else the model's price, else a price table."""
-    if provider_cost is not None:
+    """A call's cost: the provider's, else the model's price, else a price table.
+
+    A provider's cost that is not an amount (negative, NaN) is ignored.
+    """
+    if provider_cost is not None and 0 <= provider_cost < math.inf:
         return provider_cost, "provider"
-    if (price := endpoint.settings.price or _built_in_price(endpoint.name)) is not None:
+    typesafe = _TYPESAFE_PRICE if endpoint.provider == "typesafe" else None
+    if (price := endpoint.settings.price or typesafe) is not None:
         return price.cost(tokens), "price"
     if (cost := _price_table_cost(endpoint, tokens)) is not None:
         return cost, "price_table"
@@ -252,19 +268,8 @@ def format_usd(usd: float) -> str:
     return f"${usd:.{1 - math.floor(math.log10(usd))}f}"
 
 
-_BUILT_IN_PRICES: Final[dict[str, Price]] = {"typesafe:*": Price(input=0.042)}
-"""Prices of decision models the price table may lack (Typesafe list price)."""
-
-
-def _built_in_price(name: str) -> Price | None:
-    return next(
-        (
-            p
-            for pattern, p in _BUILT_IN_PRICES.items()
-            if fnmatch.fnmatchcase(name, pattern)
-        ),
-        None,
-    )
+_TYPESAFE_PRICE: Final = Price(input=0.042)
+"""Typesafe's list price, which the price table lacks."""
 
 
 def _price_table_cost(endpoint: Endpoint, tokens: TokenCounts) -> float | None:
@@ -276,9 +281,13 @@ def _price_table_cost(endpoint: Endpoint, tokens: TokenCounts) -> float | None:
         cache_read_tokens=tokens.cache_read,
         cache_write_tokens=tokens.cache_write,
     )
+    # The table lists OpenAI's Decisions API apart from its chat models.
+    decisions = endpoint.protocol == "openai-decisions"
     try:
         price = genai_prices.calc_price(
-            usage, endpoint.model_id, provider_id=endpoint.provider
+            usage,
+            endpoint.model_id,
+            provider_id="openai-decisions" if decisions else endpoint.provider,
         )
     except LookupError:
         return None

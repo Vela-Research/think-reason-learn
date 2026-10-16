@@ -5,14 +5,14 @@ Example:
     >>> writer = FakeLLM(generate=lambda request: "Is the founder technical?")
     >>> judge = FakeLLM(answer=lambda sample, question: 0.9, kind="decision")
     >>> with fake_llms(writer=writer, judge=judge):
-    ...     ...  # models now accept "fake:writer" and "fake:judge"
+    ...     pass  # models now accept "fake:writer" and "fake:judge"
 """
 
 from __future__ import annotations
 
 import pickle
 import uuid
-from collections.abc import Callable, Iterable, Iterator, Mapping
+from collections.abc import Callable, Generator, Iterable, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -26,24 +26,37 @@ from sklearn.exceptions import NotFittedError
 from think_reason_learn.core._classifier import TRLClassifier
 from think_reason_learn.core._data import LabelInput, TextInput
 from think_reason_learn.core._sklearn import check_constructor, clone_estimator
+from think_reason_learn.llm import (
+    NO,
+    YES,
+    YES_AT,
+    Answer,
+    Answers,
+    Endpoint,
+    ModelKind,
+    Price,
+    Question,
+    YesNoQuestion,
+)
 from think_reason_learn.llm._adapters import (
     ADAPTERS,
-    Answers,
     GenerateRequest,
     ProviderError,
     Reply,
 )
 from think_reason_learn.llm._adapters._base import DecisionAdapter, Failure
-from think_reason_learn.llm._questions import (
-    NO,
-    YES,
-    YES_AT,
-    Answer,
-    Question,
-    YesNoQuestion,
-)
-from think_reason_learn.llm._spec import Endpoint, ModelKind, extra_provider
-from think_reason_learn.llm._usage import Price, TokenCounts
+from think_reason_learn.llm._spec import extra_provider
+from think_reason_learn.llm._usage import TokenCounts
+
+__all__ = [
+    "FakeCall",
+    "FakeLLM",
+    "FakeFailure",
+    "GenerateRequest",
+    "check_classifier",
+    "fake_llms",
+    "scripted",
+]
 
 type FakeFailure = Literal[
     "rate_limit",
@@ -59,6 +72,19 @@ type FakeFailure = Literal[
 
 type GenerateReply = str | BaseModel | dict[str, object] | None
 type AnswerReply = str | float | None
+
+
+_registry: Final[dict[str, FakeLLM]] = {}
+
+_ERRORS: Final[dict[FakeFailure, tuple[Failure, str]]] = {
+    "rate_limit": ("rate_limit", "fake rate limit"),
+    "server_error": ("transient", "fake server error"),
+    "timeout": ("transient", "fake timeout"),
+    "auth": ("auth", "fake key rejected"),
+    "quota": ("quota", "fake insufficient_quota"),
+    "unavailable": ("unavailable", "fake model not found"),
+    "bad_request": ("bad_request", "fake bad request"),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,7 +128,7 @@ class FakeLLM:
 
 
 @contextmanager
-def fake_llms(**models: FakeLLM) -> Iterator[None]:
+def fake_llms(**models: FakeLLM) -> Generator[None]:
     """Make each fake callable as ``"fake:<name>"`` inside the block."""
     ADAPTERS["fake"] = _ADAPTER
     _registry.update(models)
@@ -114,19 +140,6 @@ def fake_llms(**models: FakeLLM) -> Iterator[None]:
     finally:
         for name in models:
             _registry.pop(name, None)
-
-
-_registry: Final[dict[str, FakeLLM]] = {}
-
-_ERRORS: Final[dict[FakeFailure, tuple[Failure, str]]] = {
-    "rate_limit": ("rate_limit", "fake rate limit"),
-    "server_error": ("transient", "fake server error"),
-    "timeout": ("transient", "fake timeout"),
-    "auth": ("auth", "fake key rejected"),
-    "quota": ("quota", "fake insufficient_quota"),
-    "unavailable": ("unavailable", "fake model not found"),
-    "bad_request": ("bad_request", "fake bad request"),
-}
 
 
 def scripted(
@@ -276,14 +289,3 @@ def _answer(reply: AnswerReply, question: Question, *, decision: bool) -> Answer
     if isinstance(reply, str) and reply in question.labels:
         return Answer.certain(reply, question.labels)
     return None
-
-
-__all__ = [
-    "FakeCall",
-    "FakeLLM",
-    "FakeFailure",
-    "GenerateRequest",
-    "check_classifier",
-    "fake_llms",
-    "scripted",
-]

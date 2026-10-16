@@ -260,7 +260,7 @@ def test_a_switched_served_model_is_reported(caplog: pytest.LogCaptureFixture) -
     with fake_llms(judge=FakeLLM(answer=_answer)):
         endpoint = _resolved("judge")[0]
     for served in ("m-2025", "m-2025", "m-2026"):
-        session._engine.check_served(endpoint, served)
+        session._engine._check_served(endpoint, served)
     assert "m-2026" in caplog.text
 
 
@@ -385,6 +385,51 @@ def test_a_dead_model_is_skipped_after_a_few_failures() -> None:
         )
     assert all(r["tech"] is not None for r in results)
     assert dead.n_calls < 3 * 40  # retries stop once the model looks dead
+
+
+def test_the_last_model_keeps_trying_after_failures() -> None:
+    flaky = FakeLLM(answer=_answer, failures=["unavailable"])
+    samples = [f"engineer {i}" for i in range(20)]
+    with fake_llms(flaky=flaky):
+        results = run_sync(
+            LLMSession().answer(
+                _resolved("flaky"), samples, {"tech": QUESTIONS["tech"]}, role="a"
+            )
+        )
+    assert sum(r["tech"] is not None for r in results) == 19
+
+
+def test_bad_requests_do_not_hand_over_to_the_next_model() -> None:
+    picky = FakeLLM(answer=_answer, failures=["bad_request"] * 5)
+    good = FakeLLM(answer=_answer)
+    samples = [f"engineer {i}" for i in range(20)]
+    with fake_llms(picky=picky, good=good):
+        results = run_sync(
+            LLMSession().answer(
+                _resolved("picky", "good"),
+                samples,
+                {"tech": QUESTIONS["tech"]},
+                role="a",
+            )
+        )
+    assert all(r["tech"] is not None for r in results)
+    assert (picky.n_calls, good.n_calls) == (20, 5)
+
+
+def test_probabilities_outside_0_to_1_are_not_answers() -> None:
+    broken = FakeLLM(kind="decision", answer=lambda sample, question: 7.5)
+    good = FakeLLM(answer=_answer)
+    with fake_llms(broken=broken, good=good):
+        [result] = run_sync(
+            LLMSession().answer(
+                _resolved("broken", "good"),
+                ["engineer"],
+                {"tech": QUESTIONS["tech"]},
+                role="a",
+            )
+        )
+    answer = result["tech"]
+    assert answer is not None and answer.probability() == 1.0 and good.n_calls == 1
 
 
 def test_fakes_never_answer_from_an_earlier_block() -> None:

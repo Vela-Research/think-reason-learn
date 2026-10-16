@@ -79,7 +79,9 @@ _MODELS: dict[str, Make] = {
         cv=2,
         pos_label="good",
     ),
-    "gptree": lambda: GPTree(task="t", generator=_WRITER, answerer=_JUDGE, critic=True),
+    "gptree": lambda: GPTree(
+        task="t", generator=_WRITER, answerer=_JUDGE, use_critic=True
+    ),
 }
 
 OPENROUTER_DECISIONS = {
@@ -145,6 +147,14 @@ def any_model(request: pytest.FixtureRequest) -> tuple[str, Make]:
 def generic_fakes() -> Iterator[tuple[FakeLLM, FakeLLM]]:
     """A writer that fills every model's schemas, and a decision judge."""
     writer, judge = _writer(), FakeLLM(answer=_judge, kind="decision")
+    with fake_llms(writer=writer, judge=judge):
+        yield writer, judge
+
+
+@pytest.fixture
+def fakes(scripted: tuple[FakeLLM, FakeLLM]) -> Iterator[tuple[FakeLLM, FakeLLM]]:
+    """The test module's ``scripted`` writer and judge, callable as ``fake:...``."""
+    writer, judge = scripted
     with fake_llms(writer=writer, judge=judge):
         yield writer, judge
 

@@ -10,8 +10,6 @@ from ._generator import FeatureGenerator
 from ._types import (
     CognitiveMode,
     DataSchema,
-    GeneratedRule,
-    GeneratedRules,
     HelperFunction,
     Rule,
 )
@@ -21,8 +19,6 @@ __all__ = [
     "DataSchema",
     "FeatureEvaluator",
     "FeatureGenerator",
-    "GeneratedRule",
-    "GeneratedRules",
     "HelperFunction",
     "Rule",
 ]

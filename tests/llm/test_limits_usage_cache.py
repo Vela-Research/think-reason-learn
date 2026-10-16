@@ -14,16 +14,13 @@ import pytest
 from think_reason_learn.exceptions import BudgetExceededError
 from think_reason_learn.llm import (
     LLM,
-    Budget,
     LLMSession,
     Price,
-    TokenCounts,
     Usage,
+    UsageRecord,
     YesNoQuestion,
     config_context,
-    format_usd,
     get_config,
-    resolve,
     resolve_models,
     run_async,
     run_sync,
@@ -31,6 +28,7 @@ from think_reason_learn.llm import (
     set_limits,
 )
 from think_reason_learn.llm._cache import Cache, cache_key
+from think_reason_learn.llm._calls import _backoff
 from think_reason_learn.llm._config import Limits, limits_for
 from think_reason_learn.llm._limiter import (
     Limiter,
@@ -38,7 +36,8 @@ from think_reason_learn.llm._limiter import (
     _rate_headers,
     _reset_seconds,
 )
-from think_reason_learn.llm._usage import call_cost
+from think_reason_learn.llm._spec import resolve
+from think_reason_learn.llm._usage import Budget, TokenCounts, call_cost, format_usd
 from think_reason_learn.testing import FakeLLM, fake_llms
 
 
@@ -157,6 +156,34 @@ class TestLimiter:
         limiter.configure(Limits(rpm=60), local=False)  # a new run, same limits
         assert limiter._delay(1) > 0.5
 
+    def test_a_stopped_call_takes_nothing(self) -> None:
+        async def wait() -> tuple[bool, int]:
+            limiter = Limiter(Limits(max_concurrency=1, rpm=60), local=False)
+            await limiter.acquire(1)  # the only slot
+            stop: list[bool] = []
+            waiting = asyncio.create_task(limiter.acquire(1, lambda: bool(stop)))
+            await asyncio.sleep(0)
+            stop.append(True)
+            await limiter.release(estimated=1, used=None, headers={}, outcome="failed")
+            return await waiting, limiter._in_flight
+
+        assert run_sync(wait()) == (False, 0)
+
+    def test_a_lifted_limit_is_gone(self) -> None:
+        limiter = Limiter(Limits(rpm=10), local=False)
+        limiter.configure(Limits(), local=False)
+        assert limiter._requests is None
+
+    def test_a_limit_below_one_a_minute_is_not_learned(self) -> None:
+        limiter = Limiter(Limits(), local=False)
+        limiter._observe(
+            {"x-ratelimit-limit-tokens": "0.001", "x-ratelimit-remaining-tokens": "5"}
+        )
+        assert limiter._tokens is None
+
+    def test_a_retry_always_waits(self) -> None:
+        assert _backoff(1, 0.0) > 0 and _backoff(1, 5.0) >= 5.0
+
     def test_limits_must_be_positive(self) -> None:
         with pytest.raises(ValueError, match="above 0"):
             set_limits("openai", rpm=0)
@@ -171,6 +198,8 @@ class TestLimiter:
         assert (
             limits_for(resolve(LLM("openai:gpt-4.1", api_key="k"))).max_concurrency == 3
         )
+        set_limits("jev", rpm=10)
+        assert limits_for(resolve(LLM("jev", api_key="k"))) == Limits(rpm=10)
 
 
 class TestUsageAndPrices:
@@ -190,6 +219,20 @@ class TestUsageAndPrices:
         assert listed[1] == "price_table" and (listed[0] or 0) > 0
         unknown = resolve(LLM("ollama:my-own-model"))
         assert call_cost(unknown, tokens, None) == (None, "unknown")
+        decisions = resolve(LLM("openai:gpt-6-luna", api_key="k", kind="decision"))
+        chat = resolve(LLM("openai:gpt-6-luna", api_key="k"))
+        assert (call_cost(decisions, tokens, None)[0] or 0) < (
+            call_cost(chat, tokens, None)[0] or 0
+        )
+
+    def test_a_cost_that_is_not_an_amount_is_never_counted(self) -> None:
+        tokens = TokenCounts(input=1_000_000, output=1_000_000)
+        priced = resolve(LLM("openai:gpt-5-mini", api_key="k", price=Price(1.0, 1.0)))
+        for reported in (-1000.0, math.nan, math.inf):
+            assert call_cost(priced, tokens, reported) == (2.0, "price")
+        for price in (-1.0, math.nan, math.inf):
+            with pytest.raises(ValueError, match="finite and 0 or more"):
+                Price(price)
 
     def test_budget(self) -> None:
         budget = Budget(1.0)
@@ -221,6 +264,16 @@ class TestUsageAndPrices:
         assert len(json.loads((tmp_path / "run.json").read_text())) == 2
         assert Usage().by("model").empty
 
+    def test_answers_from_the_cache_are_not_calls(self) -> None:
+        usage = Usage(
+            [
+                UsageRecord(0, "a", "m", 0.0, "cache", calls=5, cached=True),
+                UsageRecord(0, "a", "m", 0.1, "price"),
+            ]
+        )
+        [row] = usage.by("model").to_dict("records")
+        assert (row["calls"], row["from_cache"]) == (usage.calls, 5) == (1, 5)
+
     def test_format_usd(self) -> None:
         assert (format_usd(0), format_usd(1.234), format_usd(0.000123)) == (
             "$0.00",
@@ -236,6 +289,11 @@ class TestCache:
         Cache(path).put_many({key: {"i": i} for i, key in enumerate(keys)})
         found = Cache(path).get_many(keys + ["missing"])
         assert len(found) == 1200 and found[keys[7]] == {"i": 7}
+
+    def test_only_its_owner_can_read_it(self, tmp_path: Path) -> None:
+        Cache(tmp_path / "replies" / "c.sqlite")
+        assert (tmp_path / "replies").stat().st_mode & 0o777 == 0o700
+        assert (tmp_path / "replies" / "c.sqlite").stat().st_mode & 0o777 == 0o600
 
     def test_keys_depend_on_every_part(self) -> None:
         assert cache_key(a=1, b=2) == cache_key(b=2, a=1)

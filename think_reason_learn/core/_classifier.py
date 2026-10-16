@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from collections.abc import Awaitable, Callable, Iterator
+from collections.abc import Awaitable, Callable, Generator
 from contextlib import contextmanager
 from typing import ClassVar, Self
 
@@ -31,6 +31,7 @@ from think_reason_learn.core._prompts import write_instructions
 from think_reason_learn.core._sklearn import require_fitted, text_tags
 from think_reason_learn.exceptions import DataError
 from think_reason_learn.llm import (
+    GENERATE_OUTPUT_TOKENS,
     Endpoint,
     LLMSession,
     Model,
@@ -41,9 +42,9 @@ from think_reason_learn.llm import (
     resolve_models,
     run_async,
     run_sync,
+    text_tokens,
 )
-from think_reason_learn.llm._estimate import text_tokens
-from think_reason_learn.llm._spec import Task
+from think_reason_learn.llm._spec import Task, keys_optional
 
 logger = logging.getLogger(__name__)
 
@@ -118,25 +119,28 @@ class TRLClassifier(Persistable, ClassifierMixin, BaseEstimator, ABC):
     def estimate_cost(self, X: TextInput, y: LabelInput | None = None) -> Usage:
         """What ``fit(X, y)`` would spend, or with no ``y`` ``predict(X)``.
 
-        Nothing is sent. Calls are counted from the settings (and, for
-        ``predict``, the fitted model) and tokens from the text lengths, then
-        priced like real calls. Steps that depend on the answers, such as how
-        deep a tree grows or how many refinements are judged, are counted in
-        full; replies already in the cache are not subtracted.
+        No model is called and no API key is needed. Calls are counted from
+        the settings (and, for ``predict``, the fitted model) and tokens from
+        the text lengths, then priced like real calls. Steps that depend on the
+        answers, such as how deep a tree grows or how many refinements are
+        judged, are counted at their most; a tree's nodes are counted as if
+        each split halved its node. Replies already in the cache are not
+        subtracted.
 
         Returns:
             The planned calls, as a ``Usage``; read ``cost_usd`` or
             ``by("role", "model")``.
         """
         texts, _ = to_texts(X)
-        if y is None:
-            require_fitted(self)
-            planned = self._predict_plan(texts)
-        else:
-            classes, codes = _encoded(texts, y)
-            self._task()
-            self._check_classes(classes)
-            planned = self._fit_plan(texts, codes, classes)
+        with keys_optional():
+            if y is None:
+                require_fitted(self)
+                planned = self._predict_plan(texts)
+            else:
+                classes, codes = _encoded(texts, y)
+                self._task()
+                self._check_classes(classes)
+                planned = self._fit_plan(texts, codes, classes)
         return Usage(r for r in planned if r.calls)
 
     def write_instructions(self) -> str:
@@ -144,7 +148,8 @@ class TRLClassifier(Persistable, ClassifierMixin, BaseEstimator, ABC):
 
         One call to the generator, which turns ``task`` into instructions. The
         result is stored in ``instructions``, so ``fit`` uses it; set
-        ``instructions`` yourself to use your own.
+        ``instructions`` yourself to use your own. This call is not in
+        ``usage_``, which counts what ``fit`` spends.
         """
         writer = self._models("generator", "generate")
         self.instructions = run_sync(self._written_instructions(LLMSession(), writer))
@@ -156,7 +161,7 @@ class TRLClassifier(Persistable, ClassifierMixin, BaseEstimator, ABC):
 
     def __sklearn_tags__(self) -> Tags:
         """Text input, and answers that can vary between calls."""
-        base = super().__sklearn_tags__()  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]  # BaseEstimator types it loosely
+        base = super().__sklearn_tags__()  # pyright: ignore[reportUnknownVariableType]  # BaseEstimator types it loosely
         return text_tags(base)  # pyright: ignore[reportUnknownArgumentType]  # as above
 
     def _fit_plan(
@@ -171,10 +176,18 @@ class TRLClassifier(Persistable, ClassifierMixin, BaseEstimator, ABC):
 
     def _instructions_plan(self) -> list[UsageRecord]:
         """The call that writes the instructions, unless they are given."""
-        if self.instructions or self._instructions_purpose is None:
+        if self._instructions_purpose is None or self.instructions:
             return []
         writer = self._models("generator", "generate")
         return [estimate_generations(writer, text_tokens(self._task()))]
+
+    def _instructions_tokens(self) -> int:
+        """Tokens of the instructions later prompts carry: given, or as planned."""
+        if self._instructions_purpose is None:
+            return 0
+        if self.instructions:
+            return text_tokens(self.instructions)
+        return GENERATE_OUTPUT_TOKENS
 
     def _decide(self, proba: Proba) -> Labels:
         """Label codes from probabilities: the most likely class."""
@@ -215,7 +228,7 @@ class TRLClassifier(Persistable, ClassifierMixin, BaseEstimator, ABC):
         return resolve_models(models, param=param, task=task)
 
     @contextmanager
-    def _session(self, doing: str, usage: Usage | None = None) -> Iterator[LLMSession]:
+    def _session(self, doing: str, usage: Usage | None = None) -> Generator[LLMSession]:
         """A session for one run, counting answers on a progress bar if ``verbose``."""
         if not self.verbose:
             yield LLMSession(usage=usage)

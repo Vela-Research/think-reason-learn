@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from typing import Any
+from typing import Final
 
 import pandas as pd
 import pytest
@@ -14,8 +14,6 @@ from think_reason_learn.features import (
     DataSchema,
     FeatureEvaluator,
     FeatureGenerator,
-    GeneratedRule,
-    GeneratedRules,
     HelperFunction,
     Rule,
 )
@@ -25,6 +23,7 @@ from think_reason_learn.features._prompts import (
     build_user_prompt,
     format_samples,
 )
+from think_reason_learn.features._types import GeneratedRule, GeneratedRules, Record
 from think_reason_learn.testing import FakeLLM, fake_llms
 
 # ---------------------------------------------------------------------------
@@ -52,86 +51,85 @@ HELPER_PARSE_QS = HelperFunction(
 )
 
 
-def _sample_founders() -> list[dict[str, Any]]:
-    return [
-        {
-            "industry": "Software Development",
-            "educations": [
-                {"degree": "PhD", "field": "Computer Science", "qs_ranking": "5"},
-            ],
-            "jobs": [
-                {
-                    "role": "CTO",
-                    "company_size": "51-200",
-                    "industry": "Software",
-                    "duration": "4-5",
-                },
-            ],
-            "ipos": [],
-            "acquisitions": [{"company": "Acme"}],
-        },
-        {
-            "industry": "Healthcare",
-            "educations": [
-                {"degree": "MBA", "field": "Business", "qs_ranking": "50"},
-            ],
-            "jobs": [
-                {
-                    "role": "Manager",
-                    "company_size": "2-10",
-                    "industry": "Healthcare",
-                    "duration": "2-3",
-                },
-            ],
-            "ipos": [],
-            "acquisitions": [],
-        },
-        {
-            "industry": "FinTech",
-            "educations": [],
-            "jobs": [],
-            "ipos": [{"company": "BigCo"}],
-            "acquisitions": [],
-        },
-        {
-            "industry": "Software Development",
-            "educations": [
-                {"degree": "BS", "field": "Marketing", "qs_ranking": "200+"},
-            ],
-            "jobs": [
-                {
-                    "role": "Sales Rep",
-                    "company_size": "10001+",
-                    "industry": "Retail",
-                    "duration": ">9",
-                },
-            ],
-            "ipos": [],
-            "acquisitions": [],
-        },
-        {
-            "industry": "AI",
-            "educations": [
-                {"degree": "MS", "field": "Physics", "qs_ranking": "1"},
-            ],
-            "jobs": [
-                {
-                    "role": "Founder",
-                    "company_size": "2-10",
-                    "industry": "AI",
-                    "duration": "<2",
-                },
-                {
-                    "role": "CEO",
-                    "company_size": "11-50",
-                    "industry": "AI",
-                    "duration": "2-3",
-                },
-            ],
-            "ipos": [],
-            "acquisitions": [],
-        },
-    ]
+SAMPLE_FOUNDERS: Final[tuple[Record, ...]] = (
+    {
+        "industry": "Software Development",
+        "educations": [
+            {"degree": "PhD", "field": "Computer Science", "qs_ranking": "5"},
+        ],
+        "jobs": [
+            {
+                "role": "CTO",
+                "company_size": "51-200",
+                "industry": "Software",
+                "duration": "4-5",
+            },
+        ],
+        "ipos": [],
+        "acquisitions": [{"company": "Acme"}],
+    },
+    {
+        "industry": "Healthcare",
+        "educations": [
+            {"degree": "MBA", "field": "Business", "qs_ranking": "50"},
+        ],
+        "jobs": [
+            {
+                "role": "Manager",
+                "company_size": "2-10",
+                "industry": "Healthcare",
+                "duration": "2-3",
+            },
+        ],
+        "ipos": [],
+        "acquisitions": [],
+    },
+    {
+        "industry": "FinTech",
+        "educations": [],
+        "jobs": [],
+        "ipos": [{"company": "BigCo"}],
+        "acquisitions": [],
+    },
+    {
+        "industry": "Software Development",
+        "educations": [
+            {"degree": "BS", "field": "Marketing", "qs_ranking": "200+"},
+        ],
+        "jobs": [
+            {
+                "role": "Sales Rep",
+                "company_size": "10001+",
+                "industry": "Retail",
+                "duration": ">9",
+            },
+        ],
+        "ipos": [],
+        "acquisitions": [],
+    },
+    {
+        "industry": "AI",
+        "educations": [
+            {"degree": "MS", "field": "Physics", "qs_ranking": "1"},
+        ],
+        "jobs": [
+            {
+                "role": "Founder",
+                "company_size": "2-10",
+                "industry": "AI",
+                "duration": "<2",
+            },
+            {
+                "role": "CEO",
+                "company_size": "11-50",
+                "industry": "AI",
+                "duration": "2-3",
+            },
+        ],
+        "ipos": [],
+        "acquisitions": [],
+    },
+)
 
 
 SAMPLE_LABELS = [1, 0, 1, 0, 1]
@@ -217,7 +215,7 @@ class TestFeatureEvaluator:
             rules=HAND_WRITTEN_RULES,
             helpers=[HELPER_PARSE_QS],
         )
-        founders = _sample_founders()
+        founders = SAMPLE_FOUNDERS
 
         result = evaluator.evaluate(founders[0])
         # Founder 0: PhD=yes, exit=yes (has acquisition), QS=5 (elite)
@@ -230,7 +228,7 @@ class TestFeatureEvaluator:
             rules=HAND_WRITTEN_RULES,
             helpers=[HELPER_PARSE_QS],
         )
-        founders = _sample_founders()
+        founders = SAMPLE_FOUNDERS
 
         result = evaluator.evaluate(founders[1])
         # Founder 1: MBA (not PhD), no exits, QS=50 (not elite)
@@ -243,7 +241,7 @@ class TestFeatureEvaluator:
             rules=HAND_WRITTEN_RULES,
             helpers=[HELPER_PARSE_QS],
         )
-        founders = _sample_founders()
+        founders = SAMPLE_FOUNDERS
 
         result = evaluator.evaluate(founders[2])
         # Founder 2: no educations, has IPO
@@ -256,7 +254,7 @@ class TestFeatureEvaluator:
             rules=HAND_WRITTEN_RULES,
             helpers=[HELPER_PARSE_QS],
         )
-        founders = _sample_founders()
+        founders = SAMPLE_FOUNDERS
 
         df = evaluator.evaluate_df(founders)
         assert isinstance(df, pd.DataFrame)
@@ -441,19 +439,19 @@ class TestPromptBuilder:
         assert "old_rule" in prompt
 
     def test_format_samples_reproducible(self) -> None:
-        founders = _sample_founders()
+        founders = SAMPLE_FOUNDERS
         text1 = format_samples(founders, SAMPLE_LABELS, n_samples=4, random_state=42)
         text2 = format_samples(founders, SAMPLE_LABELS, n_samples=4, random_state=42)
         assert text1 == text2
 
     def test_format_samples_contains_tags(self) -> None:
-        founders = _sample_founders()
+        founders = SAMPLE_FOUNDERS
         text = format_samples(founders, SAMPLE_LABELS, n_samples=4, random_state=42)
         assert "[SUCCESS]" in text
         assert "[FAIL]" in text
 
     def test_format_samples_different_seeds(self) -> None:
-        founders = _sample_founders()
+        founders = SAMPLE_FOUNDERS
         text1 = format_samples(founders, SAMPLE_LABELS, n_samples=4, random_state=1)
         text2 = format_samples(founders, SAMPLE_LABELS, n_samples=4, random_state=2)
         # Different seeds should produce different orderings
@@ -472,7 +470,7 @@ class TestFeatureGenerator:
 
     def test_generate_returns_rules_in_one_call(self, writer: FakeLLM) -> None:
         rules = _generator().generate(
-            samples=_sample_founders(), labels=SAMPLE_LABELS, n_rules=10
+            samples=SAMPLE_FOUNDERS, labels=SAMPLE_LABELS, n_rules=10
         )
         assert [r.name for r in rules] == ["has_phd", "prior_exit"]
         assert rules[0].expression.startswith("lambda founder:")
@@ -481,7 +479,7 @@ class TestFeatureGenerator:
     @pytest.mark.asyncio
     async def test_async_generate(self, writer: FakeLLM) -> None:
         rules = await _generator().agenerate(
-            samples=_sample_founders(), labels=SAMPLE_LABELS
+            samples=SAMPLE_FOUNDERS, labels=SAMPLE_LABELS
         )
         assert len(rules) == 2
 
@@ -496,9 +494,9 @@ class TestEndToEnd:
 
     def test_generate_then_evaluate(self, writer: FakeLLM) -> None:
         rules = _generator().generate(
-            samples=_sample_founders(), labels=SAMPLE_LABELS, n_rules=10
+            samples=SAMPLE_FOUNDERS, labels=SAMPLE_LABELS, n_rules=10
         )
-        df = FeatureEvaluator(rules=rules).evaluate_df(_sample_founders())
+        df = FeatureEvaluator(rules=rules).evaluate_df(SAMPLE_FOUNDERS)
         assert df.shape == (5, 2)
         assert list(df.columns) == ["has_phd", "prior_exit"]
         assert df.iloc[0]["has_phd"] == 1 and df.iloc[0]["prior_exit"] == 1
@@ -613,7 +611,7 @@ class TestCognitiveMode:
             cognitive_modes={CognitiveMode.BACKWARD_CHAINING},
         )
         rules = generator.generate(
-            samples=_sample_founders(), labels=SAMPLE_LABELS, n_rules=10
+            samples=SAMPLE_FOUNDERS, labels=SAMPLE_LABELS, n_rules=10
         )
         assert len(rules) == 2
         assert "BACKWARD" in (writer.calls[0].instructions or "")
@@ -628,6 +626,7 @@ class TestReviewedSandbox:
             "lambda r: [c for c in ().__class__.__base__.__subclasses__()][0]",
             "lambda r: r.get.__self__",
             "lambda r: '{0.__class__}'.format(r)",
+            "lambda r: [g := (g.gi_frame.f_back for _ in [1]), list(g)]",
             "lambda r: __builtins__",
             "lambda a, b: a",
             "(lambda r: r)(1)",
@@ -638,6 +637,10 @@ class TestReviewedSandbox:
         assert "bad" in evaluator.compilation_errors
         assert evaluator.evaluate({}) == {"bad": 0}
 
+    def test_endless_recursion_gives_zero(self) -> None:
+        rule = Rule("deep", "", "lambda r: (f := lambda x: f(x)) and f(1)")
+        assert FeatureEvaluator(rules=[rule]).evaluate({}) == {"deep": 0}
+
     def test_rule_names_must_differ(self) -> None:
         with pytest.raises(ValueError, match="distinct names"):
             FeatureEvaluator(
@@ -647,14 +650,22 @@ class TestReviewedSandbox:
 
 def test_the_positive_label_is_chosen(writer: FakeLLM) -> None:
     labels = ["YES" if label else "NO" for label in SAMPLE_LABELS]
-    _generator().generate(samples=_sample_founders(), labels=labels, positive="YES")
+    _generator().generate(samples=SAMPLE_FOUNDERS, labels=labels, pos_label="YES")
     assert "[SUCCESS]" in (writer.calls[0].prompt or "")
-    with pytest.raises(DataError, match="positive="):
-        _generator().generate(samples=_sample_founders(), labels=labels)
+    with pytest.raises(DataError, match="pos_label="):
+        _generator().generate(samples=SAMPLE_FOUNDERS, labels=labels)
+
+
+def test_repeated_rule_names_are_made_distinct() -> None:
+    twice = GeneratedRules(rules=[*CANNED_RULES.rules, CANNED_RULES.rules[0]])
+    with fake_llms(writer=FakeLLM(generate=lambda request: twice)):
+        rules = _generator().generate(samples=SAMPLE_FOUNDERS, labels=SAMPLE_LABELS)
+    assert [r.name for r in rules] == ["has_phd", "prior_exit", "has_phd_2"]
+    FeatureEvaluator(rules=rules)  # accepts them
 
 
 def test_each_call_draws_afresh(writer: FakeLLM) -> None:
     generator = _generator()
     for _ in range(2):
-        generator.generate(samples=_sample_founders(), labels=SAMPLE_LABELS)
+        generator.generate(samples=SAMPLE_FOUNDERS, labels=SAMPLE_LABELS)
     assert writer.n_calls == 2  # the second call is not the first's cached reply

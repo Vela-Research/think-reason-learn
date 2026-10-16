@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import functools
 from abc import ABC, abstractmethod
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from typing import Final
 
 from pydantic import BaseModel, Field, create_model
@@ -22,11 +22,6 @@ ANSWER_INSTRUCTIONS: Final = (
     "You answer questions about one sample. Base every answer only on the "
     "sample, and reply in the requested format."
 )
-
-type Generate = Callable[
-    [Endpoint, GenerateRequest, frozenset[str]],
-    Awaitable[Reply[str | BaseModel | None]],
-]
 
 
 class ReasoningAdapter(ABC):
@@ -53,37 +48,28 @@ class ReasoningAdapter(ABC):
         questions: Mapping[str, Question],
         dropped: frozenset[str],
     ) -> Reply[Answers]:
-        """Answers by prompting for a label."""
-        return await prompted_answer(
-            self.generate, endpoint, sample, questions, dropped
+        """Answers to ``questions`` about ``sample``, by prompting for labels."""
+        ids = list(questions)
+        asked = [questions[qid] for qid in ids]
+        request = GenerateRequest(
+            prompt=_prompt(asked),
+            instructions=ANSWER_INSTRUCTIONS,
+            schema=_schema(tuple(q.labels for q in asked)),
+            prefix=f"Sample:\n{sample}",
         )
-
-
-async def prompted_answer(
-    generate: Generate,
-    endpoint: Endpoint,
-    sample: str,
-    questions: Mapping[str, Question],
-    dropped: frozenset[str],
-) -> Reply[Answers]:
-    """Ask a reasoning model ``questions`` about ``sample`` in one call."""
-    ids = list(questions)
-    asked = [questions[qid] for qid in ids]
-    request = GenerateRequest(
-        prompt=_prompt(asked),
-        instructions=ANSWER_INSTRUCTIONS,
-        schema=_schema(tuple(q.labels for q in asked)),
-        prefix=f"Sample:\n{sample}",
-    )
-    reply = await generate(endpoint, request, dropped)
-    picked = _picked(reply.output, len(ids))
-    answers: Answers = {
-        qid: Answer.certain(label, q.labels) if label in q.labels else None
-        for qid, q, label in zip(ids, asked, picked, strict=True)
-    }
-    return Reply(
-        answers, reply.tokens, reply.served_model, reply.provider_cost, reply.headers
-    )
+        reply = await self.generate(endpoint, request, dropped)
+        picked = _picked(reply.output, len(ids))
+        answers: Answers = {
+            qid: Answer.certain(label, q.labels) if label in q.labels else None
+            for qid, q, label in zip(ids, asked, picked, strict=True)
+        }
+        return Reply(
+            answers,
+            reply.tokens,
+            reply.served_model,
+            reply.provider_cost,
+            reply.headers,
+        )
 
 
 def _prompt(questions: Sequence[Question]) -> str:
@@ -107,10 +93,7 @@ def _schema(labels: tuple[tuple[str, ...], ...]) -> type[BaseModel]:
         for i, options in enumerate(labels, 1)
     }
     # pydantic types **field_definitions loosely; the fields are (type, Field).
-    model: object = create_model("Answers", **fields)  # pyright: ignore[reportCallIssue, reportArgumentType, reportUnknownVariableType]
-    if not (isinstance(model, type) and issubclass(model, BaseModel)):
-        raise TypeError("create_model did not return a model.")
-    return model
+    return create_model("Answers", **fields)  # pyright: ignore[reportCallIssue, reportArgumentType, reportUnknownVariableType]
 
 
 def _picked(output: str | BaseModel | None, count: int) -> list[str]:

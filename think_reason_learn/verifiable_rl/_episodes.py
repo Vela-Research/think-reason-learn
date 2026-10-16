@@ -111,7 +111,7 @@ def rollouts(
     policy, classifier = networks
     masks = masks.copy()
     n = len(masks)
-    returns, penalties = np.zeros(n), np.zeros(n)
+    penalties, depths = np.zeros(n), np.zeros(n)
     finals = sample.features.new_zeros((n, len(sample.columns)))
     active = np.ones(n, dtype=bool)
     while active.any():
@@ -122,19 +122,12 @@ def rollouts(
             if depth < search.max_depth
             else np.ones(len(rows), dtype=bool)
         )
-        if done.any():
-            ended = rows[done]
-            ended_states = states[tensor(done, states.device)]
-            finals[ended] = ended_states
-            returns[ended] = (
-                rewards(classifier, ended_states, label, search)
-                + search.step_penalty * depth
-                + penalties[ended]
-                - masks[ended] @ sample.costs
-            )
-            active[ended] = False
+        ended = rows[done]
+        finals[ended] = states[tensor(done, states.device)]
+        depths[ended], active[ended] = depth, False
         depth += 1
-    return returns, finals
+    score = rewards(classifier, finals, label, search) - masks @ sample.costs
+    return score + search.step_penalty * depths + penalties, finals
 
 
 def targets(

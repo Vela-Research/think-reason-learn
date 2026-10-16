@@ -78,6 +78,11 @@ class Answer:
             {YES: probability, NO: 1 - probability},
         )
 
+    @property
+    def is_valid(self) -> bool:
+        """Whether every probability is from 0 to 1; a provider's may not be."""
+        return all(0 <= p <= 1 for p in self.probabilities.values())
+
     def probability(self, label: str = YES) -> float:
         """The probability of ``label`` (of yes, by default)."""
         return self.probabilities.get(label, 0.0)

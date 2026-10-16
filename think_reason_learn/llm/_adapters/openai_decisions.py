@@ -12,7 +12,7 @@ from .._config import get_config
 from .._questions import Answer, ChoiceQuestion, Question
 from .._spec import Endpoint
 from .._usage import TokenCounts
-from ._base import Answers, DecisionAdapter, Reply, classify
+from ._base import Answers, DecisionAdapter, Reply, classify, read_reply
 from .openai_compat import openai_client
 
 
@@ -39,13 +39,15 @@ class OpenAIDecisionsAdapter(DecisionAdapter):
             raise classify(exc.status_code, exc.message, exc.response.headers) from exc
         except openai.APIConnectionError as exc:
             raise classify(None, str(exc), {}) from exc
-        decision = raw.parse()
-        by_name = {a.name: a for a in decision.answers if a.name is not None}
-        return Reply(
-            {qid: _answer(q, by_name.get(qid)) for qid, q in questions.items()},
-            _tokens(decision),
-            decision.model,
-            headers=dict(raw.headers),
+        return await read_reply(
+            raw.parse,
+            Decision,
+            lambda decision: Reply(
+                _answers(decision, questions),
+                _tokens(decision),
+                decision.model,
+                headers=dict(raw.headers),
+            ),
         )
 
 
@@ -58,6 +60,11 @@ def _wire(qid: str, question: Question) -> decision_create_params.Question:
             "choices": [{"value": label} for label in question.labels],
         }
     return {"type": "predicate", "name": qid, "instructions": question.text}
+
+
+def _answers(decision: Decision, questions: Mapping[str, Question]) -> Answers:
+    by_name = {a.name: a for a in decision.answers if a.name is not None}
+    return {qid: _answer(q, by_name.get(qid)) for qid, q in questions.items()}
 
 
 def _answer(question: Question, answer: DecisionAnswer | None) -> Answer | None:

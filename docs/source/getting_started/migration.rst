@@ -37,8 +37,9 @@ labels ``"YES"`` / ``"NO"`` only                                any labels; ``po
 ``TRLModel``                                                    ``TRLClassifier``
 ==============================================================  =======================================================================
 
-VerifiableRL has ``fit``, ``predict`` and ``predict_proba`` but no async versions. Costs are counted for every model
-in the price table; set ``LLM(..., price=Price(...))`` for others.
+VerifiableRL has ``fit``, ``predict`` and ``predict_proba`` but no async versions, and no ``verbose``. Reasoned Rule
+Mining takes no ``instructions`` and no ``n_examples``. Costs are counted for every model in the price table; set
+``LLM(..., price=Price(...))`` for others.
 
 GPTree
 ~~~~~~
@@ -46,7 +47,7 @@ GPTree
 ========================================================  ==========================================================
 0.2                                                       0.3
 ========================================================  ==========================================================
-``critic_llmc`` and ``use_critic``                        ``critic=True`` (the generator) or a model
+``critic_llmc`` and ``use_critic``                        ``critic=`` (the generator by default) and ``use_critic``
 ``qgen_instr_llmc``                                       removed (never used)
 ``min_question_candidates``, ``max_question_candidates``  ``max_questions``
 ``max_node_width``                                        ``max_choices``
@@ -140,10 +141,11 @@ VerifiableRL
 Lambda features
 ~~~~~~~~~~~~~~~
 
-=================================  ==============================================
-0.2                                0.3
-=================================  ==============================================
-``llm_priority``                   ``generator=``
-``temperature``                    ``LLM(model, temperature=...)``
-``await generator.generate(...)``  ``generate(...)``, or ``await agenerate(...)``
-=================================  ==============================================
+=====================================  =================================================================
+0.2                                    0.3
+=====================================  =================================================================
+``llm_priority``                       ``generator=``
+``temperature``                        ``LLM(model, temperature=...)``
+``await generator.generate(...)``      ``generate(...)``, or ``await agenerate(...)``
+``GeneratedRule``, ``GeneratedRules``  not exported (the writer's reply format); rules are ``Rule``
+=====================================  =================================================================

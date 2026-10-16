@@ -30,6 +30,8 @@ if TYPE_CHECKING:
 
 _MAX_TOKENS: Final = 4096
 _EFFORTS: Final[dict[str, Literal["low", "medium", "high", "xhigh"]]] = {
+    "none": "low",  # Claude's lowest; sent so it does not default to high
+    "minimal": "low",
     "low": "low",
     "medium": "medium",
     "high": "high",
@@ -56,13 +58,16 @@ class AnthropicAdapter(ReasoningAdapter):
             raise classify(exc.status_code, exc.message, exc.response.headers) from exc
         except anthropic.APIConnectionError as exc:
             raise classify(None, str(exc), {}) from exc
-        message = await read_reply(raw.parse, anthropic.types.Message)
-        return Reply(
-            _output(message, request.schema),
-            _tokens(message.usage),
-            message.model,
-            None,
-            dict(raw.headers),
+        return await read_reply(
+            raw.parse,
+            anthropic.types.Message,
+            lambda message: Reply(
+                _output(message, request.schema),
+                _tokens(message.usage),
+                message.model,
+                None,
+                dict(raw.headers),
+            ),
         )
 
 

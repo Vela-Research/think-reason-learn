@@ -22,7 +22,7 @@ checked against its paper. See :doc:`getting_started/migration` for every rename
   (``config_context(max_cost_usd=...)``). Calls run on one event loop owned by the library, so sync code works in
   notebooks too.
 - ``estimate_cost(X, y)`` on every LLM model counts the calls, tokens and dollars of ``fit(X, y)``, or of
-  ``predict(X)`` without ``y``, before anything is sent, priced like real calls.
+  ``predict(X)`` without ``y``, without calling a model or needing its API key, priced like real calls.
 - ``think_reason_learn.testing``: ``FakeLLM`` and ``fake_llms`` fit and check models offline, with scripted
   replies and injected failures.
 - ``TRLClassifier`` (and ``BinaryTRLClassifier`` for two-class models): the scikit-learn base of every model; the
@@ -39,8 +39,8 @@ checked against its paper. See :doc:`getting_started/migration` for every rename
   vanishing, an empty branch no longer disqualifies a question, and a split must decrease impurity. Faster: the
   nodes of a level grow at once and answers are reused across nodes and between fit and predict. New
   ``min_samples_split``, ``min_impurity_decrease``, ``max_leaf_nodes`` and ``criterion="entropy"``; the critic is
-  ``critic=True`` or a model. For two classes, leaves are called positive above a share tuned for F-beta (``beta``,
-  F0.5 as in the paper; ``threshold_``), replacing ``decision_threshold``. Removed: ``qgen_instr_llmc`` (unused),
+  ``use_critic=True``, with ``critic=`` defaulting to the generator. For two classes, leaves are called positive
+  above a share tuned for F-beta (``beta``, F0.5 as in the paper; ``threshold_``), replacing ``decision_threshold``. Removed: ``qgen_instr_llmc`` (unused),
   ``fit_iter``, ``resume_fit``, ``stop`` and the code question type.
 - **RRF, rebuilt** on ``TRLClassifier``, following the paper by default: questions are written from a held-out,
   class-balanced generation set (``generation_size=500``; 25 prompts of 20 examples and 10 questions), so they are
@@ -91,7 +91,8 @@ checked against its paper. See :doc:`getting_started/migration` for every rename
   ``genai-prices`` table is included, so costs and ``max_cost_usd`` work for every listed model; a capped run warns
   about a model with no known price. pandas 3 is supported. License metadata uses an SPDX expression.
 - **Lambda features**: ``FeatureGenerator(schema, helpers, generator="openai:gpt-5-mini")`` with ``generate`` and
-  ``agenerate``, on the new layer.
+  ``agenerate``, on the new layer. ``GeneratedRule`` and ``GeneratedRules``, the writer's reply format, are no longer
+  exported; rules are ``Rule``.
 - Docs: new quick start, installation guide and a migration guide; the API reference covers the new modules and
   builds without warnings (enforced in CI). Examples: one notebook per model, run by the test suite with fake
   models so they keep working.

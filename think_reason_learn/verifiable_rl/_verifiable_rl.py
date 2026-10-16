@@ -13,6 +13,7 @@ by cost-aware, asymmetric rewards; an optional LLM supervisor breaks near-ties.
 from __future__ import annotations
 
 import copy
+import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, fields
 from typing import Self
@@ -46,7 +47,9 @@ from ._episodes import (
 )
 from ._networks import Classifier, PolicyNet
 from ._supervisor import Supervisor
-from ._torch import backward, private_cpu_rng, shuffled_batches, tensor
+from ._torch import private_cpu_rng, shuffled_batches, tensor
+
+logger = logging.getLogger(__name__)
 
 type SlotFeatures = npt.NDArray[np.floating] | Mapping[str, npt.NDArray[np.floating]]
 """A 2-D array with the slots' columns in order, or one array per slot."""
@@ -220,7 +223,7 @@ class VerifiableRL(Persistable, ClassifierMixin, BaseEstimator):
             self.classes_ = classes
             self._train(features, codes, slot_texts)
         except BaseException:
-            forget_fitted(self)  # a failed refit leaves no half-built model
+            forget_fitted(self, keep="usage_")  # what the failed fit spent
             raise
         return self
 
@@ -248,7 +251,7 @@ class VerifiableRL(Persistable, ClassifierMixin, BaseEstimator):
         self.threshold_ = (
             self.threshold
             if self.threshold is not None
-            else best_threshold(proba, positive == 1, self.beta)[0]
+            else best_threshold(proba, positive == 1, self.beta)
         )
 
     def predict_proba(
@@ -347,13 +350,19 @@ class VerifiableRL(Persistable, ClassifierMixin, BaseEstimator):
             self.costs_ = np.array([costs.get(s, 0.0) for s in names], dtype=float)
         return matrix.astype(np.float32)
 
+    # ponytail: repeats BinaryTRLClassifier's two-class methods through the shared
+    # functions, since VerifiableRL is not a TRLClassifier. Share a mixin if a
+    # second two-class model outside TRLClassifier appears.
     def _pos_index(self) -> int:
         return positive_index(self.classes_, self.pos_label)
 
     def _supervisor(
         self, session: LLMSession, slot_texts: SlotTexts | None
     ) -> Supervisor | None:
-        if self.supervisor is None or slot_texts is None:
+        if self.supervisor is None:
+            return None
+        if slot_texts is None:
+            logger.warning("supervisor= is not asked: pass slot_texts= to use it.")
             return None
         models = resolve_models(self.supervisor, param="supervisor", task="generate")
         return Supervisor(
@@ -554,7 +563,7 @@ def _step(
     grad_clip: float,
 ) -> None:
     optimiser.zero_grad(set_to_none=True)
-    backward(loss)
+    loss.backward()  # pyright: ignore[reportUnknownMemberType]  # partial annotation
     if grad_clip:
         nn.utils.clip_grad_norm_(network.parameters(), grad_clip)
     optimiser.step()

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from os import PathLike
 from pathlib import Path
 from typing import Self
@@ -22,6 +22,9 @@ class Persistable:
     saved: ``LLM`` pickles without its key.
     """
 
+    get_params: Callable[..., dict[str, object]]
+    """The settings, from scikit-learn's ``BaseEstimator``."""
+
     def save(self, path: str | PathLike[str]) -> Path:
         """Save the model to a folder: ``model.joblib`` and ``model.json``.
 
@@ -31,9 +34,10 @@ class Persistable:
         folder = Path(path)
         folder.mkdir(parents=True, exist_ok=True)
         dump(self, folder / "model.joblib")
-        summary: dict[str, object] = {"class": type(self).__name__}
-        if (get_params := getattr(self, "get_params", None)) is not None:
-            summary["params"] = get_params()
+        summary: dict[str, object] = {
+            "class": type(self).__name__,
+            "params": self.get_params(),
+        }
         if (classes := getattr(self, "classes_", None)) is not None:
             summary |= {"classes": classes, **self._summary()}
         (folder / "model.json").write_text(
@@ -43,7 +47,12 @@ class Persistable:
 
     @classmethod
     def load(cls, path: str | PathLike[str]) -> Self:
-        """Load a model saved with ``save``. Only load files you trust."""
+        """Load a model saved with ``save``.
+
+        .. warning::
+            Only load files you trust. ``model.joblib`` is a pickle: loading it
+            runs any code it holds.
+        """
         model = load(Path(path) / "model.joblib")
         if not isinstance(model, cls):
             raise TypeError(

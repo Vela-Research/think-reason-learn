@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from functools import partial
 
 import pytest
 
-from think_reason_learn.exceptions import DataError, LLMError
+from think_reason_learn.exceptions import LLMError
 from think_reason_learn.llm import Question
 from think_reason_learn.policy_induction import PolicyInduction
 from think_reason_learn.testing import (
@@ -56,13 +56,11 @@ policy_induction = partial(
 
 
 @pytest.fixture
-def fakes() -> Iterator[tuple[FakeLLM, FakeLLM]]:
-    write, judge = (
+def scripted() -> tuple[FakeLLM, FakeLLM]:
+    return (
         FakeLLM(generate=writer(GOOD)),
         FakeLLM(answer=judge_answer, kind="decision"),
     )
-    with fake_llms(writer=write, judge=judge):
-        yield write, judge
 
 
 def test_a_better_refinement_is_kept(fakes: tuple[FakeLLM, FakeLLM]) -> None:
@@ -109,9 +107,17 @@ def test_rules_predictor_weighs_each_rule(fakes: tuple[FakeLLM, FakeLLM]) -> Non
     assert list(model.predict(["an engineer", "a lawyer"])) == ["hit", "miss"]
 
 
-def test_two_classes_only(fakes: tuple[FakeLLM, FakeLLM]) -> None:
-    with pytest.raises(DataError, match="two classes"):
-        policy_induction().fit(FOUNDERS, [str(i % 3) for i in range(36)])
+def test_rules_predictor_warns_when_it_weighs_no_rule(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with fake_llms(
+        writer=FakeLLM(generate=writer(GOOD)),
+        judge=FakeLLM(answer=lambda sample, question: 0.5, kind="decision"),
+    ):
+        model = policy_induction(
+            initial_policy=GOOD, n_rounds=0, predictor="rules"
+        ).fit(FOUNDERS, LABELS)
+    assert model.weighted_rules_ == () and "Every weight is zero" in caplog.text
 
 
 def test_paper_defaults() -> None:
@@ -182,4 +188,16 @@ def test_a_failed_refinement_keeps_the_policy() -> None:
         judge=FakeLLM(answer=judge_answer, kind="decision"),
     ):
         model = policy_induction().fit(FOUNDERS, LABELS)
+    assert model.policy_ == BAD and not any(model.history_["kept"])
+
+
+def test_a_refinement_that_cannot_be_judged_keeps_the_policy() -> None:
+    def no_engineers(sample: str, question: Question) -> float | None:
+        return None if "engineers" in question.text else judge_answer(sample, question)
+
+    with fake_llms(
+        writer=FakeLLM(generate=writer(GOOD)),
+        judge=FakeLLM(answer=no_engineers, kind="decision"),
+    ):
+        model = policy_induction(initial_policy=BAD).fit(FOUNDERS, LABELS)
     assert model.policy_ == BAD and not any(model.history_["kept"])

@@ -15,12 +15,10 @@ regression weighs them.
 
 from __future__ import annotations
 
-import asyncio
 import itertools
 import logging
 import math
-from collections.abc import Mapping, Sequence
-from functools import partial
+from collections.abc import Iterator, Mapping, Sequence
 from typing import Final, Literal
 
 import numpy as np
@@ -35,7 +33,7 @@ from think_reason_learn.core._classifier import (
     Proba,
     positive_index,
 )
-from think_reason_learn.core._combine import LinearCombiner, fit_logistic, held_out_rows
+from think_reason_learn.core._combine import LinearCombiner, fit_combiner, held_out_rows
 from think_reason_learn.core._data import (
     Classes,
     balanced_subset,
@@ -45,6 +43,7 @@ from think_reason_learn.core._data import (
 from think_reason_learn.core._prompts import examples_block
 from think_reason_learn.exceptions import NoOutputError
 from think_reason_learn.llm import (
+    QUESTION_TOKENS,
     YES_AT,
     Endpoint,
     LLMSession,
@@ -52,8 +51,8 @@ from think_reason_learn.llm import (
     UsageRecord,
     estimate_answers,
     estimate_generations,
+    mean_tokens,
 )
-from think_reason_learn.llm._estimate import QUESTION_TOKENS, mean_tokens
 
 from ._prompts import (
     INSTRUCTIONS_PURPOSE,
@@ -161,7 +160,7 @@ class PolicyInduction(BinaryTRLClassifier):
         rng = np.random.default_rng(self.random_state)
         self.instructions_ = await self._instructions(session, writer)
         cases = balanced_subset(y, 2, self.n_samples, rng)
-        policy = await self._induce(texts, y, positive, cases, writer, session, rng)
+        policy = await self._induce(texts, y, cases, writer, session, rng)
         self.policy_, self.combiner_, self.weighted_rules_ = policy, None, ()
         if self.predictor == "policy":
             self.threshold_ = YES_AT  # the paper takes the answerer's call as is
@@ -172,7 +171,6 @@ class PolicyInduction(BinaryTRLClassifier):
         self,
         texts: list[str],
         y: Labels,
-        positive: npt.NDArray[np.bool_],
         cases: npt.NDArray[np.intp],
         writer: tuple[Endpoint, ...],
         session: LLMSession,
@@ -184,35 +182,26 @@ class PolicyInduction(BinaryTRLClassifier):
         under an unchanged policy is not answered from the cache. Once the policy
         is perfectly precise on the cases nothing can beat it, so refining stops.
         """
-        judged = take(texts, cases)
-        policy = self.initial_policy or await self._first(
+        judged, truth = take(texts, cases), self._positive(y[cases])
+        policy = tuple(self.initial_policy) or await self._first(
             texts, y, cases, writer, session, rng
         )
         if not policy:
             raise NoOutputError("The generator wrote an empty policy.")
         scores = await self._judge(policy, judged, session)
         history: list[tuple[int, int, float, float, bool]] = []
-        for round_ in range(self.n_rounds):
-            for batch in itertools.batched(
-                rng.permutation(cases), self.batch_size, strict=False
-            ):
-                before = _precision(scores, positive[cases])
-                if before == 1.0:
-                    break
-                refined = await self._refine(
-                    policy, texts, y, np.array(batch), writer, session, draw=round_
-                )
-                refined_scores = (
-                    scores
-                    if refined == tuple(policy)
-                    else await self._judge(refined, judged, session)
-                )
-                after = _precision(refined_scores, positive[cases])
-                history.append((round_, len(batch), before, after, after > before))
-                if after > before:
-                    policy, scores = refined, refined_scores
+        for round_, batch in _batches(cases, self.n_rounds, self.batch_size, rng):
+            if (before := _precision(scores, truth)) == 1.0:
+                break
+            tried = await self._refine(
+                policy, texts, y, batch, judged, writer, session, draw=round_
+            )
+            after = before if tried is None else _precision(tried[1], truth)
+            history.append((round_, len(batch), before, after, after > before))
+            if tried is not None and after > before:
+                policy, scores = tried
         self.history_ = pd.DataFrame(history, columns=_HISTORY)
-        return tuple(policy)
+        return policy
 
     def _fit_plan(
         self, texts: list[str], y: Labels, classes: Classes
@@ -223,13 +212,14 @@ class PolicyInduction(BinaryTRLClassifier):
         cases = balanced_subset(y, 2, self.n_samples, rng)
         refinements = self.n_rounds * math.ceil(len(cases) / self.batch_size)
         policy, example = self.max_rules * QUESTION_TOKENS, mean_tokens(texts)
+        instructions = self._instructions_tokens()  # every prompt carries them
         planned = self._instructions_plan()
         if not self.initial_policy:
-            planned.append(estimate_generations(writer, self.n_examples * example))
+            first = instructions + self.n_examples * example
+            planned.append(estimate_generations(writer, first))
+        refine = instructions + policy + self.batch_size * example
         planned += [
-            estimate_generations(
-                writer, policy + self.batch_size * example, calls=refinements
-            ),
+            estimate_generations(writer, refine, calls=refinements),
             estimate_answers(
                 answerer, take(texts, cases), [policy], times=1 + refinements
             ),
@@ -245,7 +235,7 @@ class PolicyInduction(BinaryTRLClassifier):
     def _predict_plan(self, texts: list[str]) -> list[UsageRecord]:
         answerer = self._models("answerer", "answer")
         if self.combiner_ is None:
-            question = policy_question(_numbered(self.policy_), self._positive_label())
+            question = self._policy_question(self.policy_)
             return [estimate_answers(answerer, texts, [question])]
         rules = [rule_question(rule) for rule in self.weighted_rules_]
         return [estimate_answers(answerer, texts, rules)]
@@ -282,15 +272,20 @@ class PolicyInduction(BinaryTRLClassifier):
 
     async def _refine(
         self,
-        policy: Sequence[str],
+        policy: tuple[str, ...],
         texts: list[str],
         y: Labels,
         batch: npt.NDArray[np.intp],
+        judged: Sequence[str],
         writer: tuple[Endpoint, ...],
         session: LLMSession,
         *,
         draw: int,
-    ) -> tuple[str, ...]:
+    ) -> tuple[tuple[str, ...], npt.NDArray[np.float64]] | None:
+        """A refinement of ``policy`` from ``batch``, and its scores on ``judged``.
+
+        ``None`` if it is unchanged, or was not written or judged: the policy stays.
+        """
         prompt = update_prompt(
             self._task(),
             self.instructions_,
@@ -301,10 +296,12 @@ class PolicyInduction(BinaryTRLClassifier):
             refined = await self._write(
                 prompt, UPDATE_INSTRUCTIONS, writer, session, draw
             )
+            if not refined or refined == policy:
+                return None
+            return refined, await self._judge(refined, judged, session)
         except NoOutputError as error:
-            logger.warning(f"A refinement wrote nothing ({error}); the policy stays.")
-            return tuple(policy)
-        return refined or tuple(policy)
+            logger.warning(f"A refinement failed ({error}); the policy stays.")
+            return None
 
     async def _write(
         self,
@@ -331,12 +328,15 @@ class PolicyInduction(BinaryTRLClassifier):
         self, policy: Sequence[str], texts: Sequence[str], session: LLMSession
     ) -> npt.NDArray[np.float64]:
         """Probability that each sample is positive under the whole policy."""
-        question = policy_question(_numbered(policy), self._positive_label())
         answerer = self._models("answerer", "answer")
         scores = await yes_probabilities(
-            session, answerer, texts, [question], missing=0.0
+            session, answerer, texts, [self._policy_question(policy)], missing=0.0
         )
         return scores[:, 0]
+
+    def _policy_question(self, policy: Sequence[str]) -> str:
+        """The question that judges a sample under the whole policy."""
+        return policy_question(_numbered(policy), self._positive_label())
 
     async def _rule_answers(
         self, texts: Sequence[str], rules: Sequence[str], session: LLMSession
@@ -360,24 +360,18 @@ class PolicyInduction(BinaryTRLClassifier):
         """Weigh the rules on samples the policy was not written from, if enough."""
         rows = held_out_rows(positive, cases, self.cv)
         answers = await self._rule_answers(take(texts, rows), self.policy_, session)
-        fitted = await asyncio.to_thread(
-            partial(
-                fit_logistic,
-                answers,
-                positive[rows],
-                l1_ratios=(1.0,),
-                cv=self.cv,
-                beta=self.beta,
-                class_weight="balanced",
-                random_state=self.random_state,
-            )
+        self.combiner_, used = await fit_combiner(
+            answers,
+            positive[rows],
+            l1_ratios=(1.0,),
+            cv=self.cv,
+            beta=self.beta,
+            class_weight="balanced",
+            random_state=self.random_state,
+            drop_zero=True,
         )
-        used = np.flatnonzero(fitted.coef)
         self.weighted_rules_ = tuple(take(self.policy_, used))
-        self.combiner_ = LinearCombiner(
-            fitted.coef[used], fitted.intercept, fitted.threshold
-        )
-        self.threshold_ = fitted.threshold
+        self.threshold_ = self.combiner_.threshold
 
     def _summary(self) -> Mapping[str, object]:
         return {
@@ -386,6 +380,15 @@ class PolicyInduction(BinaryTRLClassifier):
             "threshold": self.threshold_,
             "history": self.history_.to_dict("records"),
         }
+
+
+def _batches(
+    cases: npt.NDArray[np.intp], n_rounds: int, size: int, rng: np.random.Generator
+) -> Iterator[tuple[int, npt.NDArray[np.intp]]]:
+    """(round, cases) for each refinement; each round shuffles the cases afresh."""
+    for round_ in range(n_rounds):
+        for batch in itertools.batched(rng.permutation(cases), size, strict=False):
+            yield round_, np.array(batch)
 
 
 def _numbered(policy: Sequence[str]) -> str:

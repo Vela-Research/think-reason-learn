@@ -1,12 +1,16 @@
 """Safe evaluation of model-written lambda rules on structured records.
 
-Each rule is checked before it runs: it must be one lambda of one argument, and
-it may not use an attribute that starts with an underscore (``__class__``,
-``_module``...), a name that starts with two (``__import__``), or ``format``,
-which can reach attributes from inside a string. It then runs with only the
-built-ins in ``SAFE_BUILTINS`` and the helpers given, so ``import``, ``open``,
-``eval``, ``getattr`` and the like are out of reach. Rules come from a model
-that read your data: treat them as untrusted code, and keep these checks.
+Each rule is checked before it runs: it must be one lambda of one argument, it
+may use only the attributes of built-in data types (``.get``, ``.lower``...), and
+no name that starts with two underscores (``__import__``). Any other attribute,
+such as a generator's ``gi_frame``, could walk out of the sandbox. It then runs
+with only the built-ins in ``SAFE_BUILTINS`` and the helpers given, so
+``import``, ``open``, ``eval``, ``getattr`` and the like are out of reach. Rules
+come from a model that read your data: treat them as untrusted code, and keep
+these checks.
+
+ponytail: a rule that computes for ever (``lambda r: 10**10**10``) hangs the
+fit; run rules in a subprocess with a timeout if that ever matters.
 """
 
 from __future__ import annotations
@@ -58,8 +62,13 @@ SAFE_BUILTINS: Final[Mapping[str, object]] = {
 }
 """Built-ins available inside rules; everything else is absent."""
 
-_BLOCKED_NAMES: Final = frozenset({"format", "format_map"})
-"""Names that reach attributes from inside a string, e.g. ``"{0.__class__}"``."""
+_ATTRIBUTES: Final = frozenset(
+    name
+    for kind in (str, bytes, int, float, bool, list, tuple, dict, set, frozenset, range)
+    for name in dir(kind)
+    if not name.startswith("_")
+) - {"format", "format_map"}
+"""Attributes rules may use; ``format`` reaches any, as ``"{0.__class__}"``."""
 
 _RULE_ERRORS: Final = (
     ArithmeticError,
@@ -68,6 +77,8 @@ _RULE_ERRORS: Final = (
     ValueError,
     AttributeError,
     NameError,
+    RecursionError,
+    MemoryError,
 )
 """What a rule may raise on a record it does not fit; the rule then gives 0."""
 
@@ -149,24 +160,19 @@ def _compile(rule: Rule, scope: dict[str, object]) -> _Compiled:
 
 
 def _checked(expression: str) -> ast.Expression:
-    """The parsed rule, if it is one lambda of one argument using no hidden names.
+    """The parsed rule, if it is one lambda of one argument using only allowed names.
 
     Raises:
         SyntaxError: The rule is not valid Python.
-        ValueError: The rule is not one lambda, or names something blocked.
+        ValueError: The rule is not one lambda, or uses a name it may not.
     """
     tree = ast.parse(expression.strip(), mode="eval")
     body = tree.body
     if not isinstance(body, ast.Lambda) or len(body.args.args) != 1:
         raise ValueError("a rule must be a lambda of one argument")
     for node in ast.walk(tree):
-        if isinstance(node, ast.Attribute) and _hidden(node.attr, "_"):
+        if isinstance(node, ast.Attribute) and node.attr not in _ATTRIBUTES:
             raise ValueError(f"a rule may not use .{node.attr}")
-        if isinstance(node, ast.Name) and _hidden(node.id, "__"):
+        if isinstance(node, ast.Name) and node.id.startswith("__"):
             raise ValueError(f"a rule may not use {node.id}")
     return tree
-
-
-def _hidden(name: str, prefix: str) -> bool:
-    """Private and special names, which lead out of the sandbox."""
-    return name.startswith(prefix) or name in _BLOCKED_NAMES

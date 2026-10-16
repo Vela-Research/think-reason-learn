@@ -12,7 +12,7 @@ import hashlib
 import logging
 import time
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import astuple, dataclass
 from functools import partial
 from typing import Final, TypeIs, overload
 
@@ -44,14 +44,14 @@ logger = logging.getLogger(__name__)
 _WINDOW: Final = 256
 """Answer requests scheduled at once; the limiter decides how many are sent."""
 _DEAD_AFTER: Final = 5
-"""Failed requests in a row, retries spent, after which a model's pass stops."""
+"""Failed requests in a row, retries spent, after which the next model takes over."""
 
 
 class LLMSession:
     """Every model call of one run.
 
-    The settings in effect when it is created (``get_config()``) apply to all
-    its calls, wherever they run.
+    Its cost cap, cache and retries are those in effect when it is created
+    (``get_config()``).
 
     Args:
         usage: Where calls are recorded; a new ``Usage`` by default.
@@ -66,11 +66,7 @@ class LLMSession:
     ) -> None:
         """Start a run under the current settings."""
         self._engine = _Engine(usage, progress)
-        self.config, self.usage, self.budget = (
-            self._engine.config,
-            self._engine.usage,
-            self._engine.budget,
-        )
+        self.usage = self._engine.usage
 
     @overload
     async def generate[S: BaseModel](
@@ -149,7 +145,7 @@ class LLMSession:
                 continue
             if _usable(reply.output, schema):
                 self._engine.store({key: _dump(reply.output)})
-                self.budget.check()
+                self._engine.budget.check()
                 return reply.output
             errors.append(f"{endpoint.name}: no usable output")
         raise NoOutputError(
@@ -187,23 +183,20 @@ class LLMSession:
         results: list[Answers] = [dict.fromkeys(questions) for _ in samples]
         errors: list[str] = []
         digests = [hashlib.sha256(sample.encode()).hexdigest() for sample in samples]
-        for endpoint in models:
+        for n, endpoint in enumerate(models, 1):
             pass_ = _AnswerPass(
-                self._engine, endpoint, samples, digests, questions, role, draw
+                self._engine,
+                endpoint,
+                samples,
+                digests,
+                questions,
+                role,
+                draw,
+                can_hand_over=n < len(models),
             )
             if not await pass_.run(results, errors):
                 break
-        if (
-            samples
-            and questions
-            and all(a is None for r in results for a in r.values())
-        ):
-            first = errors[0] if errors else "no usable answers"
-            raise NoOutputError(
-                f"No answers from {[m.name for m in models]}. First error: {first}"
-            )
-        if errors:
-            logger.warning(f"{len(errors)} answer calls failed; the first: {errors[0]}")
+        _report(results, errors, models)
         return results
 
 
@@ -285,6 +278,7 @@ class _Engine:
         provider_cost: float | None = None,
         error: str | None = None,
     ) -> float | None:
+        tokens = TokenCounts(*(max(0, n) for n in astuple(tokens)))  # some send -1
         cost, source = (
             (0.0, "none")
             if error is not None
@@ -307,7 +301,7 @@ class _Engine:
                 error=error,
             )
         )
-        self.check_served(endpoint, served)
+        self._check_served(endpoint, served)
         return cost
 
     def record_hits(self, endpoint: Endpoint, role: str, count: int) -> None:
@@ -323,7 +317,7 @@ class _Engine:
             )
         )
 
-    def check_served(self, endpoint: Endpoint, served: str | None) -> None:
+    def _check_served(self, endpoint: Endpoint, served: str | None) -> None:
         """Warn once when a provider switches the model behind a name mid-run."""
         if served is None:
             return
@@ -367,6 +361,7 @@ class _AnswerPass:
     questions: Mapping[str, Question]
     role: str
     draw: int
+    can_hand_over: bool = False
     unavailable: bool = False
     failed_in_a_row: int = 0
     fatal: ProviderAuthError | BudgetExceededError | None = None
@@ -395,7 +390,7 @@ class _AnswerPass:
         try:
             await _bounded(requests, lambda r: self._send(r, results, errors), _WINDOW)
         except BaseExceptionGroup as group:
-            raise _first(group) from None
+            raise group.exceptions[0] from None  # tasks do not nest groups
         if self.fatal is not None:
             raise self.fatal
         return True
@@ -454,7 +449,12 @@ class _AnswerPass:
     async def _send(
         self, request: _Request, results: list[Answers], errors: list[str]
     ) -> None:
-        """Ask, unless the run is stopping; calls in flight finish and are kept."""
+        """Ask, unless the run is stopping; calls in flight finish and are kept.
+
+        A model that is gone, or fails ``_DEAD_AFTER`` times in a row, hands the
+        rest to the next model; the last model keeps trying. A bad request is
+        one sample's problem and does not count.
+        """
         if self.fatal is not None or self.unavailable:
             return
         try:
@@ -463,9 +463,10 @@ class _AnswerPass:
             return
         except ProviderError as error:
             errors.append(f"{self.endpoint.name}: {error}")
-            self.failed_in_a_row += 1
-            if error.failure == "unavailable" or self.failed_in_a_row >= _DEAD_AFTER:
-                self.unavailable = True
+            if error.failure != "bad_request":
+                self.failed_in_a_row += 1
+            gone = error.failure == "unavailable" or self.failed_in_a_row >= _DEAD_AFTER
+            self.unavailable = self.can_hand_over and gone
         except (ProviderAuthError, BudgetExceededError) as error:
             self.fatal = error
         else:
@@ -487,7 +488,7 @@ class _AnswerPass:
         )
         stored: dict[str, JSON] = {}
         for qid, key in zip(request.qids, request.keys, strict=True):
-            if (answer := reply.output.get(qid)) is None:
+            if (answer := reply.output.get(qid)) is None or not answer.is_valid:
                 continue
             probabilities: dict[str, JSON] = {**answer.probabilities}
             stored[key] = {"label": answer.label, "probabilities": probabilities}
@@ -528,10 +529,21 @@ async def _bounded[X](
             group.create_task(guarded(item))
 
 
-def _first(group: BaseExceptionGroup[BaseException]) -> BaseException:
-    """The first error of a task group."""
-    first: BaseException = group.exceptions[0]  # tasks do not nest groups
-    return first
+def _report(
+    results: Sequence[Answers], errors: Sequence[str], models: Sequence[Endpoint]
+) -> None:
+    """Raise if nothing was answered; else warn about the answers missing."""
+    answers = [a for r in results for a in r.values()]
+    if answers and answers.count(None) == len(answers):
+        first = errors[0] if errors else "no usable answers"
+        raise NoOutputError(
+            f"No answers from {[m.name for m in models]}. First error: {first}"
+        )
+    if errors:
+        logger.warning(
+            f"{len(errors)} answer calls failed and {answers.count(None)} answers "
+            f"are missing; the first error: {errors[0]}"
+        )
 
 
 def _endpoint_identity(endpoint: Endpoint) -> dict[str, JSON]:
@@ -579,7 +591,8 @@ def _load_answer(stored: JSON, question: Question) -> Answer | None:
         or not isinstance(probabilities, dict)
     ):
         return None
-    return Answer(
+    answer = Answer(
         label,
         {k: float(v) for k, v in probabilities.items() if isinstance(v, (int, float))},
     )
+    return answer if answer.is_valid else None

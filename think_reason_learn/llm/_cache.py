@@ -43,8 +43,9 @@ class Cache:
     """
 
     def __init__(self, path: Path) -> None:
-        """Open, or create, the database at ``path``."""
-        path.parent.mkdir(parents=True, exist_ok=True)
+        """Open, or create, the database at ``path``, readable only by its owner."""
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        path.touch(mode=0o600)  # SQLite gives its -wal and -shm files this mode
         self._db = sqlite3.connect(
             path, timeout=30, isolation_level=None, check_same_thread=False
         )

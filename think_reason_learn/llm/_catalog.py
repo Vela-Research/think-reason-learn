@@ -8,11 +8,12 @@ without a release of this library.
 from __future__ import annotations
 
 import logging
+import os
 import time
 from collections.abc import Mapping
 from decimal import Decimal
 from pathlib import Path
-from typing import Final
+from typing import Annotated, Final
 
 import httpx2
 from pydantic import BaseModel, Field, JsonValue, ValidationError
@@ -26,16 +27,21 @@ _OPENROUTER_URL: Final = (
     "https://openrouter.ai/api/v1/models?output_modalities=decisions"
 )
 _MAX_AGE: Final = 24 * 3600.0
+_RETRY_AFTER: Final = 300.0
 _TIMEOUT: Final = 5.0
 
 type Catalog = Mapping[str, Price | None]
 """Decision model ids and their prices, where listed."""
 
+_loaded: tuple[float, Catalog] | None = None
+"""When the catalog was read, and what it holds."""
+
 
 def openrouter_decisions() -> Catalog:
     """OpenRouter's decision models, from memory, the disk, or the network.
 
-    Read at most once a day; a model resolved meanwhile costs no request.
+    Read at most once a day, and a failed read again after five minutes; a model
+    resolved meanwhile costs no request.
     ponytail: the daily refresh is a blocking GET of a few kilobytes, with a
     5-second timeout; move it off the event loop if it ever shows in a profile.
     """
@@ -45,7 +51,7 @@ def openrouter_decisions() -> Catalog:
         return _loaded[1]
     path = get_config().cache_path.parent / "openrouter-decisions.json"
     stored = _read(path)
-    if stored is not None and now - stored[0] < _MAX_AGE:
+    if stored is not None and 0 <= now - stored[0] < _MAX_AGE:
         _loaded = stored
         return stored[1]
     try:
@@ -57,14 +63,11 @@ def openrouter_decisions() -> Catalog:
             'Mark one with LLM("openrouter:...", kind="decision").'
         )
         models: Catalog = stored[1] if stored is not None else {}
-    else:
-        _write(path, now, models)
+        _loaded = (now - _MAX_AGE + _RETRY_AFTER, models)  # try again soon
+        return models
+    _write(path, now, models)
     _loaded = (now, models)
     return models
-
-
-_loaded: tuple[float, Catalog] | None = None
-"""When the catalog was read, and what it holds."""
 
 
 def _download() -> JsonValue:
@@ -83,7 +86,7 @@ def _parse(payload: JsonValue) -> dict[str, Price | None]:
     """
     listed = (_listed(entry) for entry in _Catalog.model_validate(payload).data)
     return {
-        model.id: model.pricing.per_million() if model.pricing else None
+        model.id: _price(model.pricing)
         for model in listed
         if model is not None and "decisions" in model.architecture.output_modalities
     }
@@ -94,6 +97,19 @@ def _listed(entry: JsonValue) -> _Listed | None:
     try:
         return _Listed.model_validate(entry)
     except ValidationError:
+        return None
+
+
+def _price(pricing: JsonValue) -> Price | None:
+    """The price per million tokens; ``None`` unless both are amounts (not ``-1``)."""
+    million = Decimal(1_000_000)
+    try:
+        per_token = _Pricing.model_validate(pricing)
+        return Price(
+            input=float(per_token.prompt * million),
+            output=float(per_token.completion * million),
+        )
+    except ValueError:  # ValidationError included
         return None
 
 
@@ -119,11 +135,16 @@ def _write(path: Path, now: float, models: Catalog) -> None:
             for name, price in models.items()
         },
     )
+    partial = path.with_name(f"{path.name}.{os.getpid()}")
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(stored.model_dump_json(), "utf-8")
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        partial.write_text(stored.model_dump_json(), "utf-8")
+        partial.replace(path)  # atomic, so a reader never sees half a file
     except OSError as error:
         logger.warning(f"Could not keep OpenRouter's decision models on disk: {error}")
+
+
+type _Amount = Annotated[float, Field(ge=0, allow_inf_nan=False)]
 
 
 class _Catalog(BaseModel):
@@ -135,24 +156,18 @@ class _Architecture(BaseModel):
 
 
 class _Pricing(BaseModel):
-    prompt: Decimal = Decimal(0)
-    completion: Decimal = Decimal(0)
-
-    def per_million(self) -> Price:
-        million = Decimal(1_000_000)
-        return Price(
-            input=float(self.prompt * million), output=float(self.completion * million)
-        )
+    prompt: Decimal
+    completion: Decimal
 
 
 class _Listed(BaseModel):
     id: str
     architecture: _Architecture = Field(default_factory=_Architecture)
-    pricing: _Pricing | None = None
+    pricing: JsonValue = None
 
 
 class _Stored(BaseModel):
     """The catalog as kept on disk."""
 
     fetched_at: float
-    models: dict[str, tuple[float, float] | None]
+    models: dict[str, tuple[_Amount, _Amount] | None]

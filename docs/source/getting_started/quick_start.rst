@@ -26,7 +26,7 @@ founder, and the tree learns which answers predict success.
        min_samples_leaf=1,
    )
    tree.write_instructions()      # optional: read or edit before the expensive fit
-   tree.estimate_cost(X, y)       # optional: calls, tokens and dollars, before any is sent
+   tree.estimate_cost(X, y)       # optional: calls, tokens and dollars; no model is called
    tree.fit(X, y)
 
    tree.predict(["Sam is a staff engineer who sold a company."])
@@ -61,7 +61,7 @@ answer; decision models such as Jev only answer, with probabilities.
        task=task,
        generator=("anthropic:claude-sonnet-5-5", "openai:gpt-5-mini"),
        answerer=LLM("ollama:qwen3:8b", questions_per_call=5),
-       critic=True,
+       use_critic=True,
    )
 
 Async code

@@ -54,7 +54,7 @@ class SystemOneAdapter(DecisionAdapter):
         usage = _usage(reply.usage)
         return Reply(
             {qid: _answer(q, reply.answers.get(qid)) for qid, q in questions.items()},
-            TokenCounts(input=usage.input_tokens, output=usage.output_tokens),
+            TokenCounts(input=usage.input_tokens or 0, output=usage.output_tokens or 0),
             reply.model,
             usage.cost,
             dict(response.headers),
@@ -121,7 +121,7 @@ class _RawAnswer(BaseModel):
 
 
 class _Usage(BaseModel):
-    input_tokens: int = 0
-    output_tokens: int = 0
+    input_tokens: int | None = None
+    output_tokens: int | None = None
     cost: float | None = None
     """The cost some providers (OpenRouter) report with the usage."""

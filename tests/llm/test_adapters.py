@@ -297,6 +297,11 @@ class TestAnthropic:
         body = json.loads(sent[0].content)
         assert (body["temperature"], body["output_config"]["effort"]) == (0.0, "high")
 
+    def test_no_effort_asks_for_the_lowest(self, wire: Wire) -> None:
+        sent = wire(lambda r: _message('{"a1": "NO"}'))
+        _answer(LLM("anthropic:claude-haiku-4-5", api_key="k", reasoning_effort="none"))
+        assert json.loads(sent[0].content)["output_config"]["effort"] == "low"
+
 
 class TestSystemOne:
     def test_jev_wire_format_and_price(self, wire: Wire) -> None:

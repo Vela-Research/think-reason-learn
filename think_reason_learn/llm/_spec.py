@@ -43,7 +43,8 @@ class LLM:
             ``base_url``, a bare model id calls any OpenAI-compatible server.
         temperature: Sampling temperature. ``None`` uses the model's default. A
             model that rejects a temperature is called without one.
-        reasoning_effort: Reasoning effort for models that support it.
+        reasoning_effort: Reasoning effort for models that support it. Claude's
+            lowest is ``"low"``, which ``"none"`` and ``"minimal"`` ask for.
         max_output_tokens: Cap on output tokens per call.
         service_tier: Provider service tier, e.g. ``"flex"`` for half price on
             OpenAI and Gemini at slower speed.

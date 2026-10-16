@@ -45,6 +45,16 @@ from think_reason_learn.llm._questions import (
 from think_reason_learn.llm._spec import Endpoint, ModelKind, extra_provider
 from think_reason_learn.llm._usage import Price, TokenCounts
 
+__all__ = [
+    "FakeCall",
+    "FakeLLM",
+    "FakeFailure",
+    "GenerateRequest",
+    "check_classifier",
+    "fake_llms",
+    "scripted",
+]
+
 type FakeFailure = Literal[
     "rate_limit",
     "server_error",
@@ -59,6 +69,19 @@ type FakeFailure = Literal[
 
 type GenerateReply = str | BaseModel | dict[str, object] | None
 type AnswerReply = str | float | None
+
+
+_registry: Final[dict[str, FakeLLM]] = {}
+
+_ERRORS: Final[dict[FakeFailure, tuple[Failure, str]]] = {
+    "rate_limit": ("rate_limit", "fake rate limit"),
+    "server_error": ("transient", "fake server error"),
+    "timeout": ("transient", "fake timeout"),
+    "auth": ("auth", "fake key rejected"),
+    "quota": ("quota", "fake insufficient_quota"),
+    "unavailable": ("unavailable", "fake model not found"),
+    "bad_request": ("bad_request", "fake bad request"),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,19 +137,6 @@ def fake_llms(**models: FakeLLM) -> Iterator[None]:
     finally:
         for name in models:
             _registry.pop(name, None)
-
-
-_registry: Final[dict[str, FakeLLM]] = {}
-
-_ERRORS: Final[dict[FakeFailure, tuple[Failure, str]]] = {
-    "rate_limit": ("rate_limit", "fake rate limit"),
-    "server_error": ("transient", "fake server error"),
-    "timeout": ("transient", "fake timeout"),
-    "auth": ("auth", "fake key rejected"),
-    "quota": ("quota", "fake insufficient_quota"),
-    "unavailable": ("unavailable", "fake model not found"),
-    "bad_request": ("bad_request", "fake bad request"),
-}
 
 
 def scripted(
@@ -276,14 +286,3 @@ def _answer(reply: AnswerReply, question: Question, *, decision: bool) -> Answer
     if isinstance(reply, str) and reply in question.labels:
         return Answer.certain(reply, question.labels)
     return None
-
-
-__all__ = [
-    "FakeCall",
-    "FakeLLM",
-    "FakeFailure",
-    "GenerateRequest",
-    "check_classifier",
-    "fake_llms",
-    "scripted",
-]

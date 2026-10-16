@@ -4,6 +4,8 @@ An open-source Python library for building interpretable, tree/forest-style
 decision-making systems powered by large language models (LLMs).
 """
 
+from __future__ import annotations
+
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 

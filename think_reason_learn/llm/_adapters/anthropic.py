@@ -30,6 +30,8 @@ if TYPE_CHECKING:
 
 _MAX_TOKENS: Final = 4096
 _EFFORTS: Final[dict[str, Literal["low", "medium", "high", "xhigh"]]] = {
+    "none": "low",  # Claude's lowest; sent so it does not default to high
+    "minimal": "low",
     "low": "low",
     "medium": "medium",
     "high": "high",

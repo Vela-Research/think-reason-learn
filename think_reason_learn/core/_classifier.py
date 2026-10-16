@@ -42,7 +42,7 @@ from think_reason_learn.llm import (
     run_async,
     run_sync,
 )
-from think_reason_learn.llm._estimate import text_tokens
+from think_reason_learn.llm._estimate import GENERATE_OUTPUT_TOKENS, text_tokens
 from think_reason_learn.llm._spec import Task
 
 logger = logging.getLogger(__name__)
@@ -121,8 +121,9 @@ class TRLClassifier(Persistable, ClassifierMixin, BaseEstimator, ABC):
         Nothing is sent. Calls are counted from the settings (and, for
         ``predict``, the fitted model) and tokens from the text lengths, then
         priced like real calls. Steps that depend on the answers, such as how
-        deep a tree grows or how many refinements are judged, are counted in
-        full; replies already in the cache are not subtracted.
+        deep a tree grows or how many refinements are judged, are counted at
+        their most; a tree's nodes are counted as if each split halved its
+        node. Replies already in the cache are not subtracted.
 
         Returns:
             The planned calls, as a ``Usage``; read ``cost_usd`` or
@@ -156,7 +157,7 @@ class TRLClassifier(Persistable, ClassifierMixin, BaseEstimator, ABC):
 
     def __sklearn_tags__(self) -> Tags:
         """Text input, and answers that can vary between calls."""
-        base = super().__sklearn_tags__()  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]  # BaseEstimator types it loosely
+        base = super().__sklearn_tags__()  # pyright: ignore[reportUnknownVariableType]  # BaseEstimator types it loosely
         return text_tags(base)  # pyright: ignore[reportUnknownArgumentType]  # as above
 
     def _fit_plan(
@@ -171,10 +172,18 @@ class TRLClassifier(Persistable, ClassifierMixin, BaseEstimator, ABC):
 
     def _instructions_plan(self) -> list[UsageRecord]:
         """The call that writes the instructions, unless they are given."""
-        if self.instructions or self._instructions_purpose is None:
+        if self._instructions_purpose is None or self.instructions:
             return []
         writer = self._models("generator", "generate")
         return [estimate_generations(writer, text_tokens(self._task()))]
+
+    def _instructions_tokens(self) -> int:
+        """Tokens of the instructions later prompts carry: given, or as planned."""
+        if self._instructions_purpose is None:
+            return 0
+        if self.instructions:
+            return text_tokens(self.instructions)
+        return GENERATE_OUTPUT_TOKENS
 
     def _decide(self, proba: Proba) -> Labels:
         """Label codes from probabilities: the most likely class."""

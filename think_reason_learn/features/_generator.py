@@ -24,6 +24,7 @@ from ._prompts import build_system_prompt, build_user_prompt, format_samples
 from ._types import (
     CognitiveMode,
     DataSchema,
+    GeneratedRule,
     GeneratedRules,
     HelperFunction,
     Record,
@@ -78,7 +79,7 @@ class FeatureGenerator:
         n_rules: int = 30,
         n_samples: int = 60,
         prior_rules: Sequence[Rule] | None = None,
-        positive: object = 1,
+        pos_label: object = 1,
     ) -> list[Rule]:
         """Generate rules from structured records and their labels.
 
@@ -88,15 +89,15 @@ class FeatureGenerator:
             n_rules: Rules to ask for.
             n_samples: Records shown in the prompt, half of them positive.
             prior_rules: Rules from a previous round, given as feedback.
-            positive: The label the rules should find, e.g. ``"YES"``.
+            pos_label: The label the rules should find, e.g. ``"YES"``.
 
         Returns:
             The rules, ready for ``FeatureEvaluator``.
 
         Raises:
-            DataError: No label equals ``positive``.
+            DataError: No label equals ``pos_label``.
         """
-        ask = _Ask(samples, labels, n_rules, n_samples, prior_rules, positive)
+        ask = _Ask(samples, labels, n_rules, n_samples, prior_rules, pos_label)
         return run_sync(self._generate(ask))
 
     async def agenerate(
@@ -107,16 +108,16 @@ class FeatureGenerator:
         n_rules: int = 30,
         n_samples: int = 60,
         prior_rules: Sequence[Rule] | None = None,
-        positive: object = 1,
+        pos_label: object = 1,
     ) -> list[Rule]:
         """Generate rules, from async code. See ``generate``."""
-        ask = _Ask(samples, labels, n_rules, n_samples, prior_rules, positive)
+        ask = _Ask(samples, labels, n_rules, n_samples, prior_rules, pos_label)
         return await run_async(self._generate(ask))
 
     async def _generate(self, ask: _Ask) -> list[Rule]:
-        if not any(label == ask.positive for label in ask.labels):
+        if not any(label == ask.pos_label for label in ask.labels):
             raise DataError(
-                f"No label equals positive={ask.positive!r}; pass positive= with "
+                f"No label equals pos_label={ask.pos_label!r}; pass pos_label= with "
                 "the label the rules should find."
             )
         draw, self._calls = self._calls, self._calls + 1
@@ -125,7 +126,7 @@ class FeatureGenerator:
             ask.samples,
             ask.labels,
             ask.n_samples,
-            positive=ask.positive,
+            positive=ask.pos_label,
             random_state=seed,
         )
         written = await LLMSession(usage=self.usage).generate(
@@ -138,7 +139,7 @@ class FeatureGenerator:
             ),
             draw=draw,
         )
-        rules = [Rule(r.name, r.description, r.expression) for r in written.rules]
+        rules = _distinct(written.rules)
         logger.info(f"Generated {len(rules)} rules")
         return rules
 
@@ -150,4 +151,18 @@ class _Ask:
     n_rules: int
     n_samples: int
     prior_rules: Sequence[Rule] | None
-    positive: object
+    pos_label: object
+
+
+def _distinct(written: Sequence[GeneratedRule]) -> list[Rule]:
+    """The rules, a repeated name suffixed ``_2``, ``_3``... so names are distinct."""
+    used: set[str] = set()
+    rules: list[Rule] = []
+    for rule in written:
+        name, n = rule.name, 1
+        while name in used:
+            n += 1
+            name = f"{rule.name}_{n}"
+        used.add(name)
+        rules.append(Rule(name, rule.description, rule.expression))
+    return rules

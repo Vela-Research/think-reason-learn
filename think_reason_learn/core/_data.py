@@ -8,12 +8,15 @@ from __future__ import annotations
 
 import math
 import numbers
+import warnings
 from collections.abc import Mapping, Sequence
-from typing import Literal, SupportsFloat
+from typing import Literal
 
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
+from pandas.api.types import is_scalar
+from sklearn.exceptions import DataConversionWarning
 
 from think_reason_learn.exceptions import DataError
 
@@ -43,39 +46,52 @@ def to_texts(X: TextInput) -> tuple[list[str], list[str] | None]:
     are left out of a row's text.
 
     Raises:
-        DataError: ``X`` is empty, has missing texts, or is not one of the
-            accepted types.
+        DataError: ``X`` is empty, has missing texts (or rows with every value
+            missing), or is not one of the accepted types.
     """
     if isinstance(X, np.ndarray) and X.ndim == 2:
         return to_texts(X.ravel() if X.shape[1] == 1 else pd.DataFrame(X))
+    values: list[object]
     if isinstance(X, pd.DataFrame):
         names = [str(c) for c in X.columns]
-        texts = [_row_text(names, row) for row in X.itertuples(index=False, name=None)]
+        rows = X.itertuples(index=False, name=None)
+        values = [_row_text(names, row) or None for row in rows]
     elif isinstance(X, (pd.Series, np.ndarray, list, tuple)):
-        names = None
-        values: list[object] = list(X)
-        if missing := [i for i, x in enumerate(values) if _missing(x)]:
-            raise DataError(f"X has missing texts at rows {missing[:10]}.")
-        texts = [str(x) for x in values]
+        names, values = None, list(X)
     else:
         raise DataError(
             f"X must be a DataFrame or a sequence of texts, got {type(X).__name__}."
         )
-    if not texts:
+    if missing := [i for i, x in enumerate(values) if _missing(x)]:
+        raise DataError(f"X has missing texts at rows {missing[:10]}.")
+    if not values:
         raise DataError("X has no samples.")
-    return texts, names
+    return [str(x) for x in values], names
 
 
 def encode_labels(y: LabelInput) -> tuple[Classes, npt.NDArray[np.intp]]:
     """The sorted classes in the labels' own type, and each label's index.
 
     Classes keep their type (ints stay ints), so predictions work with
-    scikit-learn's metrics.
+    scikit-learn's metrics. A column of labels, shape ``(n, 1)``, is flattened
+    with a warning, as scikit-learn does.
 
     Raises:
-        DataError: ``y`` has fewer than two classes or missing labels.
+        DataError: ``y`` is not one label per sample, has fewer than two
+            classes, or has missing labels.
     """
-    labels = pd.Series(list(y), dtype=object)
+    values = np.asarray(y, dtype=object)
+    if values.ndim == 2 and values.shape[1] == 1:
+        warnings.warn(
+            "A column-vector y was passed when a 1d array was expected; "
+            "flattening it. Pass y as shape (n_samples,), e.g. with ravel().",
+            DataConversionWarning,
+            stacklevel=2,
+        )
+        values = values.ravel()
+    if values.ndim != 1:
+        raise DataError(f"y needs one label per sample; it has shape {values.shape}.")
+    labels = pd.Series(values, dtype=object)
     if labels.isna().any():
         raise DataError("y has missing labels.")
     unique, codes = np.unique(labels.to_numpy(), return_inverse=True)
@@ -101,7 +117,7 @@ def example_batches(
     sample appears twice in a batch: a class with fewer samples than its share
     gives what it has and the others fill the rest.
     """
-    weights = _weights(classes, class_ratio)
+    weights = class_shares(classes, class_ratio)
     pools = [np.flatnonzero(codes == c) for c in range(len(classes))]
     queues = [rng.permutation(pool) for pool in pools]
     batches: list[npt.NDArray[np.intp]] = []
@@ -113,6 +129,41 @@ def example_batches(
         rng.shuffle(batch)
         batches.append(batch)
     return batches
+
+
+def class_shares(classes: Classes, class_ratio: ClassRatio) -> npt.NDArray[np.float64]:
+    """Each class's share of a prompt's examples, from ``class_ratio``.
+
+    Raises:
+        ValueError: ``class_ratio`` names an unknown class, or its shares are
+            negative or sum to 0.
+    """
+    if class_ratio == "balanced":
+        return np.full(len(classes), 1 / len(classes))
+    weights = by_class(classes, class_ratio, default=0.0, name="example_class_ratio")
+    if weights.sum() <= 0 or (weights < 0).any():
+        raise ValueError(
+            "example_class_ratio needs non-negative shares that sum above 0."
+        )
+    return weights / weights.sum()
+
+
+def by_class(
+    classes: Classes,
+    values: Mapping[str, float] | Mapping[int, float],
+    *,
+    default: float,
+    name: str,
+) -> npt.NDArray[np.float64]:
+    """``values``, keyed by class label, in ``classes`` order; others get ``default``.
+
+    Raises:
+        ValueError: ``values`` (the setting ``name``) names an unknown class.
+    """
+    given = {str(label): float(value) for label, value in values.items()}
+    if unknown := set(given) - {str(c) for c in classes}:
+        raise ValueError(f"{name} names unknown classes: {sorted(unknown)}.")
+    return np.array([given.get(str(c), default) for c in classes])
 
 
 def balanced_subset(
@@ -161,30 +212,16 @@ def _row_text(names: Sequence[str], values: tuple[object, ...]) -> str:
 
 
 def _missing(value: object) -> bool:
-    """None, NaN, ``pd.NA`` or ``pd.NaT``."""
-    if value is None or value is pd.NA or value is pd.NaT:
-        return True
-    if isinstance(value, str | bytes):  # numpy strings also convert to float
-        return False
-    return isinstance(value, SupportsFloat) and math.isnan(float(value))
-
-
-def _weights(classes: Classes, class_ratio: ClassRatio) -> npt.NDArray[np.float64]:
-    if class_ratio == "balanced":
-        return np.full(len(classes), 1 / len(classes))
-    shares = {str(label): float(share) for label, share in class_ratio.items()}
-    if unknown := set(shares) - {str(c) for c in classes}:
-        raise ValueError(f"class_ratio names unknown classes: {sorted(unknown)}.")
-    weights = np.array([shares.get(str(c), 0.0) for c in classes])
-    if weights.sum() <= 0 or (weights < 0).any():
-        raise ValueError("class_ratio needs non-negative shares that sum above 0.")
-    return weights / weights.sum()
+    """A missing scalar: None, NaN, ``pd.NA`` or a NaT. A list or array is not."""
+    return is_scalar(value) and bool(pd.isna([value])[0])
 
 
 def _split(
     total: int, weights: npt.NDArray[np.float64], available: list[bool]
 ) -> list[int]:
     """``total`` split by ``weights`` over the classes that have samples."""
+    if not any(available):
+        return [0] * len(available)
     usable = np.where(available, weights, 0.0)
     if usable.sum() == 0:
         usable = np.array(available, dtype=float)

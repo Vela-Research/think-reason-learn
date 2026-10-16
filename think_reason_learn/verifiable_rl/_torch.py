@@ -1,7 +1,7 @@
-"""Typed doors into the few PyTorch functions whose annotations are partial.
+"""PyTorch helpers: tensors from arrays, shuffled batches, a private seed.
 
-The ``pyright: ignore`` comments they need sit here, so the rest of VerifiableRL
-is checked strictly.
+Two wrap PyTorch functions whose annotations are partial, with the ``pyright:
+ignore`` comments they need.
 """
 
 from __future__ import annotations
@@ -28,11 +28,6 @@ def shuffled_batches(
     """Row indices ``0..n-1`` shuffled by ``generator``, in batches of ``size``."""
     order = torch.randperm(n, generator=generator)
     return tuple(order[start : start + size] for start in range(0, n, size))
-
-
-def backward(loss: torch.Tensor) -> None:
-    """Back-propagate ``loss``."""
-    loss.backward()  # pyright: ignore[reportUnknownMemberType]  # partial annotation
 
 
 @contextmanager

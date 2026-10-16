@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
 from functools import partial
 
 import numpy as np
@@ -62,13 +61,13 @@ rrf = partial(
 
 
 @pytest.fixture
-def judge() -> Iterator[FakeLLM]:
-    fake = FakeLLM(answer=answer)
-    with fake_llms(writer=FakeLLM(generate=write), judge=fake):
-        yield fake
+def scripted() -> tuple[FakeLLM, FakeLLM]:
+    return FakeLLM(generate=write), FakeLLM(answer=answer)
 
 
-def test_the_vote_uses_the_question_that_predicts(judge: FakeLLM) -> None:
+def test_the_vote_uses_the_question_that_predicts(
+    fakes: tuple[FakeLLM, FakeLLM],
+) -> None:
     model = rrf().fit(FOUNDERS, LABELS)
     assert model.rules_ == ("Is the founder an engineer?",)
     assert (model.min_votes_, model.threshold_) == (1, 1.0)
@@ -77,10 +76,11 @@ def test_the_vote_uses_the_question_that_predicts(judge: FakeLLM) -> None:
     assert len(model.questions_) == 4  # the case-insensitive repeat is merged
 
 
-def test_questions_are_written_and_scored_on_different_samples(judge: FakeLLM) -> None:
-    writer = FakeLLM(generate=write)
-    with fake_llms(writer=writer, judge=judge):
-        rrf(generation_size=16).fit(FOUNDERS, LABELS)
+def test_questions_are_written_and_scored_on_different_samples(
+    fakes: tuple[FakeLLM, FakeLLM],
+) -> None:
+    writer, judge = fakes
+    rrf(generation_size=16).fit(FOUNDERS, LABELS)
     shown = {
         line
         for c in writer.calls
@@ -93,7 +93,7 @@ def test_questions_are_written_and_scored_on_different_samples(judge: FakeLLM) -
     assert len(scored) == len(FOUNDERS) - 16
 
 
-def test_weak_questions_are_dropped(judge: FakeLLM) -> None:
+def test_weak_questions_are_dropped(fakes: tuple[FakeLLM, FakeLLM]) -> None:
     model = rrf().fit(FOUNDERS, LABELS)
     [lawyer] = model.questions_[
         model.questions_["question"] == "Is the founder a lawyer?"
@@ -101,20 +101,22 @@ def test_weak_questions_are_dropped(judge: FakeLLM) -> None:
     assert lawyer["precision"] == 0 and not lawyer["used"]
 
 
-def test_predict_asks_only_the_rules(judge: FakeLLM) -> None:
+def test_predict_asks_only_the_rules(fakes: tuple[FakeLLM, FakeLLM]) -> None:
+    _, judge = fakes
     model = rrf().fit(FOUNDERS, LABELS)
     before = judge.n_calls
     model.predict(["new one", "new two"])
     assert judge.n_calls - before == 2 * len(model.rules_)
 
 
-def test_elasticnet_combiner(judge: FakeLLM) -> None:
+def test_elasticnet_combiner(fakes: tuple[FakeLLM, FakeLLM]) -> None:
     model = rrf(combiner="elasticnet").fit(FOUNDERS, LABELS)
     assert model.combiner_ is not None and "Is the founder an engineer?" in model.rules_
     assert list(model.predict(["an engineer", "a poet"])) == ["YES", "NO"]
 
 
-def test_screening_answers_fewer_questions(judge: FakeLLM) -> None:
+def test_screening_answers_fewer_questions(fakes: tuple[FakeLLM, FakeLLM]) -> None:
+    _, judge = fakes
     rrf().fit(FOUNDERS, LABELS)
     full = judge.n_calls
     screening = FakeLLM(answer=answer)
@@ -126,18 +128,40 @@ def test_screening_answers_fewer_questions(judge: FakeLLM) -> None:
     assert len(model.questions_) == 1
 
 
-def test_expert_questions_are_scored_too(judge: FakeLLM) -> None:
+def test_expert_questions_are_scored_too(fakes: tuple[FakeLLM, FakeLLM]) -> None:
     model = rrf(
         expert_questions=("Did the founder exit a company?", "Is the founder a chef?")
     ).fit(FOUNDERS, LABELS)
     assert "Is the founder a chef?" in set(model.questions_["question"])
 
 
-def test_positive_class_and_two_classes_only(judge: FakeLLM) -> None:
+def test_positive_class(fakes: tuple[FakeLLM, FakeLLM]) -> None:
     flipped = rrf(pos_label="NO").fit(FOUNDERS, LABELS)
     assert flipped.rules_ and "engineer" not in flipped.rules_[0]
-    with pytest.raises(DataError, match="two classes"):
-        rrf().fit(FOUNDERS, [str(i % 3) for i in range(48)])
+
+
+def test_bad_data_and_settings_fail_before_any_call(
+    fakes: tuple[FakeLLM, FakeLLM],
+) -> None:
+    writer, judge = fakes
+    with pytest.raises(DataError, match="No samples to write questions from"):
+        rrf().fit(["an engineer", "a chef"], ["YES", "NO"])
+    with pytest.raises(ValueError, match="example_class_ratio names unknown"):
+        rrf(example_class_ratio={"yes": 1.0}).fit(FOUNDERS, LABELS)
+    assert writer.n_calls == judge.n_calls == 0
+
+
+def test_elasticnet_warns_when_it_weighs_no_question(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with fake_llms(
+        writer=FakeLLM(generate=write),
+        judge=FakeLLM(answer=lambda sample, question: 0.5, kind="decision"),
+    ):
+        model = rrf(combiner="elasticnet", drop_below_base_rate=False).fit(
+            FOUNDERS, LABELS
+        )
+    assert model.rules_ == () and "Every weight is zero" in caplog.text
 
 
 class TestSelection:
@@ -179,7 +203,7 @@ class TestSelection:
         assert (ranked, n, t) == ([0], 1, 1)
 
 
-def test_integer_labels_and_pos_label(judge: FakeLLM) -> None:
+def test_integer_labels_and_pos_label(fakes: tuple[FakeLLM, FakeLLM]) -> None:
     labels = [1 if label == "YES" else 0 for label in LABELS]
     model = rrf(pos_label=1).fit(FOUNDERS, labels)
     assert list(model.predict(["an engineer", "a chef"])) == [1, 0]
@@ -222,7 +246,9 @@ def test_one_failed_prompt_is_skipped() -> None:
     assert model.rules_ == ("Is the founder an engineer?",)
 
 
-def test_integer_labels_work_with_scikit_learn_metrics(judge: FakeLLM) -> None:
+def test_integer_labels_work_with_scikit_learn_metrics(
+    fakes: tuple[FakeLLM, FakeLLM],
+) -> None:
     y = [int(label == "YES") for label in LABELS]
     model = rrf().fit(FOUNDERS, y)
     assert model.classes_.dtype.kind == "i"

@@ -37,6 +37,8 @@ from think_reason_learn.core._data import (
     ClassRatio,
     ClassWeight,
     TextInput,
+    by_class,
+    class_shares,
     count,
     example_batches,
     take,
@@ -57,7 +59,12 @@ from think_reason_learn.llm import (
     estimate_generations,
     resolve_models,
 )
-from think_reason_learn.llm._estimate import QUESTION_TOKENS, mean_tokens, text_tokens
+from think_reason_learn.llm._estimate import (
+    GENERATE_OUTPUT_TOKENS,
+    QUESTION_TOKENS,
+    mean_tokens,
+    text_tokens,
+)
 
 from ._prompts import (
     CHOICE,
@@ -211,15 +218,20 @@ class GPTree(TRLClassifier):
     def _fit_plan(
         self, texts: list[str], y: Labels, classes: Classes
     ) -> list[UsageRecord]:
-        """Insights, then each level's questions, answered by every sample."""
+        """Insights, then each level's questions, answered by every sample.
+
+        Every sample is answered at each level the tree can reach, as if each
+        split peeled off just ``min_samples_leaf`` samples; the questions are
+        written for as many nodes as a tree whose splits halve has.
+        """
         writer = self._models("generator", "generate")
         n, example = len(texts), mean_tokens(texts)
-        smallest = max(
-            2, count(self.min_samples_split, n), 2 * count(self.min_samples_leaf, n)
-        )
-        levels = self._levels(n, smallest)
-        nodes = sum(min(2**k, n // smallest) for k in range(levels))
-        prompt = self.n_examples * example
+        min_leaf = max(1, count(self.min_samples_leaf, n))
+        smallest = max(2, count(self.min_samples_split, n), 2 * min_leaf)
+        nodes = sum(min(2**k, n // smallest) for k in range(self._levels(n, smallest)))
+        # Every node's prompt carries the instructions and each class's insights.
+        insights = len(classes) * GENERATE_OUTPUT_TOKENS if self.insights else 0
+        prompt = self.n_examples * example + self._instructions_tokens() + insights
         planned = [
             *self._instructions_plan(),
             *self._insights_plan(writer, y, example),
@@ -231,6 +243,7 @@ class GPTree(TRLClassifier):
             )
         questions = [QUESTION_TOKENS] * self.max_questions
         answerer = self._models("answerer", "answer")
+        levels = self._most_levels(n, smallest, min_leaf)
         return [*planned, estimate_answers(answerer, texts, questions, times=levels)]
 
     def _predict_plan(self, texts: list[str]) -> list[UsageRecord]:
@@ -255,6 +268,18 @@ class GPTree(TRLClassifier):
             limits.append(math.ceil(math.log2(max(self.max_leaf_nodes, 2))))
         return min(limits)
 
+    def _most_levels(self, n: int, smallest: int, min_leaf: int) -> int:
+        """Most levels that split, each split adding a leaf.
+
+        A split's largest child has at least ``min_leaf`` samples fewer than it.
+        """
+        limits = [max((n - smallest) // min_leaf + 1, 0)]
+        if self.max_depth is not None:
+            limits.append(self.max_depth)
+        if self.max_leaf_nodes is not None:
+            limits.append(max(self.max_leaf_nodes - 1, 0))
+        return min(limits)
+
     def _insights_plan(
         self, writer: tuple[Endpoint, ...], y: Labels, example: float
     ) -> list[UsageRecord]:
@@ -269,6 +294,7 @@ class GPTree(TRLClassifier):
         return [estimate_generations(writer, size * example, calls=calls)]
 
     def _check_classes(self, classes: Classes) -> None:
+        class_shares(classes, self.example_class_ratio)  # a bad ratio fails now
         if len(classes) == 2:
             positive_index(classes, self.pos_label)  # a bad pos_label fails now
 
@@ -394,7 +420,7 @@ class _Grower:
     async def insights(self) -> str:
         """A short summary of each class, as the paper's insight step."""
         summaries = await asyncio.gather(
-            *(self._summarise(c) for c in range(len(self.model.classes_)))
+            *(self._insight(c) for c in range(len(self.model.classes_)))
         )
         return "\n\n".join(
             f"{label}:\n{summary}"
@@ -424,6 +450,15 @@ class _Grower:
                 for child in self._apply(p)
             ]
         return self.tree
+
+    async def _insight(self, c: int) -> str:
+        """Class ``c``'s summary; "" if the generator writes none, as it is optional."""
+        try:
+            return await self._summarise(c)
+        except NoOutputError as error:
+            label = self.model.classes_[c]
+            logger.warning(f"No insights for class {label}; going on without: {error}")
+            return ""
 
     async def _summarise(self, c: int) -> str:
         members = self.rng.permutation(np.flatnonzero(self.y == c))
@@ -522,19 +557,27 @@ class _Grower:
             instructions=instructions,
         )
         if self.critic is not None:
+            written = await self._reviewed(self.critic, prompt, written)
+        return self._valid(node, written)
+
+    async def _reviewed(
+        self, critic: tuple[Endpoint, ...], prompt: str, written: _Questions
+    ) -> _Questions:
+        """The critic's questions; the written ones if it fails or adds questions."""
+        try:
             reviewed = await self.session.generate(
-                self.critic,
+                critic,
                 f"{prompt}\n\nCandidate questions:\n{written.model_dump_json()}",
                 role="critic",
                 schema=_Questions,
                 instructions=CRITIC_INSTRUCTIONS,
             )
-            written = (
-                reviewed
-                if 0 < len(reviewed.questions) <= len(written.questions)
-                else written
-            )
-        return self._valid(node, written)
+        except NoOutputError as error:
+            logger.warning(f"No review by the critic; the questions stay: {error}")
+            return written
+        if 0 < len(reviewed.questions) <= len(written.questions):
+            return reviewed
+        return written
 
     def _node_prompt(self, node: Node, idx: npt.NDArray[np.intp]) -> str:
         model = self.model
@@ -620,7 +663,7 @@ class _Grower:
             return None
         pos = positive_index(self.model.classes_, self.model.pos_label)
         shares = np.array([self.tree.proba(int(leaf))[pos] for leaf in self.leaf_of])
-        return best_threshold(shares, self.y == pos, self.model.beta)[0]
+        return best_threshold(shares, self.y == pos, self.model.beta)
 
     def _value(self, idx: npt.NDArray[np.intp]) -> tuple[float, ...]:
         counts = np.bincount(
@@ -667,10 +710,7 @@ def _sample_weights(
     if class_weight == "balanced":
         counts = np.bincount(y, minlength=len(classes))
         return (len(y) / (len(classes) * np.maximum(counts, 1)))[y]
-    weights = {str(label): float(w) for label, w in class_weight.items()}
-    if unknown := set(weights) - {str(c) for c in classes}:
-        raise ValueError(f"class_weight names unknown classes: {sorted(unknown)}.")
-    return np.array([weights.get(str(c), 1.0) for c in classes])[y]
+    return by_class(classes, class_weight, default=1.0, name="class_weight")[y]
 
 
 def _label(answer: Answer | None) -> str | None:

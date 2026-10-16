@@ -14,7 +14,7 @@ import torch.nn as nn
 from sklearn.exceptions import NotFittedError
 
 from think_reason_learn.core._sklearn import check_constructor, clone_estimator
-from think_reason_learn.exceptions import DataError
+from think_reason_learn.exceptions import DataError, ProviderAuthError
 from think_reason_learn.llm import LLMSession, resolve_models
 from think_reason_learn.testing import FakeLLM, GenerateRequest, fake_llms
 from think_reason_learn.verifiable_rl import VerifiableRL
@@ -212,6 +212,17 @@ def test_a_failed_refit_leaves_no_model() -> None:
         model.fit(X, np.arange(60) % 3)
     with pytest.raises(NotFittedError):
         model.predict(X)
+
+
+def test_a_failed_fit_keeps_what_it_spent() -> None:
+    texts = {name: ["text"] * 60 for name in SLOTS}
+    model = fast(supervisor="fake:advisor", uncertain_delta=1.0)
+    with (
+        fake_llms(advisor=FakeLLM(failures=["auth"])),
+        pytest.raises(ProviderAuthError),
+    ):
+        model.fit(X, Y, slot_texts=texts)
+    assert hasattr(model, "usage_")
 
 
 def test_integer_labels() -> None:

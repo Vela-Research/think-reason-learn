@@ -65,16 +65,27 @@ def best_split(
         masks = [routed == b for b in branches]
         if min(int(m.sum()) for m in masks) < min_samples_leaf:
             continue
-        child = sum(
-            weights[m].sum()
-            / node_weight
-            * impurity(_counts(y[m], weights[m], n_classes), criterion)
-            for m in masks
-        )
+        child = _children_impurity(masks, y, weights, n_classes, criterion)
         decrease = node_weight / total_weight * (parent - child)
         if best is None or decrease > best.decrease:
             best = Split(qid, branches, branches[0], decrease)
     return best if best is not None and best.decrease >= min_impurity_decrease else None
+
+
+def _children_impurity(
+    masks: Sequence[npt.NDArray[np.bool_]],
+    y: npt.NDArray[np.intp],
+    weights: npt.NDArray[np.float64],
+    n_classes: int,
+    criterion: Criterion,
+) -> float:
+    """The children's impurity, each weighted by its share of the node's weight."""
+    return sum(
+        weights[m].sum()
+        / weights.sum()
+        * impurity(_counts(y[m], weights[m], n_classes), criterion)
+        for m in masks
+    )
 
 
 def _counts(

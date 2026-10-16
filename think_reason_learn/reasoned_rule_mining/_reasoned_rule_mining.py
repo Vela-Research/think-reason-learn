@@ -19,7 +19,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Mapping, Sequence
-from functools import partial
 from typing import Final
 
 import numpy as np
@@ -33,7 +32,7 @@ from think_reason_learn.core._classifier import (
     Proba,
     positive_index,
 )
-from think_reason_learn.core._combine import LinearCombiner, fit_logistic, held_out_rows
+from think_reason_learn.core._combine import LinearCombiner, fit_combiner, held_out_rows
 from think_reason_learn.core._data import Classes, balanced_subset, take
 from think_reason_learn.core._prompts import most_written
 from think_reason_learn.llm import (
@@ -128,7 +127,6 @@ class ReasonedRuleMining(BinaryTRLClassifier):
         self.random_state = random_state
         self.verbose = verbose
 
-    instructions: str | None = None
     harsh_level: HarshLevel
     mined_rules_: tuple[tuple[str, str], ...]
     policy_: str
@@ -150,38 +148,30 @@ class ReasonedRuleMining(BinaryTRLClassifier):
             take(texts, calibrate), session, harsh=self.use_harsh
         )
         self.harsh_share_ = float(features[:, 2].mean()) if len(features) else 0.0
-        self.combiner_ = await asyncio.to_thread(
-            partial(
-                fit_logistic,
-                features,
-                positive[calibrate],
-                l1_ratios=(0.0,),
-                cv=self.cv,
-                beta=self.beta,
-                class_weight=None,  # unweighted, so predict_proba stays calibrated
-                random_state=self.random_state,
-            )
+        self.combiner_, _ = await fit_combiner(
+            features,
+            positive[calibrate],
+            l1_ratios=(0.0,),
+            cv=self.cv,
+            beta=self.beta,
+            class_weight=None,  # unweighted, so predict_proba stays calibrated
+            random_state=self.random_state,
         )
         self.threshold_ = self.combiner_.threshold
 
     def _fit_plan(
         self, texts: list[str], y: Labels, classes: Classes
     ) -> list[UsageRecord]:
-        """Mining, compiling, then judging; the positives get the second look."""
+        """Mining, compiling, then judging; any sample may get the second look."""
         writer = self._models("generator", "generate")
         mined = self._mined_samples(y, np.random.default_rng(self.random_state))
         positive = y == positive_index(classes, self.pos_label)
-        calibrate = self._calibration_samples(positive, mined)
+        calibrate = take(texts, self._calibration_samples(positive, mined))
         policy = GENERATE_OUTPUT_TOKENS  # the compiled policy is a whole reply
         return [
             estimate_generations(writer, mean_tokens(texts), calls=len(mined)),
             estimate_generations(writer, len(mined) * QUESTION_TOKENS),
-            *self._judging_plan(
-                take(texts, calibrate),
-                take(texts, calibrate[positive[calibrate]]),
-                policy,
-                policy,
-            ),
+            *self._judging_plan(calibrate, calibrate, policy, policy),
         ]
 
     def _predict_plan(self, texts: list[str]) -> list[UsageRecord]:

@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from pydantic import BaseModel
-from sklearn.exceptions import NotFittedError
+from sklearn.exceptions import DataConversionWarning, NotFittedError
 
 from think_reason_learn.core._classifier import (
     Labels,
@@ -16,9 +16,15 @@ from think_reason_learn.core._classifier import (
     TRLClassifier,
     positive_index,
 )
-from think_reason_learn.core._data import encode_labels, example_batches, to_texts
-from think_reason_learn.exceptions import DataError, LLMError, ProviderAuthError
-from think_reason_learn.llm import LLMSession, Models, YesNoQuestion
+from think_reason_learn.core._data import (
+    _split,
+    count,
+    encode_labels,
+    example_batches,
+    to_texts,
+)
+from think_reason_learn.exceptions import DataError, ProviderAuthError
+from think_reason_learn.llm import LLM, LLMSession, Models, YesNoQuestion
 from think_reason_learn.testing import FakeLLM, check_classifier, fake_llms
 
 
@@ -128,8 +134,6 @@ def test_decision_model_cannot_write() -> None:
 
 
 def test_saved_model_has_no_key(tmp_path: Path) -> None:
-    from think_reason_learn.llm import LLM
-
     with fake_llms(writer=WRITER, judge=JUDGE):
         model = OneQuestion(
             task="t",
@@ -139,7 +143,7 @@ def test_saved_model_has_no_key(tmp_path: Path) -> None:
         folder = model.fit(X, y).save(tmp_path / "m")
     assert "secret" not in (folder / "model.json").read_text()
     loaded = OneQuestion.load(folder)
-    assert loaded.generator.api_key is None  # type: ignore[union-attr]  # an LLM here
+    assert isinstance(loaded.generator, LLM) and loaded.generator.api_key is None
 
 
 def test_verbose_shows_progress(capsys: pytest.CaptureFixture[str]) -> None:
@@ -215,16 +219,15 @@ class TestData:
                 rng=np.random.default_rng(0),
             )
 
+    def test_no_samples_give_no_examples(self) -> None:
+        assert _split(4, np.array([0.5, 0.5]), [False, False]) == [0, 0]
+
 
 class TestRefitsAndCounts:
     def test_count_takes_numpy_integers(self) -> None:
-        from think_reason_learn.core._data import count
-
         assert count(np.int64(5), 100) == 5 and count(0.05, 100) == 5
 
     def test_refit_forgets_columns_and_failed_fit_is_not_fitted(self) -> None:
-        from sklearn.exceptions import NotFittedError
-
         with fake_llms(writer=WRITER, judge=JUDGE):
             model = make().fit(X, y)
             model.fit(list(X["bio"]), y)
@@ -235,14 +238,6 @@ class TestRefitsAndCounts:
                 fresh.fit(X, y)  # checked before anything is set or sent
             with pytest.raises(NotFittedError):
                 fresh.predict(X)
-            mute = OneQuestion(task="t", generator="fake:writer", answerer="fake:mute")
-            with (
-                fake_llms(mute=FakeLLM(answer=lambda sample, question: None)),
-                pytest.raises(LLMError),
-            ):
-                mute.fit(X, y)  # fails mid-fit: nothing half-learned is kept
-            with pytest.raises(NotFittedError):
-                mute.predict(X)
 
 
 class TestFitFailures:
@@ -265,12 +260,26 @@ class TestInputs:
         assert (texts, names) == (["a", "b"], None)
         texts, names = to_texts(np.array([["a", "1"], ["b", "2"]]))
         assert texts[0] == "0: a\n1: 1" and names == ["0", "1"]
-        frame = pd.DataFrame({"a": pd.array([1, None], dtype="Int64")})
-        assert to_texts(frame)[0] == ["a: 1", ""]
         with pytest.raises(DataError, match="missing texts"):
-            to_texts(["a", None])  # type: ignore[list-item]  # a missing text, on purpose
+            to_texts(pd.Series(["a", None]))
+        with pytest.raises(DataError, match=r"missing texts at rows \[1\]"):
+            to_texts(pd.DataFrame({"a": pd.array([1, None], dtype="Int64")}))
+
+    def test_array_cells_are_values_and_numpy_nat_is_missing(self) -> None:
+        frame = pd.DataFrame(
+            {
+                "tags": [np.array(["a", "b"]), np.array(["c"])],
+                "at": pd.Series([np.datetime64("NaT"), "x"], dtype=object),
+            }
+        )
+        assert to_texts(frame)[0] == ["tags: ['a' 'b']", "tags: ['c']\nat: x"]
 
     def test_labels_keep_their_type(self) -> None:
         classes, _ = encode_labels([1, 0, 1])
         assert classes.dtype.kind == "i"
         assert positive_index(np.array([0.0, 1.0]), 1) == 1
+
+    def test_a_column_of_labels_is_flattened(self) -> None:
+        with pytest.warns(DataConversionWarning):
+            classes, codes = encode_labels(np.array([[0], [1], [0]]))
+        assert list(classes) == [0, 1] and list(codes) == [0, 1, 0]

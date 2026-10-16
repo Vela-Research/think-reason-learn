@@ -17,6 +17,7 @@ from typing import Final
 
 _lock: Final = threading.Lock()
 _loop: asyncio.AbstractEventLoop | None = None
+_fork_resets: Final[list[Callable[[], None]]] = []
 
 
 def io_loop() -> asyncio.AbstractEventLoop:
@@ -77,9 +78,6 @@ def _wait[T](future: Future[T]) -> T:
     while not future.done():
         wait([future], timeout=0.5)
     return future.result()
-
-
-_fork_resets: Final[list[Callable[[], None]]] = []
 
 
 def _forget_loop() -> None:

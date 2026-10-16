@@ -281,9 +281,13 @@ def _price_table_cost(endpoint: Endpoint, tokens: TokenCounts) -> float | None:
         cache_read_tokens=tokens.cache_read,
         cache_write_tokens=tokens.cache_write,
     )
+    # The table lists OpenAI's Decisions API apart from its chat models.
+    decisions = endpoint.protocol == "openai-decisions"
     try:
         price = genai_prices.calc_price(
-            usage, endpoint.model_id, provider_id=endpoint.provider
+            usage,
+            endpoint.model_id,
+            provider_id="openai-decisions" if decisions else endpoint.provider,
         )
     except LookupError:
         return None

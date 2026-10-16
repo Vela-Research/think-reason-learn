@@ -96,7 +96,8 @@ LLM("Qwen3-32B", base_url="http://gpu-box:8000/v1")
 Reasoning models write and answer; decision models (Jev, GPT-6 Luna Decisions, Microsoft-Decision-1...) only answer,
 with probabilities. Putting a decision model in a writing role fails before anything is sent. Which models are
 decision models is never guessed from their names: Typesafe serves only decision models, and OpenRouter's are read
-from its public catalog (kept for a day, so new ones work at once). Elsewhere, ask for a model's decision API with
+from its public catalog, read once a day (a model it lists later is known the next day; until then, pass
+`kind="decision"`). Elsewhere, ask for a model's decision API with
 `LLM("openai:gpt-6-luna", kind="decision")`. Keys are read from the environment.
 
 ## Speed, cost and reruns
@@ -127,9 +128,9 @@ from sklearn.metrics import f1_score, make_scorer
 from sklearn.model_selection import cross_val_score
 from think_reason_learn.rrf import RRF
 
-# On a real dataset: five folds need at least five samples of each class.
+# Two folds for the four samples above; use five on a real dataset.
 f1 = make_scorer(f1_score, pos_label="successful")
-cross_val_score(RRF(task=task, generator="openai:gpt-5-mini"), X, y, cv=5, scoring=f1)
+cross_val_score(RRF(task=task, generator="openai:gpt-5-mini"), X, y, cv=2, scoring=f1)
 ```
 
 Every model supports `clone`, `get_params`, `GridSearchCV`, `Pipeline`, pickling, and `save`/`load` (API keys are

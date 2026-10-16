@@ -40,7 +40,7 @@ def cached[C](key: str, build: Callable[[], C]) -> C:
     """The client stored under ``key``, built on first use."""
     if key not in _clients:
         _clients[key] = build()
-    client: C = _clients[key]  # type: ignore[assignment]  # stored by this function with the same key
+    client: C = _clients[key]  # pyright: ignore[reportAssignmentType]  # stored by this function under the same key
     return client
 
 

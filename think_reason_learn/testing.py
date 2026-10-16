@@ -5,7 +5,7 @@ Example:
     >>> writer = FakeLLM(generate=lambda request: "Is the founder technical?")
     >>> judge = FakeLLM(answer=lambda sample, question: 0.9, kind="decision")
     >>> with fake_llms(writer=writer, judge=judge):
-    ...     ...  # models now accept "fake:writer" and "fake:judge"
+    ...     pass  # models now accept "fake:writer" and "fake:judge"
 """
 
 from __future__ import annotations

@@ -222,6 +222,11 @@ class TestUsageAndPrices:
         assert listed[1] == "price_table" and (listed[0] or 0) > 0
         unknown = resolve(LLM("ollama:my-own-model"))
         assert call_cost(unknown, tokens, None) == (None, "unknown")
+        decisions = resolve(LLM("openai:gpt-6-luna", api_key="k", kind="decision"))
+        chat = resolve(LLM("openai:gpt-6-luna", api_key="k"))
+        assert (call_cost(decisions, tokens, None)[0] or 0) < (
+            call_cost(chat, tokens, None)[0] or 0
+        )
 
     def test_a_cost_that_is_not_an_amount_is_never_counted(self) -> None:
         tokens = TokenCounts(input=1_000_000, output=1_000_000)

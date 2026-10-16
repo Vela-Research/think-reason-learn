@@ -37,8 +37,9 @@ labels ``"YES"`` / ``"NO"`` only                                any labels; ``po
 ``TRLModel``                                                    ``TRLClassifier``
 ==============================================================  =======================================================================
 
-VerifiableRL has ``fit``, ``predict`` and ``predict_proba`` but no async versions. Costs are counted for every model
-in the price table; set ``LLM(..., price=Price(...))`` for others.
+VerifiableRL has ``fit``, ``predict`` and ``predict_proba`` but no async versions, and no ``verbose``. Reasoned Rule
+Mining takes no ``instructions`` and no ``n_examples``. Costs are counted for every model in the price table; set
+``LLM(..., price=Price(...))`` for others.
 
 GPTree
 ~~~~~~

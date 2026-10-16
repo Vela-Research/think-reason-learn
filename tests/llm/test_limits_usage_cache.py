@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import multiprocessing
 import time
 from pathlib import Path
@@ -76,7 +77,7 @@ class TestLimiter:
 
         await hit()
         assert limiter._allowed == 4
-        assert limiter._delay(1) == pytest.approx(5, abs=0.1)
+        assert math.isclose(limiter._delay(1), 5, abs_tol=0.1)
 
     @pytest.mark.asyncio
     async def test_success_raises_concurrency_to_the_ceiling(self) -> None:
@@ -102,7 +103,7 @@ class TestLimiter:
         bucket = _Bucket.per_minute(60)  # one a second, ten seconds of burst
         assert bucket.capacity == 10
         bucket.take(10)
-        assert bucket.wait(1, bucket.stamp) == pytest.approx(1.0)
+        assert math.isclose(bucket.wait(1, bucket.stamp), 1.0)
         assert bucket.wait(1, bucket.stamp + 1) == 0.0
 
     def test_spent_window_pauses_until_reset(self) -> None:
@@ -110,7 +111,7 @@ class TestLimiter:
         limiter._observe(
             {"x-ratelimit-remaining-requests": "0", "x-ratelimit-reset-requests": "2s"}
         )
-        assert limiter._delay(1) == pytest.approx(2, abs=0.1)
+        assert math.isclose(limiter._delay(1), 2, abs_tol=0.1)
 
     def test_limits_are_learned_from_headers(self) -> None:
         limiter = Limiter(Limits(), local=False)
@@ -135,7 +136,7 @@ class TestLimiter:
     def test_long_waits_are_capped(self) -> None:
         limiter = Limiter(Limits(), local=False)
         limiter._pause(86_400)  # a daily quota's Retry-After
-        assert limiter._delay(1) == pytest.approx(120, abs=0.1)
+        assert math.isclose(limiter._delay(1), 120, abs_tol=0.1)
 
     def test_a_burst_of_rate_limits_halves_once(self) -> None:
         async def burst() -> int:
@@ -176,8 +177,8 @@ class TestUsageAndPrices:
     def test_price_counts_cache_reads_cheaper(self) -> None:
         price = Price(input=2.0, output=8.0, cached_input=0.5)
         tokens = TokenCounts(input=1_000_000, output=100_000, cache_read=400_000)
-        assert price.cost(tokens) == pytest.approx(
-            600_000 * 2 / 1e6 + 400_000 * 0.5 / 1e6 + 0.8
+        assert math.isclose(
+            price.cost(tokens), 600_000 * 2 / 1e6 + 400_000 * 0.5 / 1e6 + 0.8
         )
 
     def test_cost_comes_from_provider_then_price_then_table(self) -> None:

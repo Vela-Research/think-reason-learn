@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 import pytest
@@ -256,9 +257,10 @@ def test_a_fatal_error_sends_nothing_more() -> None:
 
 def test_a_switched_served_model_is_reported(caplog: pytest.LogCaptureFixture) -> None:
     session = LLMSession()
-    endpoint = _resolved("judge")[0]
+    with fake_llms(judge=FakeLLM(answer=_answer)):
+        endpoint = _resolved("judge")[0]
     for served in ("m-2025", "m-2025", "m-2026"):
-        session._check_served(endpoint, served)
+        session._engine.check_served(endpoint, served)
     assert "m-2026" in caplog.text
 
 
@@ -299,7 +301,7 @@ def test_usage_records_cost_and_roles() -> None:
         session = LLMSession()
         run_sync(session.answer(models, ["x"], QUESTIONS, role="answerer"))
     assert session.usage.calls == 2
-    assert session.usage.cost_usd == pytest.approx(2 * (1_000 * 1.0 + 100 * 2.0) / 1e6)
+    assert math.isclose(session.usage.cost_usd, 2 * (1_000 * 1.0 + 100 * 2.0) / 1e6)
     summary = session.usage.by("role", "model")
     assert summary.to_dict("records")[0]["calls"] == 2
 

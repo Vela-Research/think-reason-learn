@@ -36,7 +36,12 @@ from think_reason_learn.core._classifier import (
     positive_index,
 )
 from think_reason_learn.core._combine import LinearCombiner, fit_logistic, held_out_rows
-from think_reason_learn.core._data import Classes, balanced_subset, example_batches
+from think_reason_learn.core._data import (
+    Classes,
+    balanced_subset,
+    example_batches,
+    take,
+)
 from think_reason_learn.core._prompts import examples_block
 from think_reason_learn.exceptions import NoOutputError
 from think_reason_learn.llm import (
@@ -179,7 +184,7 @@ class PolicyInduction(BinaryTRLClassifier):
         under an unchanged policy is not answered from the cache. Once the policy
         is perfectly precise on the cases nothing can beat it, so refining stops.
         """
-        judged = [texts[i] for i in cases]
+        judged = take(texts, cases)
         policy = self.initial_policy or await self._first(
             texts, y, cases, writer, session, rng
         )
@@ -226,12 +231,12 @@ class PolicyInduction(BinaryTRLClassifier):
                 writer, policy + self.batch_size * example, calls=refinements
             ),
             estimate_answers(
-                answerer, [texts[i] for i in cases], [policy], times=1 + refinements
+                answerer, take(texts, cases), [policy], times=1 + refinements
             ),
         ]
         if self.predictor == "rules":
             positive = y == positive_index(classes, self.pos_label)
-            rows = [texts[i] for i in held_out_rows(positive, cases, self.cv)]
+            rows = take(texts, held_out_rows(positive, cases, self.cv))
             planned.append(
                 estimate_answers(answerer, rows, [QUESTION_TOKENS] * self.max_rules)
             )
@@ -354,9 +359,7 @@ class PolicyInduction(BinaryTRLClassifier):
     ) -> None:
         """Weigh the rules on samples the policy was not written from, if enough."""
         rows = held_out_rows(positive, cases, self.cv)
-        answers = await self._rule_answers(
-            [texts[i] for i in rows], self.policy_, session
-        )
+        answers = await self._rule_answers(take(texts, rows), self.policy_, session)
         fitted = await asyncio.to_thread(
             partial(
                 fit_logistic,
@@ -370,7 +373,7 @@ class PolicyInduction(BinaryTRLClassifier):
             )
         )
         used = np.flatnonzero(fitted.coef)
-        self.weighted_rules_ = tuple(self.policy_[j] for j in used)
+        self.weighted_rules_ = tuple(take(self.policy_, used))
         self.combiner_ = LinearCombiner(
             fitted.coef[used], fitted.intercept, fitted.threshold
         )

@@ -39,6 +39,7 @@ from think_reason_learn.core._data import (
     TextInput,
     count,
     example_batches,
+    take,
 )
 from think_reason_learn.core._prompts import examples_block
 from think_reason_learn.exceptions import NoOutputError
@@ -195,7 +196,11 @@ class GPTree(TRLClassifier):
         self.tree_.prune(node_id)
 
     async def _afit(self, texts: list[str], y: Labels, session: LLMSession) -> None:
-        grower = _Grower.start(self, texts, y, session)
+        roles = (
+            self._models("generator", "generate"),
+            self._models("answerer", "answer"),
+        )
+        grower = _Grower.start(self, texts, y, session, roles)
         self.instructions_, self.insights_ = await asyncio.gather(
             self._instructions(session, grower.writer),
             grower.insights() if self.insights else _nothing(),
@@ -313,7 +318,7 @@ class GPTree(TRLClassifier):
             raise ValueError(f"Node {node_id} is a leaf; it asks nothing.")
         try:
             answers = await session.answer(
-                answerer, [texts[i] for i in idx], {"q": node.question}, role="answerer"
+                answerer, take(texts, idx), {"q": node.question}, role="answerer"
             )
         except NoOutputError:
             logger.warning(
@@ -361,9 +366,15 @@ class _Grower:
 
     @classmethod
     def start(
-        cls, model: GPTree, texts: list[str], y: Labels, session: LLMSession
+        cls,
+        model: GPTree,
+        texts: list[str],
+        y: Labels,
+        session: LLMSession,
+        roles: tuple[tuple[Endpoint, ...], tuple[Endpoint, ...]],
     ) -> _Grower:
-        writer = model._models("generator", "generate")
+        """A grower for ``model``, with its (writer, answerer) models."""
+        writer, answerer = roles
         n = len(texts)
         return cls(
             model,
@@ -373,7 +384,7 @@ class _Grower:
             session,
             writer,
             _critic(writer, critic=model.critic),
-            model._models("answerer", "answer"),
+            answerer,
             np.random.default_rng(model.random_state),
             max(1, count(model.min_samples_leaf, n)),
             max(2, count(model.min_samples_split, n)),
@@ -427,9 +438,7 @@ class _Grower:
             *(
                 self.session.generate(
                     self.writer,
-                    _insight_prompt(
-                        self.model.task, label, [self.texts[i] for i in batch]
-                    ),
+                    _insight_prompt(self.model.task, label, take(self.texts, batch)),
                     role="generator",
                     instructions=INSIGHT_INSTRUCTIONS,
                 )
@@ -479,7 +488,7 @@ class _Grower:
             if not questions:
                 return None
             answers = await self.session.answer(
-                self.answerer, [self.texts[i] for i in idx], questions, role="answerer"
+                self.answerer, take(self.texts, idx), questions, role="answerer"
             )
         except NoOutputError as error:
             logger.warning(f"Node {node.id} stays a leaf: {error}")
@@ -576,7 +585,7 @@ class _Grower:
         budget = self.model.max_leaf_nodes
         if budget is None:
             return list(proposals)
-        leaves, kept = self.tree.n_leaves, []
+        leaves, kept = self.tree.n_leaves, list[_Proposal]()
         for proposal in proposals:
             added = len(proposal.split.branches) - 1
             if leaves + added <= budget:
@@ -590,7 +599,7 @@ class _Grower:
         routed = np.array(
             [split.default if a is None else a for a in proposal.labels], dtype=object
         )
-        children = []
+        children: list[tuple[Node, npt.NDArray[np.intp]]] = []
         for branch in split.branches:
             child_idx = idx[routed == branch]
             child = self.tree.add(
@@ -670,7 +679,7 @@ def _label(answer: Answer | None) -> str | None:
 
 class _Written(BaseModel):
     text: str
-    options: list[str] = Field(default_factory=list)
+    options: list[str] = Field(default_factory=list[str])
 
 
 class _Questions(BaseModel):

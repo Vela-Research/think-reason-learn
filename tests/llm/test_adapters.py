@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import math
 from collections.abc import Callable, Mapping
 
 import httpx2
@@ -101,7 +102,7 @@ class TestOpenAICompatible:
         session, [result] = _answer(LLM("openai:gpt-5-mini", api_key="k"))
 
         body = json.loads(sent[0].content)
-        system, user = body["messages"]
+        _, user = body["messages"]
         assert user["content"].startswith("Sample:\nAn engineer.")
         assert user["content"].endswith("Answer with exactly one of: YES, NO.")
         assert "temperature" not in body and body["prompt_cache_key"]
@@ -325,10 +326,8 @@ class TestSystemOne:
         }
         assert _yes(result, "tech") == 0.7 and _label(result, "stage") == "seed"
         [record] = list(session.usage)
-        assert (record.served_model, record.cost_usd) == (
-            "jev-1.13.0",
-            pytest.approx(0.042),
-        )
+        assert record.served_model == "jev-1.13.0"
+        assert record.cost_usd is not None and math.isclose(record.cost_usd, 0.042)
 
     def test_invalid_answers_are_unanswered(self, wire: Wire) -> None:
         wire(
@@ -355,7 +354,7 @@ class TestSystemOne:
         )
         assert sent[0].url == "https://openrouter.ai/api/alpha/decisions"
         assert json.loads(sent[0].content)["model"] == "openai/gpt-6-luna-decisions"
-        assert _yes(result, "tech") == pytest.approx(0.8)
+        assert math.isclose(_yes(result, "tech") or 0.0, 0.8)
         [record] = list(session.usage)
         assert (record.cost_usd, record.cost_source) == (4e-5, "provider")
 

@@ -22,7 +22,6 @@ import numpy.typing as npt
 import torch
 import torch.nn as nn
 from sklearn.base import BaseEstimator, ClassifierMixin
-from sklearn.utils.validation import check_is_fitted
 
 from think_reason_learn.core._classifier import (
     binary_decision,
@@ -33,6 +32,7 @@ from think_reason_learn.core._classifier import (
 from think_reason_learn.core._combine import best_threshold
 from think_reason_learn.core._data import Classes, LabelInput, encode_labels
 from think_reason_learn.core._persistence import Persistable
+from think_reason_learn.core._sklearn import require_fitted
 from think_reason_learn.exceptions import DataError
 from think_reason_learn.llm import LLMSession, Models, Usage, resolve_models
 
@@ -46,6 +46,7 @@ from ._episodes import (
 )
 from ._networks import Classifier, PolicyNet
 from ._supervisor import Supervisor
+from ._torch import backward, private_cpu_rng, shuffled_batches, tensor
 
 type SlotFeatures = npt.NDArray[np.floating] | Mapping[str, npt.NDArray[np.floating]]
 """A 2-D array with the slots' columns in order, or one array per slot."""
@@ -254,7 +255,7 @@ class VerifiableRL(Persistable, ClassifierMixin, BaseEstimator):
         self, X: SlotFeatures, *, slot_texts: SlotTexts | None = None
     ) -> npt.NDArray[np.float64]:
         """Class probabilities, columns in ``classes_`` order."""
-        check_is_fitted(self)
+        require_fitted(self)
         positive = self._final_proba(self._layout(X), slot_texts)
         return binary_proba(positive, self._pos_index())
 
@@ -269,7 +270,7 @@ class VerifiableRL(Persistable, ClassifierMixin, BaseEstimator):
         self, X: SlotFeatures, *, slot_texts: SlotTexts | None = None
     ) -> list[list[str]]:
         """The slots revealed for each sample, in order."""
-        check_is_fitted(self)
+        require_fitted(self)
         _, paths = self._reveal(self._layout(X), slot_texts)
         return [[self.slot_names_[s] for s in path] for path in paths]
 
@@ -287,7 +288,8 @@ class VerifiableRL(Persistable, ClassifierMixin, BaseEstimator):
         """Reveal slots greedily for every sample at once; never a slot already seen."""
         supervisor = self._supervisor(LLMSession(usage=self.usage_), slot_texts)
         n, n_slots = len(features), len(self.slot_names_)
-        masks, paths = np.zeros((n, n_slots), dtype=bool), [[] for _ in range(n)]
+        masks = np.zeros((n, n_slots), dtype=bool)
+        paths: list[list[int]] = [[] for _ in range(n)]
         active = np.ones(n, dtype=bool)
         for _ in range(self.max_steps):
             rows = np.flatnonzero(active)
@@ -299,19 +301,21 @@ class VerifiableRL(Persistable, ClassifierMixin, BaseEstimator):
             )
             if supervisor is not None:
                 probs = supervisor.nudge(probs, allowed, masks[rows], rows)
-            for row, action in zip(rows, greedy(probs, allowed), strict=True):
+            actions: list[int] = greedy(probs, allowed).tolist()
+            picked: list[int] = rows.tolist()
+            for row, action in zip(picked, actions, strict=True):
                 if action == n_slots:
                     active[row] = False
                 else:
                     masks[row, action] = True
-                    paths[row].append(int(action))
+                    paths[row].append(action)
             active &= ~masks.all(axis=1)
         return masks, paths
 
     def _states(
         self, features: npt.NDArray[np.float32], masks: npt.NDArray[np.bool_]
     ) -> torch.Tensor:
-        return torch.from_numpy(features * masks[:, self.columns_]).to(self.device)
+        return tensor(features * masks[:, self.columns_], torch.device(self.device))
 
     def _layout(
         self, X: SlotFeatures, *, fitting: bool = False
@@ -363,8 +367,7 @@ class VerifiableRL(Persistable, ClassifierMixin, BaseEstimator):
 
     def _build_networks(self, rng: np.random.Generator) -> None:
         state_dim = len(self.columns_)
-        with torch.random.fork_rng(devices=[]):
-            torch.default_generator.manual_seed(int(rng.integers(2**31)))
+        with private_cpu_rng(int(rng.integers(2**31))):
             self.policy_ = PolicyNet(
                 state_dim, len(self.slot_names_), self.policy_hidden
             ).to(self.device)
@@ -391,15 +394,11 @@ class VerifiableRL(Persistable, ClassifierMixin, BaseEstimator):
                     optimiser,
                     loss(
                         self.classifier_(self._states(features[batch], masks)),
-                        torch.from_numpy(positive[batch]).to(self.device),
+                        tensor(positive[batch], torch.device(self.device)),
                     ),
                     self.classifier_,
                     self.grad_clip,
                 )
-
-    def _search(self) -> Search:
-        """The rollout and reward settings, which share their names with ours."""
-        return Search(**{f.name: getattr(self, f.name) for f in fields(Search)})
 
 
 @dataclass(slots=True)
@@ -413,14 +412,18 @@ class _Trainer:
     rng: np.random.Generator
     shuffle: torch.Generator = field(default_factory=torch.Generator)
     policy_examples: list[tuple[torch.Tensor, npt.NDArray[np.float32], float]] = field(
-        default_factory=list
+        default_factory=list[tuple[torch.Tensor, npt.NDArray[np.float32], float]]
     )
-    clf_examples: list[tuple[torch.Tensor, float]] = field(default_factory=list)
-    updates: int = 0
+    clf_examples: list[tuple[torch.Tensor, float]] = field(
+        default_factory=list[tuple[torch.Tensor, float]]
+    )
     search: Search = field(init=False)
+    updates: int = 0
 
     def __post_init__(self) -> None:
-        self.search = self.model._search()
+        self.search = Search(
+            **{f.name: getattr(self.model, f.name) for f in fields(Search)}
+        )
 
     def run(self) -> None:
         model = self.model
@@ -442,7 +445,7 @@ class _Trainer:
         """Visit states of one sample, recording policy targets at each."""
         model, n_slots = self.model, len(self.model.slot_names_)
         sample = Sample(
-            torch.from_numpy(self.features[i]).to(model.device),
+            tensor(self.features[i], torch.device(model.device)),
             model.columns_,
             model.costs_,
         )
@@ -498,11 +501,11 @@ class _Trainer:
         if not examples:
             return
         states = torch.stack([s for s, _, _ in examples])
-        info = torch.from_numpy(np.stack([t for _, t, _ in examples])).to(states)
+        info = tensor(np.stack([t for _, t, _ in examples]), states)
         stop = torch.tensor([t for _, _, t in examples]).to(states)
         for _ in range(model.train_epochs):
-            for batch in torch.randperm(len(states), generator=self.shuffle).split(
-                model.policy_batch
+            for batch in shuffled_batches(
+                len(states), model.policy_batch, self.shuffle
             ):
                 logits = model.policy_(states[batch])
                 loss = (
@@ -523,9 +526,7 @@ class _Trainer:
         states = torch.stack([s for s, _ in examples])
         labels = torch.tensor([y for _, y in examples]).to(states)
         for _ in range(model.train_epochs):
-            for batch in torch.randperm(len(states), generator=self.shuffle).split(
-                model.clf_batch
-            ):
+            for batch in shuffled_batches(len(states), model.clf_batch, self.shuffle):
                 loss = nn.functional.binary_cross_entropy_with_logits(
                     model.classifier_(states[batch]), labels[batch]
                 )
@@ -553,7 +554,7 @@ def _step(
     grad_clip: float,
 ) -> None:
     optimiser.zero_grad(set_to_none=True)
-    loss.backward()
+    backward(loss)
     if grad_clip:
         nn.utils.clip_grad_norm_(network.parameters(), grad_clip)
     optimiser.step()

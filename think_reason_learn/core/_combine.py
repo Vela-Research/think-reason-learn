@@ -17,13 +17,20 @@ import numpy as np
 import numpy.typing as npt
 import sklearn
 from sklearn.linear_model import LogisticRegression, LogisticRegressionCV
-from sklearn.metrics import precision_recall_curve
-from sklearn.model_selection import StratifiedKFold, cross_val_predict
+from sklearn.model_selection import StratifiedKFold
+
+from think_reason_learn.core._sklearn import (
+    Bools,
+    Floats,
+    chosen,
+    fit,
+    out_of_fold_proba,
+    positive_proba,
+    pr_curve,
+    weights,
+)
 
 logger = logging.getLogger(__name__)
-
-type Floats = npt.NDArray[np.float64]
-type Bools = npt.NDArray[np.bool_]
 
 
 def fbeta(tp: Floats, fp: Floats, fn: Floats, beta: float) -> Floats:
@@ -41,7 +48,7 @@ def best_threshold(scores: Floats, y: Bools, beta: float) -> tuple[float, float]
     The threshold sits midway between the best cut's score and the next lower
     score seen.
     """
-    precision, recall, thresholds = precision_recall_curve(y, scores)
+    precision, recall, thresholds = pr_curve(y, scores)
     b2 = beta**2
     denominator = b2 * precision[:-1] + recall[:-1]
     f = np.divide(
@@ -68,7 +75,8 @@ class LinearCombiner:
     @classmethod
     def from_model(cls, model: LogisticRegression, threshold: float) -> LinearCombiner:
         """The weights of a fitted logistic regression, with ``threshold``."""
-        return cls(model.coef_[0], float(np.ravel(model.intercept_)[0]), threshold)
+        coef, intercept = weights(model)
+        return cls(coef, intercept, threshold)
 
     def scores(self, features: Floats) -> Floats:
         """Probability of the positive class."""
@@ -96,19 +104,18 @@ def fit_logistic(
     """
     folds = n_folds(cv, y)
     if folds < 2:
-        model = _logistic(1.0, l1_ratios[0], class_weight, random_state)
-        model.fit(features, y)
-        scores = model.predict_proba(features)[:, 1]
+        model = fit(
+            _logistic(1.0, l1_ratios[0], class_weight, random_state), features, y
+        )
+        scores = positive_proba(model, features)
         return LinearCombiner.from_model(model, best_threshold(scores, y, beta)[0])
     splitter = StratifiedKFold(folds, shuffle=True, random_state=random_state)
     model = _chosen(features, y, splitter, l1_ratios, cs, class_weight, random_state)
     # The threshold is tuned on out-of-fold scores of the model actually used,
     # with the chosen C and l1_ratio, so the scales match.
-    out_of_fold = np.asarray(
-        cross_val_predict(model, features, y, cv=splitter, method="predict_proba")
-    )[:, 1]
+    out_of_fold = out_of_fold_proba(model, features, y, splitter)
     threshold, _ = best_threshold(out_of_fold, y, beta)
-    return LinearCombiner.from_model(model.fit(features, y), threshold)
+    return LinearCombiner.from_model(fit(model, features, y), threshold)
 
 
 def n_folds(cv: int, y: Bools) -> int:
@@ -152,14 +159,9 @@ def _chosen(
         class_weight=class_weight,
         random_state=random_state,
         **_SOLVER,
-    ).set_params(**_NEW_CV_ATTRIBUTES)
-    search.fit(features, y)
-    return _logistic(
-        float(np.ravel(search.C_)[0]),
-        float(np.ravel(search.l1_ratio_)[0]),
-        class_weight,
-        random_state,
     )
+    c, l1_ratio = chosen(search, features, y)
+    return _logistic(c, l1_ratio, class_weight, random_state)
 
 
 def _logistic(
@@ -194,10 +196,3 @@ class _Solver(TypedDict):
 
 _SOLVER: Final = _Solver(solver="saga", max_iter=5000, penalty=_penalty())
 """Solver settings shared by the cross-validated search and the final model."""
-
-_NEW_CV_ATTRIBUTES: Final[dict[str, bool]] = (
-    {"use_legacy_attributes": False}
-    if "use_legacy_attributes" in inspect.signature(LogisticRegressionCV).parameters
-    else {}
-)
-"""scikit-learn 1.9 warns that LogisticRegressionCV's attributes change; opt in."""

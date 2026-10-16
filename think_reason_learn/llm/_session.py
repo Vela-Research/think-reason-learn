@@ -65,15 +65,12 @@ class LLMSession:
         progress: Callable[[int], None] | None = None,
     ) -> None:
         """Start a run under the current settings."""
-        self.progress = progress
-        self.config = get_config()
-        self.usage = usage if usage is not None else Usage()
-        self.budget = Budget(self.config.max_cost_usd)
-        self._cache: Cache | None = (
-            open_cache(self.config.cache_path) if self.config.cache else None
+        self._engine = _Engine(usage, progress)
+        self.config, self.usage, self.budget = (
+            self._engine.config,
+            self._engine.usage,
+            self._engine.budget,
         )
-        self._configured: set[str] = set()
-        self._served: dict[str, set[str]] = {}
 
     @overload
     async def generate[S: BaseModel](
@@ -133,12 +130,12 @@ class LLMSession:
         errors: list[str] = []
         for endpoint in models:
             key = _generation_key(endpoint, request, draw)
-            if (hit := self._cached_generation(key, schema)) is not None:
-                self._record_hits(endpoint, role, 1)
+            if (hit := self._engine.cached_generation(key, schema)) is not None:
+                self._engine.record_hits(endpoint, role, 1)
                 return hit
             adapter = ADAPTERS[endpoint.protocol]
             try:
-                reply = await self._call(
+                reply = await self._engine.call(
                     endpoint,
                     role,
                     partial(adapter.generate, endpoint, request),
@@ -151,7 +148,7 @@ class LLMSession:
                 errors.append(f"{endpoint.name}: {error}")
                 continue
             if _usable(reply.output, schema):
-                self._store({key: _dump(reply.output)})
+                self._engine.store({key: _dump(reply.output)})
                 self.budget.check()
                 return reply.output
             errors.append(f"{endpoint.name}: no usable output")
@@ -191,7 +188,9 @@ class LLMSession:
         errors: list[str] = []
         digests = [hashlib.sha256(sample.encode()).hexdigest() for sample in samples]
         for endpoint in models:
-            pass_ = _AnswerPass(self, endpoint, samples, digests, questions, role, draw)
+            pass_ = _AnswerPass(
+                self._engine, endpoint, samples, digests, questions, role, draw
+            )
             if not await pass_.run(results, errors):
                 break
         if (
@@ -207,7 +206,25 @@ class LLMSession:
             logger.warning(f"{len(errors)} answer calls failed; the first: {errors[0]}")
         return results
 
-    async def _call[T](
+
+class _Engine:
+    """The machinery behind a session: calls, the cache, usage and the budget."""
+
+    def __init__(
+        self, usage: Usage | None, progress: Callable[[int], None] | None
+    ) -> None:
+        """Read the settings in effect now; open the cache if it is on."""
+        self.progress = progress
+        self.config = get_config()
+        self.usage = usage if usage is not None else Usage()
+        self.budget = Budget(self.config.max_cost_usd)
+        self._cache: Cache | None = (
+            open_cache(self.config.cache_path) if self.config.cache else None
+        )
+        self._configured: set[str] = set()
+        self._served: dict[str, set[str]] = {}
+
+    async def call[T](
         self,
         endpoint: Endpoint,
         role: str,
@@ -290,10 +307,10 @@ class LLMSession:
                 error=error,
             )
         )
-        self._check_served(endpoint, served)
+        self.check_served(endpoint, served)
         return cost
 
-    def _record_hits(self, endpoint: Endpoint, role: str, count: int) -> None:
+    def record_hits(self, endpoint: Endpoint, role: str, count: int) -> None:
         self.usage.add(
             UsageRecord(
                 time=time.time(),
@@ -306,7 +323,7 @@ class LLMSession:
             )
         )
 
-    def _check_served(self, endpoint: Endpoint, served: str | None) -> None:
+    def check_served(self, endpoint: Endpoint, served: str | None) -> None:
         """Warn once when a provider switches the model behind a name mid-run."""
         if served is None:
             return
@@ -318,7 +335,7 @@ class LLMSession:
                 "pin a dated model for reproducible results."
             )
 
-    def _cached_generation(
+    def cached_generation(
         self, key: str, schema: type[BaseModel] | None
     ) -> BaseModel | str | None:
         if self._cache is None:
@@ -331,10 +348,10 @@ class LLMSession:
         except ValidationError:
             return None
 
-    def _cached(self, keys: Iterable[str]) -> dict[str, JSON]:
+    def cached(self, keys: Iterable[str]) -> dict[str, JSON]:
         return self._cache.get_many(keys) if self._cache is not None else {}
 
-    def _store(self, replies: Mapping[str, JSON]) -> None:
+    def store(self, replies: Mapping[str, JSON]) -> None:
         if self._cache is not None and replies:
             self._cache.put_many(replies)
 
@@ -343,7 +360,7 @@ class LLMSession:
 class _AnswerPass:
     """One model's turn at the questions still unanswered."""
 
-    session: LLMSession
+    engine: _Engine
     endpoint: Endpoint
     samples: Sequence[str]
     digests: Sequence[str]
@@ -362,7 +379,7 @@ class _AnswerPass:
         if not cells:
             return False
         keys = {cell: self._key(*cell) for cell in cells}
-        stored = self.session._cached(keys.values())
+        stored = self.engine.cached(keys.values())
         missing: list[tuple[int, str]] = []
         for (i, qid), key in keys.items():
             answer = _load_answer(stored.get(key), self.questions[qid])
@@ -371,7 +388,7 @@ class _AnswerPass:
             else:
                 results[i][qid] = answer
         if hits := len(cells) - len(missing):
-            self.session._record_hits(self.endpoint, self.role, hits)
+            self.engine.record_hits(self.endpoint, self.role, hits)
             self._advance(hits)
         requests = self._requests(missing, keys)
         self._check_estimate(requests)
@@ -428,7 +445,7 @@ class _AnswerPass:
             f"{format_usd(cost) if cost is not None else 'at an unknown cost'}."
         )
         if cost is not None:
-            self.session.budget.check_estimate(cost, what)
+            self.engine.budget.check_estimate(cost, what)
 
     def _estimate(self, request: _Request) -> int:
         texts = [self.questions[qid].text for qid in request.qids]
@@ -458,7 +475,7 @@ class _AnswerPass:
         sample = self.samples[request.sample]
         asked = {qid: self.questions[qid] for qid in request.qids}
         adapter, endpoint = ADAPTERS[self.endpoint.protocol], self.endpoint
-        reply = await self.session._call(
+        reply = await self.engine.call(
             endpoint,
             self.role,
             lambda dropped: adapter.answer(endpoint, sample, asked, dropped),
@@ -476,13 +493,13 @@ class _AnswerPass:
             stored[key] = {"label": answer.label, "probabilities": probabilities}
             for i in request.targets:
                 results[i][qid] = answer
-        self.session._store(stored)
+        self.engine.store(stored)
         self._advance(len(stored) * len(request.targets))
-        self.session.budget.check()
+        self.engine.budget.check()
 
     def _advance(self, count: int) -> None:
-        if self.session.progress is not None and count:
-            self.session.progress(count)
+        if self.engine.progress is not None and count:
+            self.engine.progress(count)
 
 
 @dataclass(slots=True)
@@ -512,9 +529,9 @@ async def _bounded[X](
 
 
 def _first(group: BaseExceptionGroup[BaseException]) -> BaseException:
-    """The first error out of a task group's errors."""
-    error = group.exceptions[0]
-    return _first(error) if isinstance(error, BaseExceptionGroup) else error
+    """The first error of a task group."""
+    first: BaseException = group.exceptions[0]  # tasks do not nest groups
+    return first
 
 
 def _endpoint_identity(endpoint: Endpoint) -> dict[str, JSON]:

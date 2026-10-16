@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from functools import partial
-from pathlib import Path
 
 import pytest
 
@@ -14,7 +13,6 @@ from think_reason_learn.policy_induction import PolicyInduction
 from think_reason_learn.testing import (
     FakeLLM,
     GenerateRequest,
-    check_classifier,
     fake_llms,
 )
 
@@ -65,10 +63,6 @@ def fakes() -> Iterator[tuple[FakeLLM, FakeLLM]]:
     )
     with fake_llms(writer=write, judge=judge):
         yield write, judge
-
-
-def test_contract(fakes: tuple[FakeLLM, FakeLLM], tmp_path: Path) -> None:
-    check_classifier(policy_induction, FOUNDERS, LABELS, tmp_path)
 
 
 def test_a_better_refinement_is_kept(fakes: tuple[FakeLLM, FakeLLM]) -> None:

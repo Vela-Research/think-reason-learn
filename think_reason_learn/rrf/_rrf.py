@@ -34,6 +34,7 @@ from think_reason_learn.core._data import (
     balanced_subset,
     count,
     example_batches,
+    take,
 )
 from think_reason_learn.core._prompts import examples_block, most_written
 from think_reason_learn.exceptions import NoOutputError
@@ -194,7 +195,7 @@ class RRF(BinaryTRLClassifier):
         answerer = self._models("answerer", "answer")
         rng = np.random.default_rng(self.random_state)
         _, scoring = self._split_generation(y, len(classes), rng)
-        rows = [texts[i] for i in scoring]
+        rows = take(texts, scoring)
         written = self.n_prompts * self.questions_per_prompt
         n_questions = written + len(self.expert_questions)
         planned = [
@@ -295,18 +296,18 @@ class RRF(BinaryTRLClassifier):
         rng: np.random.Generator,
     ) -> tuple[list[str], npt.NDArray[np.float64]]:
         """Answers of the scoring samples, after screening if it is on."""
-        rows = [texts[i] for i in scoring]
+        rows = take(texts, scoring)
         if self.screening_size is None or len(questions) <= self.screened_questions:
             return questions, await self._answer(rows, questions, session)
         screen = rng.permutation(len(rows))[: count(self.screening_size, len(rows))]
-        screened = await self._answer([rows[i] for i in screen], questions, session)
+        screened = await self._answer(take(rows, screen), questions, session)
         _, _, scores = question_stats(as_yes(screened), positive[screen], self.beta)
         best = np.argsort(-scores, kind="stable")[: self.screened_questions]
-        kept = [questions[j] for j in best]
-        rest = np.setdiff1d(np.arange(len(rows)), screen)
+        kept = take(questions, best)
+        rest = np.setdiff1d(np.arange(len(rows)), screen).astype(np.intp)
         answers = np.empty((len(rows), len(kept)))
         answers[screen] = screened[:, best]
-        answers[rest] = await self._answer([rows[i] for i in rest], kept, session)
+        answers[rest] = await self._answer(take(rows, rest), kept, session)
         return kept, answers
 
     async def _answer(

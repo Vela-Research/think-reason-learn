@@ -34,7 +34,7 @@ class Node:
     value: tuple[float, ...]
     n_samples: int
     question: Question | None = None
-    children: dict[str, int] = field(default_factory=dict)
+    children: dict[str, int] = field(default_factory=dict[str, int])
     default: str | None = None
     parent: int | None = None
     branch: str | None = None
@@ -50,7 +50,7 @@ class Node:
 class Tree:
     """The nodes of a fitted GPTree; the root is ``nodes[0]``."""
 
-    nodes: list[Node] = field(default_factory=list)
+    nodes: list[Node] = field(default_factory=list[Node])
 
     def add(
         self,
@@ -92,7 +92,8 @@ class Tree:
         """Make ``node_id`` a leaf, drop the nodes below it and renumber the rest."""
         node = self.nodes[node_id]
         node.question, node.default, node.children = None, None, {}
-        reachable, queue = [], [0]
+        reachable: list[Node] = []
+        queue = [0]
         while queue:
             current = self.nodes[queue.pop(0)]
             reachable.append(current)

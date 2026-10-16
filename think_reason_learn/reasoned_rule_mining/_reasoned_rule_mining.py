@@ -34,7 +34,7 @@ from think_reason_learn.core._classifier import (
     positive_index,
 )
 from think_reason_learn.core._combine import LinearCombiner, fit_logistic, held_out_rows
-from think_reason_learn.core._data import Classes, balanced_subset
+from think_reason_learn.core._data import Classes, balanced_subset, take
 from think_reason_learn.core._prompts import most_written
 from think_reason_learn.llm import (
     Endpoint,
@@ -147,7 +147,7 @@ class ReasonedRuleMining(BinaryTRLClassifier):
         self.policy_ = await self._compile(writer, session)
         calibrate = self._calibration_samples(positive, mined)
         features = await self._features(
-            [texts[i] for i in calibrate], session, harsh=self.use_harsh
+            take(texts, calibrate), session, harsh=self.use_harsh
         )
         self.harsh_share_ = float(features[:, 2].mean()) if len(features) else 0.0
         self.combiner_ = await asyncio.to_thread(
@@ -177,8 +177,8 @@ class ReasonedRuleMining(BinaryTRLClassifier):
             estimate_generations(writer, mean_tokens(texts), calls=len(mined)),
             estimate_generations(writer, len(mined) * QUESTION_TOKENS),
             *self._judging_plan(
-                [texts[i] for i in calibrate],
-                [texts[i] for i in calibrate if positive[i]],
+                take(texts, calibrate),
+                take(texts, calibrate[positive[calibrate]]),
                 policy,
                 policy,
             ),
@@ -292,7 +292,7 @@ class ReasonedRuleMining(BinaryTRLClassifier):
         promoted = first >= self.harsh_gate if harsh else np.zeros(len(texts), bool)
         if promoted.any():
             question = harsh_question(self.policy_, positive, self.harsh_level)
-            reviewed = [texts[int(i)] for i in np.flatnonzero(promoted)]
+            reviewed = take(texts, np.flatnonzero(promoted))
             second[promoted] = await self._judge(
                 self._harsh_models(), question, reviewed, session
             )

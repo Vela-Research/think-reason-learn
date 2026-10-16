@@ -5,7 +5,8 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from typing import Final, Literal
 from urllib.parse import urlparse
@@ -273,6 +274,31 @@ _PROVIDERS: Final[dict[str, _Provider]] = {
 _ALIASES: Final[dict[str, str]] = {"jev": "typesafe:jev-latest"}
 
 
+@contextmanager
+def extra_provider(
+    name: str,
+    protocol: WireProtocol,
+    base_url: str,
+    *,
+    catalog: Callable[[], Catalog] | None = None,
+) -> Iterator[None]:
+    """Serve ``"<name>:<model>"`` inside the block, from a local endpoint.
+
+    For tests: ``testing.fake_llms`` adds its fake provider this way.
+    """
+    before = _PROVIDERS.get(name)
+    _PROVIDERS[name] = _Provider(
+        protocol, base_url, local=True, decision=protocol, catalog=catalog
+    )
+    try:
+        yield
+    finally:
+        if before is None:
+            del _PROVIDERS[name]
+        else:
+            _PROVIDERS[name] = before
+
+
 def _kind(
     spec: LLM, provider: _Provider, model_id: str
 ) -> tuple[ModelKind, Price | None]:
@@ -283,7 +309,7 @@ def _kind(
     """
     if spec.kind == "reasoning":
         return "reasoning", None
-    listed = provider.catalog() if provider.catalog is not None else {}
+    listed: Catalog = provider.catalog() if provider.catalog is not None else {}
     if spec.kind == "decision" or provider.protocol == "systemone":
         return "decision", listed.get(model_id)
     if model_id in listed:

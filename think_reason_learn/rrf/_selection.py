@@ -16,6 +16,7 @@ import numpy.typing as npt
 from sklearn.model_selection import StratifiedKFold
 
 from think_reason_learn.core._combine import Bools, Floats, fbeta, n_folds
+from think_reason_learn.core._sklearn import stratified_folds
 from think_reason_learn.llm import YES_AT
 
 
@@ -137,7 +138,7 @@ def _cross_validated_grid(
     """
     total, seen = np.zeros((size, size)), np.zeros((size, size))
     splitter = StratifiedKFold(folds, shuffle=True, random_state=random_state)
-    for train, held_out in splitter.split(answers, y):
+    for train, held_out in stratified_folds(splitter, answers, y):
         fold_ranked = ranker(answers[train], y[train])[:size]
         k = len(fold_ranked)
         total[:k, :k] += vote_grid(answers[held_out][:, fold_ranked], y[held_out], beta)

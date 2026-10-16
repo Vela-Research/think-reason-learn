@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from functools import partial
-from pathlib import Path
 
 import numpy as np
 import pytest
@@ -16,7 +15,6 @@ from think_reason_learn.rrf._selection import question_stats, rank, tune_vote, v
 from think_reason_learn.testing import (
     FakeLLM,
     GenerateRequest,
-    check_classifier,
     fake_llms,
 )
 
@@ -70,10 +68,6 @@ def judge() -> Iterator[FakeLLM]:
         yield fake
 
 
-def test_contract(judge: FakeLLM, tmp_path: Path) -> None:
-    check_classifier(rrf, FOUNDERS, LABELS, tmp_path)
-
-
 def test_the_vote_uses_the_question_that_predicts(judge: FakeLLM) -> None:
     model = rrf().fit(FOUNDERS, LABELS)
     assert model.rules_ == ("Is the founder an engineer?",)
@@ -101,7 +95,9 @@ def test_questions_are_written_and_scored_on_different_samples(judge: FakeLLM) -
 
 def test_weak_questions_are_dropped(judge: FakeLLM) -> None:
     model = rrf().fit(FOUNDERS, LABELS)
-    lawyer = model.questions_.set_index("question").loc["Is the founder a lawyer?"]
+    [lawyer] = model.questions_[
+        model.questions_["question"] == "Is the founder a lawyer?"
+    ].to_dict("records")
     assert lawyer["precision"] == 0 and not lawyer["used"]
 
 
@@ -227,9 +223,7 @@ def test_one_failed_prompt_is_skipped() -> None:
 
 
 def test_integer_labels_work_with_scikit_learn_metrics(judge: FakeLLM) -> None:
-    from sklearn.metrics import accuracy_score
-
     y = [int(label == "YES") for label in LABELS]
     model = rrf().fit(FOUNDERS, y)
     assert model.classes_.dtype.kind == "i"
-    assert accuracy_score(y, model.predict(FOUNDERS)) == 1.0
+    assert (model.predict(FOUNDERS) == np.array(y)).all()

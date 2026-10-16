@@ -14,6 +14,7 @@ import numpy.typing as npt
 import torch
 
 from ._networks import Classifier, PolicyNet, action_probs
+from ._torch import tensor
 
 type Masks = npt.NDArray[np.bool_]
 
@@ -51,7 +52,7 @@ class Sample:
 
     def states(self, masks: Masks) -> torch.Tensor:
         """State vectors for revealed-slot ``masks`` of shape ``(n, n_slots)``."""
-        revealed = torch.from_numpy(masks[:, self.columns]).to(self.features)
+        revealed = tensor(masks[:, self.columns], self.features)
         return self.features.unsqueeze(0) * revealed
 
 
@@ -123,9 +124,10 @@ def rollouts(
         )
         if done.any():
             ended = rows[done]
-            finals[ended] = states[torch.from_numpy(done)]
+            ended_states = states[tensor(done, states.device)]
+            finals[ended] = ended_states
             returns[ended] = (
-                rewards(classifier, states[torch.from_numpy(done)], label, search)
+                rewards(classifier, ended_states, label, search)
                 + search.step_penalty * depth
                 + penalties[ended]
                 - masks[ended] @ sample.costs

@@ -21,7 +21,13 @@ from sklearn.utils import Tags
 from sklearn.utils.validation import check_is_fitted
 
 from think_reason_learn.core._persistence import Persistable
-from think_reason_learn.core._data import LabelInput, TextInput, encode_labels, to_texts
+from think_reason_learn.core._data import (
+    Classes,
+    LabelInput,
+    TextInput,
+    encode_labels,
+    to_texts,
+)
 from think_reason_learn.core._prompts import write_instructions
 from think_reason_learn.exceptions import DataError
 from think_reason_learn.llm import (
@@ -61,7 +67,7 @@ class TRLClassifier(Persistable, ClassifierMixin, BaseEstimator, ABC):
     task: str | None
     instructions: str | None
     verbose: int = 0
-    classes_: npt.NDArray[np.object_]
+    classes_: Classes
     n_features_in_: int
     feature_names_in_: npt.NDArray[np.object_]
     usage_: Usage
@@ -99,12 +105,12 @@ class TRLClassifier(Persistable, ClassifierMixin, BaseEstimator, ABC):
         check_is_fitted(self)
         return await run_async(self._arun(X, "predicting", self._checked_proba))
 
-    def predict(self, X: TextInput) -> npt.NDArray[np.object_]:
+    def predict(self, X: TextInput) -> Classes:
         """The predicted label of each sample."""
         proba = self.predict_proba(X)
         return self.classes_[self._decide(proba)]
 
-    async def apredict(self, X: TextInput) -> npt.NDArray[np.object_]:
+    async def apredict(self, X: TextInput) -> Classes:
         """The predicted label of each sample, from async code."""
         proba = await self.apredict_proba(X)
         return self.classes_[self._decide(proba)]
@@ -156,7 +162,7 @@ class TRLClassifier(Persistable, ClassifierMixin, BaseEstimator, ABC):
         return tags
 
     def _fit_plan(
-        self, texts: list[str], y: Labels, classes: npt.NDArray[np.object_]
+        self, texts: list[str], y: Labels, classes: Classes
     ) -> list[UsageRecord]:
         """The calls ``fit`` would make, for ``estimate_cost``."""
         raise NotImplementedError(f"{type(self).__name__} cannot estimate its cost.")
@@ -263,17 +269,11 @@ class TRLClassifier(Persistable, ClassifierMixin, BaseEstimator, ABC):
                 raise
         return self
 
-    def _check_classes(self, classes: npt.NDArray[np.object_]) -> None:
+    def _check_classes(self, classes: Classes) -> None:
         """Raise before any call if the model cannot learn ``classes``."""
 
     def _forget_fitted(self, *, keep: str | None = None) -> None:
-        """Drop what an earlier or failed fit learned, so nothing stale remains."""
-        for name in [
-            n
-            for n in vars(self)
-            if n.endswith("_") and not n.startswith("_") and n != keep
-        ]:
-            delattr(self, name)
+        forget_fitted(self, keep=keep)
 
     async def _checked_proba(self, texts: list[str], session: LLMSession) -> Proba:
         proba = await self._apredict_proba(texts, session)
@@ -302,7 +302,7 @@ class BinaryTRLClassifier(TRLClassifier):
             tags.classifier_tags.multi_class = False
         return tags
 
-    def _check_classes(self, classes: npt.NDArray[np.object_]) -> None:
+    def _check_classes(self, classes: Classes) -> None:
         if len(classes) != 2:
             raise DataError(
                 f"{type(self).__name__} predicts two classes; y has {len(classes)}."
@@ -322,25 +322,40 @@ class BinaryTRLClassifier(TRLClassifier):
 
     def _binary_proba(self, positive: npt.NDArray[np.float64]) -> Proba:
         """Class probabilities from the positive class's."""
-        proba = np.empty((len(positive), 2))
-        proba[:, self._pos_index()] = positive
-        proba[:, 1 - self._pos_index()] = 1 - positive
-        return proba
+        return binary_proba(positive, self._pos_index())
 
     def _decide(self, proba: Proba) -> Labels:
         return binary_decision(proba, self._pos_index(), self.threshold_)
 
 
-def positive_index(
-    classes: npt.NDArray[np.object_], pos_label: str | int | None
-) -> int:
-    """Index of the positive class: ``pos_label``, or the second class."""
+def positive_index(classes: Classes, pos_label: str | int | None) -> int:
+    """Index of the positive class: ``pos_label``, or the second class.
+
+    Compared by value (``1`` matches ``1.0``), then as text (``"1"`` matches ``1``).
+    """
     if pos_label is None:
         return 1
-    labels = [str(c) for c in classes]
-    if str(pos_label) not in labels:
-        raise ValueError(f"pos_label={pos_label!r} is not one of {labels}.")
-    return labels.index(str(pos_label))
+    for same in (lambda c: c == pos_label, lambda c: str(c) == str(pos_label)):
+        if matches := [i for i, c in enumerate(classes.tolist()) if same(c)]:
+            return matches[0]
+    raise ValueError(f"pos_label={pos_label!r} is not one of {classes.tolist()}.")
+
+
+def binary_proba(positive: npt.NDArray[np.float64], pos: int) -> Proba:
+    """Two-class probabilities from the positive class's, which is column ``pos``."""
+    proba = np.empty((len(positive), 2))
+    proba[:, pos], proba[:, 1 - pos] = positive, 1 - positive
+    return proba
+
+
+def forget_fitted(estimator: object, *, keep: str | None = None) -> None:
+    """Drop what an earlier or failed fit learned, so nothing stale remains."""
+    for name in [
+        n
+        for n in vars(estimator)
+        if n.endswith("_") and not n.startswith("_") and n != keep
+    ]:
+        delattr(estimator, name)
 
 
 def binary_decision(proba: Proba, pos: int, threshold: float) -> Labels:
@@ -349,7 +364,7 @@ def binary_decision(proba: Proba, pos: int, threshold: float) -> Labels:
     return np.where(positive, pos, 1 - pos).astype(np.intp)
 
 
-def _encoded(texts: list[str], y: LabelInput) -> tuple[npt.NDArray[np.object_], Labels]:
+def _encoded(texts: list[str], y: LabelInput) -> tuple[Classes, Labels]:
     """The classes and label codes of ``y``, one per text."""
     classes, codes = encode_labels(y)
     if len(codes) != len(texts):

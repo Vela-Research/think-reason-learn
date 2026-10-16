@@ -25,7 +25,7 @@ from think_reason_learn.exceptions import (
 
 from ._adapters import ADAPTERS, Answers, GenerateRequest, ProviderError, Reply
 from ._cache import JSON, Cache, cache_key, open_cache
-from ._calls import send
+from ._calls import Skipped, send
 from ._config import get_config
 from ._estimate import (
     GENERATE_OUTPUT_TOKENS,
@@ -210,8 +210,9 @@ class LLMSession:
         role: str,
         call: Callable[[frozenset[str]], Awaitable[Reply[T]]],
         estimate: TokenCounts,
+        stopped: Callable[[], bool] = lambda: False,
     ) -> Reply[T]:
-        """One call under the budget, recorded in usage."""
+        """One call under the budget, recorded in usage; skipped if ``stopped()``."""
         if endpoint.key not in self._configured:
             self._first_call(endpoint, estimate)
         held = self.budget.reserve(call_cost(endpoint, estimate, None)[0])
@@ -222,7 +223,11 @@ class LLMSession:
                 call,
                 estimated_tokens=estimate.input,
                 max_retries=self.config.max_retries,
+                stopped=stopped,
             )
+        except Skipped:
+            self.budget.settle(held, None)
+            raise
         except ProviderError as error:
             self.budget.settle(held, None)
             self._record(endpoint, role, TokenCounts(), start, error=str(error))
@@ -439,6 +444,8 @@ class _AnswerPass:
             return
         try:
             await self._ask(request, results)
+        except Skipped:
+            return
         except ProviderError as error:
             errors.append(f"{self.endpoint.name}: {error}")
             self.failed_in_a_row += 1
@@ -461,6 +468,7 @@ class _AnswerPass:
                 input=self._estimate(request),
                 output=answer_output_tokens(endpoint, len(asked)),
             ),
+            stopped=lambda: self.unavailable or self.fatal is not None,
         )
         stored: dict[str, JSON] = {}
         for qid, key in zip(request.qids, request.keys):

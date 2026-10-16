@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from think_reason_learn.exceptions import DataError
+from think_reason_learn.exceptions import DataError, LLMError
 from think_reason_learn.llm import Question
 from think_reason_learn.policy_induction import PolicyInduction
 from think_reason_learn.testing import (
@@ -89,9 +89,10 @@ def test_a_worse_refinement_is_rejected() -> None:
     assert not any(model.history_["kept"].tolist())
 
 
-def test_rounds_and_batches_set_the_refinements(fakes: tuple[FakeLLM, FakeLLM]) -> None:
-    write, _ = fakes
-    model = policy_induction(n_rounds=2, batch_size=3).fit(FOUNDERS, LABELS)
+def test_rounds_and_batches_set_the_refinements() -> None:
+    write = FakeLLM(generate=writer(BAD))  # never precise, so refining never stops
+    with fake_llms(writer=write, judge=FakeLLM(answer=judge_answer, kind="decision")):
+        model = policy_induction(n_rounds=2, batch_size=3).fit(FOUNDERS, LABELS)
     assert len(model.history_) == 2 * 12 // 3
     first_policy_calls = sum(
         c.schema is not None and "Current policy" not in (c.prompt or "")
@@ -136,12 +137,22 @@ def test_policy_predictor_takes_the_answerers_call(
     assert policy_induction().fit(FOUNDERS, LABELS).threshold_ == 0.5
 
 
-def test_each_round_asks_for_fresh_refinements(fakes: tuple[FakeLLM, FakeLLM]) -> None:
-    write, _ = fakes
-    policy_induction(initial_policy=GOOD, n_rounds=2, batch_size=1).fit(
-        FOUNDERS, LABELS
-    )
+def test_each_round_asks_for_fresh_refinements() -> None:
+    write = FakeLLM(generate=writer(BAD))
+    with fake_llms(writer=write, judge=FakeLLM(answer=judge_answer, kind="decision")):
+        policy_induction(initial_policy=BAD, n_rounds=2, batch_size=1).fit(
+            FOUNDERS, LABELS
+        )
     assert sum(c.schema is not None for c in write.calls) == 2 * 12
+
+
+def test_a_perfectly_precise_policy_stops_refining(
+    fakes: tuple[FakeLLM, FakeLLM],
+) -> None:
+    write, _ = fakes
+    model = policy_induction(initial_policy=GOOD, n_rounds=4).fit(FOUNDERS, LABELS)
+    assert model.history_.empty  # nothing could beat it, so nothing was paid for
+    assert not any(c.schema is not None for c in write.calls)
 
 
 def test_rules_predictor_drops_unweighted_rules(fakes: tuple[FakeLLM, FakeLLM]) -> None:
@@ -151,3 +162,28 @@ def test_rules_predictor_drops_unweighted_rules(fakes: tuple[FakeLLM, FakeLLM]) 
         predictor="rules",
     ).fit(FOUNDERS, LABELS)
     assert model.weighted_rules_ and set(model.weighted_rules_) <= set(model.policy_)
+
+
+def test_an_empty_first_policy_is_an_error() -> None:
+    with fake_llms(
+        writer=FakeLLM(generate=writer(())),
+        judge=FakeLLM(answer=judge_answer, kind="decision"),
+    ):
+        with pytest.raises(LLMError, match="empty policy"):
+            policy_induction().fit(FOUNDERS, LABELS)
+
+
+def test_a_failed_refinement_keeps_the_policy() -> None:
+    def refuse(request: GenerateRequest) -> str | dict[str, object] | None:
+        if request.schema is None:
+            return "Judge the founder."
+        return (
+            None if "Current policy" in (request.prompt or "") else {"rules": list(BAD)}
+        )
+
+    with fake_llms(
+        writer=FakeLLM(generate=refuse),
+        judge=FakeLLM(answer=judge_answer, kind="decision"),
+    ):
+        model = policy_induction().fit(FOUNDERS, LABELS)
+    assert model.policy_ == BAD and not any(model.history_["kept"])

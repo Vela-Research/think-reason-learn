@@ -8,6 +8,7 @@ Pure functions over a YES/NO answer matrix: rows are samples, columns questions.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from functools import partial
 
 import numpy as np
@@ -105,24 +106,41 @@ def tune_vote(
     if not ranked:
         return [], 0, 0
     folds = n_folds(cv, y)
-    if folds < 2:
-        grid = vote_grid(answers[:, ranked], y, beta)
-    else:
-        total, seen = (
-            np.zeros((len(ranked), len(ranked))),
-            np.zeros((len(ranked), len(ranked))),
+    grid = (
+        vote_grid(answers[:, ranked], y, beta)
+        if folds < 2
+        else _cross_validated_grid(
+            answers, y, len(ranked), ranker, folds, beta, random_state
         )
-        splitter = StratifiedKFold(folds, shuffle=True, random_state=random_state)
-        for train, held_out in splitter.split(answers, y):
-            fold_ranked = ranker(answers[train], y[train])[: len(ranked)]
-            fold_grid = vote_grid(answers[held_out][:, fold_ranked], y[held_out], beta)
-            size = len(fold_ranked)
-            total[:size, :size] += fold_grid
-            seen[:size, :size] += 1
-        # Average each (N, T) over the folds that could score it.
-        grid = np.divide(total, seen, out=np.zeros_like(total), where=seen > 0)
+    )
     n, t = np.unravel_index(int(np.argmax(grid)), grid.shape)
     return ranked, int(n) + 1, int(t) + 1
+
+
+def _cross_validated_grid(
+    answers: Bools,
+    y: Bools,
+    size: int,
+    ranker: Callable[[Bools, Bools], list[int]],
+    folds: int,
+    beta: float,
+    random_state: int | None,
+) -> Floats:
+    """Each (N, T)'s F-beta on held-out folds, ranked on the rest.
+
+    Only cells every fold could score compete, so a cell scored by one lucky
+    fold cannot beat cells averaged over all of them.
+    """
+    total, seen = np.zeros((size, size)), np.zeros((size, size))
+    splitter = StratifiedKFold(folds, shuffle=True, random_state=random_state)
+    for train, held_out in splitter.split(answers, y):
+        fold_ranked = ranker(answers[train], y[train])[:size]
+        k = len(fold_ranked)
+        total[:k, :k] += vote_grid(answers[held_out][:, fold_ranked], y[held_out], beta)
+        seen[:k, :k] += 1
+    grid = np.divide(total, seen, out=np.zeros_like(total), where=seen > 0)
+    complete = seen == folds
+    return np.where(complete, grid, -np.inf) if complete.any() else grid
 
 
 def as_yes(probabilities: npt.NDArray[np.float64]) -> Bools:

@@ -103,7 +103,9 @@ def test_estimates_match_the_calls_made(name: str) -> None:
         made = model.usage_.calls
         predicted = model.estimate_cost(NEW).calls
         model.predict(NEW)
-    if name == "gptree":  # every level is counted; this toy tree stops at one
+    if name in ("gptree", "policy", "policy-rules"):
+        # Counted in full: every level, every refinement. This toy tree stops at
+        # one level, and a perfectly precise policy stops refining.
         assert made <= planned.calls
     else:
         assert planned.calls == made

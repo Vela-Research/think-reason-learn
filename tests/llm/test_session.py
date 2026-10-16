@@ -349,3 +349,44 @@ def test_generate_request_reaches_the_model() -> None:
 
 def _resolved(*names: str) -> tuple[Endpoint, ...]:
     return resolve_models(_writers(*names), param="models", task="answer")
+
+
+def test_a_broken_cache_folder_runs_without_the_cache(tmp_path: Path) -> None:
+    blocker = tmp_path / "file"
+    blocker.write_text("not a folder")
+    judge = FakeLLM(answer=_answer)
+    with fake_llms(judge=judge), config_context(cache_dir=blocker / "cache"):
+        [result] = run_sync(
+            LLMSession().answer(_resolved("judge"), ["x"], QUESTIONS, role="a")
+        )
+    assert all(answer is not None for answer in result.values())
+
+
+def test_a_dead_model_is_skipped_after_a_few_failures() -> None:
+    dead = FakeLLM(answer=_answer, failures=["server_error"] * 1000)
+    good = FakeLLM(answer=_answer)
+    samples = [f"engineer {i}" for i in range(40)]
+    with fake_llms(dead=dead, good=good):
+        results = run_sync(
+            LLMSession().answer(
+                _resolved("dead", "good"),
+                samples,
+                {"tech": QUESTIONS["tech"]},
+                role="a",
+            )
+        )
+    assert all(r["tech"] is not None for r in results)
+    assert dead.n_calls < 3 * 40  # retries stop once the model looks dead
+
+
+def test_fakes_never_answer_from_an_earlier_block() -> None:
+    for expected in ("YES", "NO"):
+        judge = FakeLLM(answer=lambda sample, question, label=expected: label)
+        with fake_llms(judge=judge):
+            [result] = run_sync(
+                LLMSession().answer(
+                    _resolved("judge"), ["x"], {"tech": QUESTIONS["tech"]}, role="a"
+                )
+            )
+        answer = result["tech"]
+        assert answer is not None and answer.label == expected

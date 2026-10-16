@@ -28,13 +28,15 @@ from think_reason_learn.core._classifier import BinaryTRLClassifier, Labels, Pro
 from think_reason_learn.core._answers import yes_probabilities
 from think_reason_learn.core._combine import LinearCombiner, fit_logistic
 from think_reason_learn.core._data import (
+    Classes,
     ClassRatio,
     TextInput,
     balanced_subset,
     count,
     example_batches,
 )
-from think_reason_learn.core._prompts import examples_block
+from think_reason_learn.core._prompts import examples_block, most_written
+from think_reason_learn.exceptions import LLMError
 from think_reason_learn.llm import (
     Endpoint,
     LLMSession,
@@ -161,17 +163,20 @@ class RRF(BinaryTRLClassifier):
         return pd.DataFrame(matrix, columns=pd.Index(self.rules_))
 
     async def _afit(self, texts: list[str], y: Labels, session: LLMSession) -> None:
-        self._task()
         positive = self._positive(y)
         writer = self._models("generator", "generate")
+        self._models("answerer", "answer")  # fail before paying for questions
         rng = np.random.default_rng(self.random_state)
         self.instructions_ = await self._instructions(session, writer)
         generation, scoring = self._split_generation(y, len(self.classes_), rng)
         questions = await self._write(texts, y, generation, writer, session, rng)
+        if not questions:
+            raise LLMError("The generator wrote no usable questions.")
         questions, answers = await self._score(
             texts, scoring, positive[scoring], questions, session, rng
         )
-        self._select(questions, answers, positive[scoring])
+        # Ranking and cross-validation are CPU work: off the shared event loop.
+        await asyncio.to_thread(self._select, questions, answers, positive[scoring])
 
     async def _apredict_proba(self, texts: list[str], session: LLMSession) -> Proba:
         answers = await self._answer(texts, self.rules_, session)
@@ -187,7 +192,7 @@ class RRF(BinaryTRLClassifier):
         return as_yes(answers).mean(axis=1)
 
     def _fit_plan(
-        self, texts: list[str], y: Labels, classes: npt.NDArray[np.object_]
+        self, texts: list[str], y: Labels, classes: Classes
     ) -> list[UsageRecord]:
         writer = self._models("generator", "generate")
         answerer = self._models("answerer", "answer")
@@ -256,8 +261,8 @@ class RRF(BinaryTRLClassifier):
             )
             for batch in batches
         ]
-        written = await asyncio.gather(
-            *(
+        written = await most_written(
+            [
                 session.generate(
                     writer,
                     p,
@@ -266,7 +271,8 @@ class RRF(BinaryTRLClassifier):
                     instructions=QUESTION_INSTRUCTIONS,
                 )
                 for p in prompts
-            )
+            ],
+            "prompts",
         )
         candidates = [
             q for batch in written for q in batch.questions[: self.questions_per_prompt]
@@ -351,6 +357,11 @@ class RRF(BinaryTRLClassifier):
         answers: npt.NDArray[np.float64],
         positive: npt.NDArray[np.bool_],
     ) -> tuple[list[int], float]:
+        """Rules weighted by elastic net, and its threshold.
+
+        Questions are ranked on every scoring row before the combiner tunes its
+        out-of-fold threshold, so the threshold is slightly optimistic.
+        """
         ranked = rank(
             yes,
             positive,
@@ -364,7 +375,6 @@ class RRF(BinaryTRLClassifier):
             np.nan_to_num(answers[:, ranked], nan=0.0),
             positive,
             l1_ratios=(0.1, 0.5, 0.9),
-            cs=10,
             cv=self.cv,
             beta=self.beta,
             class_weight="balanced",

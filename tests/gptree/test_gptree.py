@@ -272,3 +272,38 @@ def test_leaf_budget_stops_growth_early(fakes: tuple[FakeLLM, FakeLLM]) -> None:
     mixed = [*LABELS[:4], "miss", *LABELS[5:]]
     tree(max_leaf_nodes=2, min_samples_leaf=1, insights=False).fit(FOUNDERS, mixed)
     assert sum(c.schema is not None for c in writer.calls) == 1
+
+
+def test_a_bad_pos_label_fails_before_any_call(fakes: tuple[FakeLLM, FakeLLM]) -> None:
+    writer, judge = fakes
+    with pytest.raises(ValueError, match="pos_label"):
+        tree(pos_label="HIT").fit(FOUNDERS, LABELS)
+    assert writer.n_calls == judge.n_calls == 0
+
+
+def test_yes_no_options_make_a_yes_no_question(fakes: tuple[FakeLLM, FakeLLM]) -> None:
+    options: dict[str, object] = {
+        "questions": [{"text": "Is the founder an engineer?", "options": ["Yes", "No"]}]
+    }
+    with fake_llms(
+        writer=FakeLLM(generate=lambda r: options if r.schema else "x"),
+        judge=FakeLLM(answer=answer),
+    ):
+        model = tree().fit(FOUNDERS, LABELS)
+    question = model.tree_.nodes[0].question
+    assert question is not None and question.text == "Is the founder an engineer?"
+
+
+def test_a_node_whose_questions_fail_stays_a_leaf() -> None:
+    writer = FakeLLM(generate=lambda r: None if r.schema else "Some guidance.")
+    with fake_llms(writer=writer, judge=FakeLLM(answer=answer)):
+        model = tree().fit(FOUNDERS, LABELS)  # no usable questions at the root
+    assert len(model.tree_.nodes) == 1 and model.tree_.nodes[0].is_leaf
+
+
+def test_class_weights_by_label_and_unknown_labels() -> None:
+    y = np.array([0, 0, 1])
+    weights = _sample_weights(y, np.array([0, 1]), {1: 5.0})
+    assert list(weights) == [1.0, 1.0, 5.0]
+    with pytest.raises(ValueError, match="unknown classes"):
+        _sample_weights(y, np.array(["no", "yes"]), {"YES": 5.0})

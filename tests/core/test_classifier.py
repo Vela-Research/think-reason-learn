@@ -8,10 +8,16 @@ import numpy as np
 import pandas as pd
 import pytest
 from pydantic import BaseModel
+from sklearn.exceptions import NotFittedError
 
-from think_reason_learn.core._classifier import Labels, Proba, TRLClassifier
+from think_reason_learn.core._classifier import (
+    Labels,
+    Proba,
+    TRLClassifier,
+    positive_index,
+)
 from think_reason_learn.core._data import encode_labels, example_batches, to_texts
-from think_reason_learn.exceptions import DataError, LLMError
+from think_reason_learn.exceptions import DataError, LLMError, ProviderAuthError
 from think_reason_learn.llm import LLMSession, Models, YesNoQuestion
 from think_reason_learn.testing import FakeLLM, check_classifier, fake_llms
 
@@ -173,7 +179,10 @@ class TestData:
             class_ratio="balanced",
             rng=np.random.default_rng(0),
         )
-        assert all(len(b) == 10 and (codes[b] == 1).sum() == 5 for b in batches)
+        # Both rare samples in every batch, never twice; the rest are common.
+        assert all(
+            len(set(b)) == len(b) == 10 and (codes[b] == 1).sum() == 2 for b in batches
+        )
         weighted = example_batches(
             codes,
             classes,
@@ -232,3 +241,34 @@ class TestReviewFixes:
                     mute.fit(X, y)  # fails mid-fit: nothing half-learned is kept
             with pytest.raises(NotFittedError):
                 mute.predict(X)
+
+
+class TestFitFailures:
+    def test_a_failed_fit_keeps_its_usage_but_is_not_fitted(self) -> None:
+        failing = FakeLLM(answer=JUDGE.answer, failures=["auth"], kind="decision")
+        with fake_llms(writer=WRITER, judge=failing):
+            model = OneQuestion(
+                task="t", generator="fake:writer", answerer="fake:judge"
+            )
+            with pytest.raises(ProviderAuthError):
+                model.fit(X, y)
+        assert model.usage_.calls >= 1
+        with pytest.raises(NotFittedError):
+            model.predict(X)
+
+
+class TestInputs:
+    def test_two_dimensional_arrays_and_missing_values(self) -> None:
+        texts, names = to_texts(np.array([["a"], ["b"]]))
+        assert (texts, names) == (["a", "b"], None)
+        texts, names = to_texts(np.array([["a", "1"], ["b", "2"]]))
+        assert texts[0] == "0: a\n1: 1" and names == ["0", "1"]
+        frame = pd.DataFrame({"a": pd.array([1, None], dtype="Int64")})
+        assert to_texts(frame)[0] == ["a: 1", ""]
+        with pytest.raises(DataError, match="missing texts"):
+            to_texts(["a", None])  # type: ignore[list-item]  # a missing text, on purpose
+
+    def test_labels_keep_their_type(self) -> None:
+        classes, _ = encode_labels([1, 0, 1])
+        assert classes.dtype.kind == "i"
+        assert positive_index(np.array([0.0, 1.0]), 1) == 1

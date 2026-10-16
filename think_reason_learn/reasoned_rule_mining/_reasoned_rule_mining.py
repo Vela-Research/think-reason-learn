@@ -19,6 +19,8 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Mapping, Sequence
+from functools import partial
+from typing import Final
 
 import numpy as np
 import numpy.typing as npt
@@ -31,8 +33,9 @@ from think_reason_learn.core._classifier import (
     positive_index,
 )
 from think_reason_learn.core._answers import yes_probabilities
-from think_reason_learn.core._combine import LinearCombiner, fit_logistic, n_folds
-from think_reason_learn.core._data import balanced_subset
+from think_reason_learn.core._combine import LinearCombiner, fit_logistic, held_out_rows
+from think_reason_learn.core._data import Classes, balanced_subset
+from think_reason_learn.core._prompts import most_written
 from think_reason_learn.llm import (
     Endpoint,
     LLMSession,
@@ -60,7 +63,7 @@ from ._prompts import (
 
 logger = logging.getLogger(__name__)
 
-_CLIP = 1e-3
+_CLIP: Final = 1e-3
 """Probabilities are clipped to [_CLIP, 1 - _CLIP] before taking log-odds."""
 
 
@@ -132,37 +135,42 @@ class ReasonedRuleMining(BinaryTRLClassifier):
 
     instructions: str | None = None
     harsh_level: HarshLevel
-    rules_: tuple[tuple[str, str], ...]
+    mined_rules_: tuple[tuple[str, str], ...]
     policy_: str
     combiner_: LinearCombiner
     harsh_share_: float
     """Share of the calibration samples that got the second look."""
 
     async def _afit(self, texts: list[str], y: Labels, session: LLMSession) -> None:
-        self._task()
         positive = self._positive(y)
         rng = np.random.default_rng(self.random_state)
         mined = self._mined_samples(y, rng)
         writer = self._models("generator", "generate")
-        self.rules_ = await self._mine(texts, y, mined, writer, session)
+        self._models("answerer", "answer")  # fail before paying for mining
+        self._harsh_models()
+        self.mined_rules_ = await self._mine(texts, y, mined, writer, session)
         self.policy_ = await self._compile(writer, session)
         calibrate = self._calibration_samples(positive, mined)
-        features = await self._features([texts[i] for i in calibrate], session)
+        features = await self._features(
+            [texts[i] for i in calibrate], session, harsh=self.use_harsh
+        )
         self.harsh_share_ = float(features[:, 2].mean()) if len(features) else 0.0
-        self.combiner_ = fit_logistic(
-            features,
-            positive[calibrate],
-            l1_ratios=(0.0,),
-            cs=10,
-            cv=self.cv,
-            beta=self.beta,
-            class_weight=None,  # unweighted, so predict_proba stays calibrated
-            random_state=self.random_state,
+        self.combiner_ = await asyncio.to_thread(
+            partial(
+                fit_logistic,
+                features,
+                positive[calibrate],
+                l1_ratios=(0.0,),
+                cv=self.cv,
+                beta=self.beta,
+                class_weight=None,  # unweighted, so predict_proba stays calibrated
+                random_state=self.random_state,
+            )
         )
         self.threshold_ = self.combiner_.threshold
 
     def _fit_plan(
-        self, texts: list[str], y: Labels, classes: npt.NDArray[np.object_]
+        self, texts: list[str], y: Labels, classes: Classes
     ) -> list[UsageRecord]:
         """Mining, compiling, then judging; the positives get the second look."""
         writer = self._models("generator", "generate")
@@ -183,9 +191,10 @@ class ReasonedRuleMining(BinaryTRLClassifier):
 
     def _predict_plan(self, texts: list[str]) -> list[UsageRecord]:
         positive = self._positive_label()
+        share = self.harsh_share_ if self._harsh_counts() else 0.0
         return self._judging_plan(
             texts,
-            texts[: round(len(texts) * self.harsh_share_)],
+            texts[: round(len(texts) * share)],
             vote_question(self.policy_, positive),
             harsh_question(self.policy_, positive, self.harsh_level),
         )
@@ -212,19 +221,17 @@ class ReasonedRuleMining(BinaryTRLClassifier):
         self, positive: npt.NDArray[np.bool_], mined: npt.NDArray[np.intp]
     ) -> npt.NDArray[np.intp]:
         """Samples the miner never saw, if there are enough of each class."""
-        held_out = np.setdiff1d(np.arange(len(positive)), mined)
-        if n_folds(self.cv, positive[held_out]) >= 2:
-            return held_out
-        logger.warning(
-            "Too few unmined samples of each class to calibrate on; calibrating "
-            "on every sample, so the threshold may be optimistic. Lower n_samples."
-        )
-        return np.arange(len(positive))
+        if self.n_samples is None:  # every sample was mined, as asked
+            return np.arange(len(positive), dtype=np.intp)
+        return held_out_rows(positive, mined, self.cv)
 
     async def _apredict_proba(self, texts: list[str], session: LLMSession) -> Proba:
-        return self._binary_proba(
-            self.combiner_.scores(await self._features(texts, session))
-        )
+        features = await self._features(texts, session, harsh=self._harsh_counts())
+        return self._binary_proba(self.combiner_.scores(features))
+
+    def _harsh_counts(self) -> bool:
+        """Whether the second look carries weight; if not, it is not paid for."""
+        return self.use_harsh and bool(np.any(self.combiner_.coef[1:]))
 
     def _mined_samples(
         self, y: Labels, rng: np.random.Generator
@@ -242,28 +249,28 @@ class ReasonedRuleMining(BinaryTRLClassifier):
         writer: tuple[Endpoint, ...],
         session: LLMSession,
     ) -> tuple[tuple[str, str], ...]:
-        """(class, rule) for each mined sample, reasoned from its true class."""
-        replies = await asyncio.gather(
-            *(
-                session.generate(
-                    writer,
-                    mining_prompt(self._task(), texts[i], str(self.classes_[y[i]])),
-                    role="generator",
-                    schema=_Mined,
-                    instructions=MINING_INSTRUCTIONS,
-                )
-                for i in mined
+        """(class, rule) for each mined sample, reasoned from its true class.
+
+        A sample the generator writes nothing for is skipped.
+        """
+
+        async def mine(i: int) -> tuple[str, str]:
+            label = str(self.classes_[y[i]])
+            reply = await session.generate(
+                writer,
+                mining_prompt(self._task(), texts[i], label),
+                role="generator",
+                schema=_Mined,
+                instructions=MINING_INSTRUCTIONS,
             )
-        )
-        return tuple(
-            (str(self.classes_[y[i]]), reply.rule.strip())
-            for i, reply in zip(mined, replies)
-            if reply.rule.strip()
-        )
+            return label, reply.rule.strip()
+
+        rules = await most_written([mine(int(i)) for i in mined], "mined samples")
+        return tuple((label, rule) for label, rule in rules if rule)
 
     async def _compile(self, writer: tuple[Endpoint, ...], session: LLMSession) -> str:
         by_class: dict[str, list[str]] = {}
-        for label, rule in self.rules_:
+        for label, rule in self.mined_rules_:
             by_class.setdefault(label, []).append(rule)
         return await session.generate(
             writer,
@@ -273,9 +280,12 @@ class ReasonedRuleMining(BinaryTRLClassifier):
         )
 
     async def _features(
-        self, texts: Sequence[str], session: LLMSession
+        self, texts: Sequence[str], session: LLMSession, *, harsh: bool
     ) -> npt.NDArray[np.float64]:
-        """Log-odds of the first pass and of the second look, and whether it ran."""
+        """Log-odds of the first pass and of the second look, and whether it ran.
+
+        With ``harsh=False`` no sample gets the second look.
+        """
         positive = self._positive_label()
         first = await self._judge(
             self._models("answerer", "answer"),
@@ -283,22 +293,18 @@ class ReasonedRuleMining(BinaryTRLClassifier):
             texts,
             session,
         )
-        harsh = np.full(len(texts), 0.5)
-        promoted = (
-            first >= self.harsh_gate
-            if self.use_harsh
-            else np.zeros(len(texts), dtype=bool)
-        )
+        second = np.full(len(texts), 0.5)
+        promoted = first >= self.harsh_gate if harsh else np.zeros(len(texts), bool)
         if promoted.any():
             question = harsh_question(self.policy_, positive, self.harsh_level)
             reviewed = [texts[int(i)] for i in np.flatnonzero(promoted)]
-            harsh[promoted] = await self._judge(
+            second[promoted] = await self._judge(
                 self._harsh_models(), question, reviewed, session
             )
         return np.column_stack(
             [
                 _logit(first),
-                np.where(promoted, _logit(harsh), 0.0),
+                np.where(promoted, _logit(second), 0.0),
                 promoted.astype(float),
             ]
         )
@@ -322,8 +328,8 @@ class ReasonedRuleMining(BinaryTRLClassifier):
         return np.mean([run[:, 0] for run in runs], axis=0)
 
     def _draws(self, models: Sequence[Endpoint]) -> int:
-        """One call for decision models; ``ensemble_size`` for reasoning models."""
-        return 1 if all(m.kind == "decision" for m in models) else self.ensemble_size
+        """One call when the first model decides; ``ensemble_size`` to reason."""
+        return 1 if models[0].kind == "decision" else self.ensemble_size
 
     def _harsh_models(self) -> tuple[Endpoint, ...]:
         if self.harsh_answerer is None:
@@ -335,7 +341,7 @@ class ReasonedRuleMining(BinaryTRLClassifier):
     def _summary(self) -> Mapping[str, object]:
         return {
             "policy": self.policy_,
-            "rules": [list(r) for r in self.rules_],
+            "mined_rules": [list(r) for r in self.mined_rules_],
             "threshold": self.threshold_,
         }
 

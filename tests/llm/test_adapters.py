@@ -408,3 +408,33 @@ class TestOpenAIDecisions:
         }
         assert wired[1]["choices"] == [{"value": "seed"}, {"value": "series_a"}]
         assert _label(result, "tech") == "NO" and result["stage"] is None
+
+
+def test_an_unreadable_reply_is_retried_not_a_crash(wire: Wire) -> None:
+    replies = iter([httpx2.Response(200, text="<html>proxy error</html>")])
+    sent = wire(lambda r: next(replies, None) or _chat('{"a1": "YES"}'))
+    _, [result] = _answer(LLM("openai:gpt-5-mini", api_key="k"))
+    assert _label(result, "tech") == "YES" and len(sent) == 2
+
+
+def test_reasoning_tokens_left_out_of_completion_tokens_are_counted(
+    wire: Wire,
+) -> None:
+    usage = {"prompt_tokens": 100, "completion_tokens": 10, "total_tokens": 610}
+    wire(lambda r: _chat('{"a1": "YES"}', usage=usage))
+    session, _ = _answer(LLM("xai:grok-4", api_key="k"))
+    [record] = list(session.usage)
+    assert record.output_tokens == 510
+
+
+def test_a_model_the_account_cannot_use_tries_the_next() -> None:
+    error = classify(
+        403, "Project does not have access to model gpt-6 (model_not_found)", {}
+    )
+    assert error.failure == "unavailable"
+
+
+def test_claude_gets_the_service_tier(wire: Wire) -> None:
+    sent = wire(lambda r: _message('{"a1": "YES"}'))
+    _answer(LLM("anthropic:claude-haiku-4-5", api_key="k", service_tier="auto"))
+    assert json.loads(sent[0].content)["service_tier"] == "auto"

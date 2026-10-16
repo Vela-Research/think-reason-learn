@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Callable, List
 
 from pydantic import BaseModel, Field
 
-
-# ---------------------------------------------------------------------------
-# Cognitive reasoning modes (CoFEE-inspired)
-# ---------------------------------------------------------------------------
+type Record = Mapping[str, object]
+"""One structured sample, e.g. a founder's profile as a dict."""
 
 
 class CognitiveMode(StrEnum):
@@ -26,11 +24,6 @@ class CognitiveMode(StrEnum):
     SUBGOAL_DECOMPOSITION = "subgoal_decomposition"
     VERIFICATION = "verification"
     BACKTRACKING = "backtracking"
-
-
-# ---------------------------------------------------------------------------
-# Pydantic models for structured LLM output
-# ---------------------------------------------------------------------------
 
 
 class GeneratedRule(BaseModel):
@@ -58,18 +51,13 @@ class GeneratedRule(BaseModel):
 class GeneratedRules(BaseModel):
     """Structured output containing all generated rules."""
 
-    rules: List[GeneratedRule] = Field(
+    rules: list[GeneratedRule] = Field(
         ...,
         description="List of generated binary classification rules.",
     )
 
 
-# ---------------------------------------------------------------------------
-# Domain objects
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Rule:
     """A compiled-ready rule with name, description, and expression string."""
 
@@ -78,22 +66,27 @@ class Rule:
     expression: str  # e.g. "lambda founder: len(founder.get('ipos', [])) > 0"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class HelperFunction:
-    """A helper function available to lambda expressions.
+    """A helper function the rules may call.
 
-    The function must exist in *both* worlds:
-    - In the LLM prompt (so the model knows it can use it)
-    - In the eval context (so the lambda can call it at runtime)
+    It is described in the prompt, so the model knows it, and placed in the
+    rules' scope, so they can call it.
+
+    Attributes:
+        name: The name rules call it by, e.g. ``"parse_qs"``.
+        func: The function.
+        signature: Shown in the prompt, e.g. ``"parse_qs(qs_str: str) -> float"``.
+        docstring: What it does, shown in the prompt.
     """
 
-    name: str  # e.g. "parse_qs"
-    func: Callable[..., Any]  # the actual Python callable
-    signature: str  # e.g. "parse_qs(qs_str: str) -> float"
-    docstring: str  # e.g. 'Converts "1" -> 1.0, "200+" -> 250.0, "" -> 999.0'
+    name: str
+    func: Callable[..., object]
+    signature: str
+    docstring: str
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class DataSchema:
     """Description of the input data structure for the LLM prompt.
 
@@ -108,5 +101,9 @@ class DataSchema:
 
     description: str
     schema_text: str
-    param_name: str  # "founder"
-    example_rules: list[Rule]
+    param_name: str
+    example_rules: Sequence[Rule]
+
+    def __post_init__(self) -> None:
+        """Keep the example rules as a tuple, so the schema cannot change."""
+        object.__setattr__(self, "example_rules", tuple(self.example_rules))

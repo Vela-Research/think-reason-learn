@@ -17,7 +17,7 @@ import logging
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Final, Literal
+from typing import Final
 
 import graphviz
 import numpy as np
@@ -34,6 +34,8 @@ from think_reason_learn.core._classifier import (
 from think_reason_learn.core._combine import best_threshold
 from think_reason_learn.exceptions import LLMError
 from think_reason_learn.core._data import (
+    Classes,
+    ClassWeight,
     ClassRatio,
     TextInput,
     count,
@@ -144,7 +146,7 @@ class GPTree(TRLClassifier):
         max_choices: int = 2,
         n_examples: int = 30,
         example_class_ratio: ClassRatio = "balanced",
-        class_weight: Literal["balanced"] | Mapping[str, float] | None = None,
+        class_weight: ClassWeight = None,
         insights: bool = True,
         insight_batch_size: int = 250,
         pos_label: str | int | None = None,
@@ -179,7 +181,7 @@ class GPTree(TRLClassifier):
     _instructions_purpose = INSTRUCTIONS_PURPOSE
     criterion: Criterion
     example_class_ratio: ClassRatio
-    class_weight: Literal["balanced"] | Mapping[str, float] | None
+    class_weight: ClassWeight
     instructions_: str
     insights_: str
     tree_: Tree
@@ -202,15 +204,16 @@ class GPTree(TRLClassifier):
         self.tree_.prune(node_id)
 
     async def _afit(self, texts: list[str], y: Labels, session: LLMSession) -> None:
-        self._task()
         grower = _Grower.start(self, texts, y, session)
-        self.instructions_ = await self._instructions(session, grower.writer)
-        self.insights_ = await grower.insights() if self.insights else ""
+        self.instructions_, self.insights_ = await asyncio.gather(
+            self._instructions(session, grower.writer),
+            grower.insights() if self.insights else _nothing(),
+        )
         self.tree_ = await grower.grow()
         self.threshold_ = grower.threshold()
 
     def _fit_plan(
-        self, texts: list[str], y: Labels, classes: npt.NDArray[np.object_]
+        self, texts: list[str], y: Labels, classes: Classes
     ) -> list[UsageRecord]:
         """Insights, then each level's questions, answered by every sample."""
         writer = self._models("generator", "generate")
@@ -269,6 +272,10 @@ class GPTree(TRLClassifier):
         calls = sum(b + 1 if b > 1 else b for b in batches)  # several are merged
         return [estimate_generations(writer, size * example, calls=calls)]
 
+    def _check_classes(self, classes: Classes) -> None:
+        if len(classes) == 2:
+            positive_index(classes, self.pos_label)  # a bad pos_label fails now
+
     def _decide(self, proba: Proba) -> Labels:
         if self.threshold_ is None:
             return super()._decide(proba)
@@ -311,7 +318,8 @@ class GPTree(TRLClassifier):
         session: LLMSession,
     ) -> dict[int, npt.NDArray[np.intp]]:
         node = self.tree_.nodes[node_id]
-        assert node.question is not None and node.default is not None
+        if node.question is None or node.default is None:
+            raise ValueError(f"Node {node_id} is a leaf; it asks nothing.")
         try:
             answers = await session.answer(
                 answerer, [texts[i] for i in idx], {"q": node.question}, role="answerer"
@@ -428,8 +436,9 @@ class _Grower:
             *(
                 self.session.generate(
                     self.writer,
-                    f"Task: {self.model.task}\n\nSamples labelled {label}:\n\n"
-                    + "\n\n".join(self.texts[i] for i in batch),
+                    _insight_prompt(
+                        self.model.task, label, [self.texts[i] for i in batch]
+                    ),
                     role="generator",
                     instructions=INSIGHT_INSTRUCTIONS,
                 )
@@ -448,7 +457,11 @@ class _Grower:
     async def _propose(self, node: Node, idx: npt.NDArray[np.intp]) -> _Proposal | None:
         if self._is_final(node, idx):
             return None
-        questions = await self._questions(node, idx)
+        try:
+            questions = await self._questions(node, idx)
+        except LLMError:
+            logger.warning(f"No questions written at node {node.id}; it stays a leaf.")
+            return None
         node.candidates = tuple(q.text for q in questions.values())
         if not questions:
             return None
@@ -527,6 +540,7 @@ class _Grower:
             "\n".join(f"- {q} -> {a}" for q, a in self.tree.path(node.id))
             or "(this is the root)"
         )
+        examples = examples_block(self.texts, self.y, model.classes_, idx[chosen])
         parts = [
             f"Task: {model.task}",
             f"Instructions:\n{model.instructions_}",
@@ -535,8 +549,7 @@ class _Grower:
             else "",
             f"Expert advice:\n{model.expert_advice}" if model.expert_advice else "",
             f"Path to this node:\n{path}",
-            "Examples at this node:\n\n"
-            + examples_block(self.texts, self.y, model.classes_, idx[chosen]),
+            f"Examples at this node:\n\n{examples}",
             f"Write up to {model.max_questions} questions that best separate the "
             "classes here.",
         ]
@@ -551,10 +564,11 @@ class _Grower:
             if not text or text in asked or text in {q.text for q in valid.values()}:
                 continue
             options = tuple(dict.fromkeys(o.strip() for o in item.options if o.strip()))
-            if not options:
-                valid[f"n{node.id}q{len(valid)}"] = YesNoQuestion(text)
-            elif 3 <= len(options) <= self.model.max_choices:
-                valid[f"n{node.id}q{len(valid)}"] = ChoiceQuestion(text, options)
+            qid = f"n{node.id}q{len(valid)}"
+            if not options or {o.casefold() for o in options} == {"yes", "no"}:
+                valid[qid] = YesNoQuestion(text)
+            elif 2 <= len(options) <= max(self.model.max_choices, 2):
+                valid[qid] = ChoiceQuestion(text, options)
         return dict(list(valid.items())[: self.model.max_questions])
 
     def _within_leaf_budget(self, proposals: Sequence[_Proposal]) -> list[_Proposal]:
@@ -624,21 +638,29 @@ def _critic(
     return resolve_models(critic, param="critic", task="generate")
 
 
+def _insight_prompt(task: str | None, label: object, samples: Sequence[str]) -> str:
+    joined = "\n\n".join(samples)
+    return f"Task: {task}\n\nSamples labelled {label}:\n\n{joined}"
+
+
+async def _nothing() -> str:
+    return ""
+
+
 def _sample_weights(
     y: Labels,
-    classes: npt.NDArray[np.object_],
-    class_weight: Literal["balanced"] | Mapping[str, float] | None,
+    classes: Classes,
+    class_weight: ClassWeight,
 ) -> npt.NDArray[np.float64]:
     if class_weight is None:
         return np.ones(len(y))
     if class_weight == "balanced":
         counts = np.bincount(y, minlength=len(classes))
-        per_class = len(y) / (len(classes) * np.maximum(counts, 1))
-    else:
-        per_class = np.array(
-            [class_weight.get(str(c), 1.0) for c in classes], dtype=float
-        )
-    return per_class[y]
+        return (len(y) / (len(classes) * np.maximum(counts, 1)))[y]
+    weights = {str(label): float(w) for label, w in class_weight.items()}
+    if unknown := set(weights) - {str(c) for c in classes}:
+        raise ValueError(f"class_weight names unknown classes: {sorted(unknown)}.")
+    return np.array([weights.get(str(c), 1.0) for c in classes])[y]
 
 
 def _label(answer: Answer | None) -> str | None:

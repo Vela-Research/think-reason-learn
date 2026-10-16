@@ -109,7 +109,7 @@ Reasoned Rule Mining
 ``config=RRMConfig(...)``                                      ``ensemble_size``, ``use_harsh``, ``harsh_level``, ``beta``, ``random_state``
 other ``RRMConfig`` fields (filters, floors, grids)            removed; one logistic regression calibrates both stages; ``harsh_gate`` is new
 token log probabilities                                        probabilities from decision models or the ensemble's votes
-``policy``, ``rules``                                          ``policy_``, ``rules_``
+``policy``, ``rules``                                          ``policy_``, ``mined_rules_``
 ``threshold``, ``weights``                                     ``combiner_``
 ``validation_result``                                          removed
 =============================================================  =============================================================================

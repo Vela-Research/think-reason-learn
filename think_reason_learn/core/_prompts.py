@@ -2,13 +2,23 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import asyncio
+import logging
+from collections.abc import Awaitable, Sequence
 from typing import Final
 
 import numpy as np
 import numpy.typing as npt
 
+from think_reason_learn.core._data import Classes
+from think_reason_learn.exceptions import (
+    BudgetExceededError,
+    LLMError,
+    ProviderAuthError,
+)
 from think_reason_learn.llm import Endpoint, LLMSession
+
+logger = logging.getLogger(__name__)
 
 _INSTRUCTIONS_WRITER: Final = """\
 You write the instructions another model will follow to write {purpose} for a
@@ -19,10 +29,37 @@ sample's text alone). Do not invent facts about the data. Reply with the
 instructions only."""
 
 
+async def most_written[T](calls: Sequence[Awaitable[T]], what: str) -> list[T]:
+    """The replies of ``calls`` run at once, skipping those that wrote nothing.
+
+    One refusal or unusable reply among many (prompts, mined samples) is
+    logged and skipped; a bad key or the budget still stops the run, and so
+    does every call failing.
+    """
+    replies = await asyncio.gather(*calls, return_exceptions=True)
+    failed = [r for r in replies if isinstance(r, BaseException)]
+    if fatal := next((e for e in failed if not wrote_nothing(e)), None):
+        raise fatal
+    written = [r for r in replies if not isinstance(r, BaseException)]
+    if failed and not written:
+        raise failed[0]
+    if failed:
+        logger.warning(
+            f"{len(failed)} of {len(replies)} {what} wrote nothing: {failed[0]}"
+        )
+    return written
+
+
+def wrote_nothing(error: BaseException) -> bool:
+    """Whether ``error`` is a call that wrote nothing usable, not a fatal one."""
+    fatal = (ProviderAuthError, BudgetExceededError)
+    return isinstance(error, LLMError) and not isinstance(error, fatal)
+
+
 def examples_block(
     texts: Sequence[str],
     codes: npt.NDArray[np.intp],
-    classes: npt.NDArray[np.object_],
+    classes: Classes,
     indices: npt.NDArray[np.intp],
 ) -> str:
     """The samples at ``indices``, each with its label, ready for a prompt."""

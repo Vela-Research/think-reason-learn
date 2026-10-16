@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from think_reason_learn.core._combine import best_threshold, fit_logistic
-from think_reason_learn.exceptions import DataError
+from think_reason_learn.exceptions import DataError, LLMError
 from think_reason_learn.llm import Question, config_context
 from think_reason_learn.rrf import RRF
 from think_reason_learn.rrf._selection import question_stats, rank, tune_vote, vote_grid
@@ -225,3 +225,34 @@ def test_screening_reuses_screened_answers() -> None:
         )
     scored = len(FOUNDERS) - 24  # the generation set is not scored
     assert screening.n_calls == 8 * 4 + (scored - 8) * len(model.questions_)
+
+
+def test_no_questions_is_an_error_not_a_silent_no() -> None:
+    with fake_llms(
+        writer=FakeLLM(generate=lambda r: {"questions": []} if r.schema else "x"),
+        judge=FakeLLM(answer=answer),
+    ):
+        with pytest.raises(LLMError, match="no usable questions"):
+            rrf().fit(FOUNDERS, LABELS)
+
+
+def test_one_failed_prompt_is_skipped() -> None:
+    replies = iter([None])  # the first question prompt writes nothing usable
+
+    def flaky(request: GenerateRequest) -> str | dict[str, object] | None:
+        if request.schema is None:
+            return "x"
+        return next(replies, None) or write(request)
+
+    with fake_llms(writer=FakeLLM(generate=flaky), judge=FakeLLM(answer=answer)):
+        model = rrf().fit(FOUNDERS, LABELS)
+    assert model.rules_ == ("Is the founder an engineer?",)
+
+
+def test_integer_labels_work_with_scikit_learn_metrics(judge: FakeLLM) -> None:
+    from sklearn.metrics import accuracy_score
+
+    y = [int(label == "YES") for label in LABELS]
+    model = rrf().fit(FOUNDERS, y)
+    assert model.classes_.dtype.kind == "i"
+    assert accuracy_score(y, model.predict(FOUNDERS)) == 1.0

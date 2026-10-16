@@ -19,12 +19,21 @@ _MAX_WAIT: Final = 120.0
 _RETRIED: Final = frozenset({"rate_limit", "transient"})
 
 
+class Skipped(ProviderError):
+    """A call not sent, because its pass stopped while it waited for a slot."""
+
+    def __init__(self) -> None:
+        """A skipped call; nothing was sent or spent."""
+        super().__init__("unavailable", "Skipped: this model's pass stopped.")
+
+
 async def send[T](
     endpoint: Endpoint,
     call: Callable[[frozenset[str]], Awaitable[Reply[T]]],
     *,
     estimated_tokens: int,
     max_retries: int,
+    stopped: Callable[[], bool] = lambda: False,
 ) -> Reply[T]:
     """Run ``call`` under the endpoint's limiter.
 
@@ -34,12 +43,18 @@ async def send[T](
 
     Raises:
         ProviderError: The call failed and retrying cannot help.
+        Skipped: ``stopped()`` turned true before the call was sent.
     """
     limiter = limiter_for(endpoint)
     retries = 0
     while True:
         dropped = _dropped.get(endpoint.key, frozenset())
         await limiter.acquire(estimated_tokens)
+        if stopped():
+            await limiter.release(
+                estimated=estimated_tokens, used=None, headers={}, outcome="failed"
+            )
+            raise Skipped
         try:
             reply = await call(dropped)
         except ProviderError as error:

@@ -213,3 +213,17 @@ def test_supervisor_sees_only_revealed_slots() -> None:
         revealed, _, offered = prompt.partition("\n\nSlots you may reveal next: ")
         shown = {line.split(":")[0] for line in revealed.splitlines()[1:]}
         assert not shown & set(offered.split(", "))
+
+
+def test_a_failed_refit_leaves_no_model() -> None:
+    model = fast().fit(X, Y)
+    with pytest.raises(DataError):
+        model.fit(X, np.arange(60) % 3)
+    with pytest.raises(NotFittedError):
+        model.predict(X)
+
+
+def test_integer_labels() -> None:
+    labels = (Y == "hit").astype(int)
+    model = fast(pos_label=1).fit(X, labels)
+    assert model.predict(X).dtype.kind == "i"

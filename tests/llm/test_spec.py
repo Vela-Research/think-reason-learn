@@ -156,3 +156,23 @@ def test_llm_checks_settings() -> None:
 
 def test_api_key_is_hidden_from_repr() -> None:
     assert "secret" not in repr(LLM("openai:gpt-5-mini", api_key="secret"))
+
+
+def test_copies_keep_the_key_and_pickles_drop_it() -> None:
+    import copy
+    import pickle
+
+    model = LLM("openai:gpt-5-mini", api_key="secret")
+    assert copy.deepcopy(model).api_key == copy.copy(model).api_key == "secret"
+    assert pickle.loads(pickle.dumps(model)).api_key is None
+
+
+def test_custom_servers_keep_colons_and_only_nearby_ones_are_local() -> None:
+    nearby = resolve(LLM("qwen2.5:7b", base_url="http://localhost:11434/v1"))
+    assert (nearby.provider, nearby.model_id, nearby.local) == (
+        "custom",
+        "qwen2.5:7b",
+        True,
+    )
+    assert resolve(LLM("m", base_url="http://10.0.0.5:8000/v1")).local
+    assert not resolve(LLM("m", base_url="https://gateway.example.com/v1")).local

@@ -60,6 +60,16 @@ every model uses them.
   provider works (OpenAI and Anthropic could not fit before). One logistic regression, fitted on samples the miner
   never saw, calibrates and weighs both stages, replacing Platt scaling plus a weight grid that was 95% redundant.
   Removed: ``RRMConfig`` (plain parameters), the perplexity filter and the rolling memory.
+- **VerifiableRL, rebuilt** as a scikit-learn classifier: ``VerifiableRL(slots={"education": 384, ...})`` takes a
+  2-D array (or one array per slot) and any two labels. Fixes from the audit: prediction never re-asks a slot it has
+  seen (paths repeated one slot before), the policy has the paper's two-part head (softmax over slots, sigmoid for
+  STOP), the supervisor sees only revealed slots' text and boosts its pick multiplicatively, training no longer
+  touches torch's global random state, and the decision threshold is tuned for F0.5 instead of fixed at 0.3. New
+  ``slot_costs`` make the reward cost-aware per slot. Rollouts run batched: fitting is about 11 times faster (7.5 ms
+  per sample at 6 slots of 384 features, from 81). Classifier pretraining is part of ``fit``
+  (``pretrain_epochs``). PyTorch is now an extra: ``pip install 'think-reason-learn[rl]'``. Removed:
+  ``VerifiableRLConfig`` (plain parameters), ``pretrain_classifier``, ``from_state_dicts``, ``predict_paths``
+  (``decision_paths``) and non-greedy prediction.
 - ``core._combine``: one logistic combiner and F-beta threshold search shared by the models. ``C`` is chosen by
   log loss (average precision ties on separable data and picked an over-regularised model), and thresholds are tuned
   on out-of-fold scores of the final model's settings, midway between scores so they are not knife-edged.

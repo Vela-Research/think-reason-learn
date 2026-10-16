@@ -7,15 +7,15 @@ without a release of this library.
 
 from __future__ import annotations
 
-import json
 import logging
 import time
 from collections.abc import Mapping
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from pathlib import Path
 from typing import Final
 
 import httpx2
+from pydantic import BaseModel, Field, JsonValue, ValidationError
 
 from ._config import get_config
 from ._usage import Price
@@ -50,13 +50,13 @@ def openrouter_decisions() -> Catalog:
         return stored[1]
     try:
         models = _parse(_download())
-    except (httpx2.HTTPError, ValueError) as error:
+    except (httpx2.HTTPError, ValueError) as error:  # ValidationError included
         fallback = "using the list from before" if stored else "none are known"
         logger.warning(
             f"Could not read OpenRouter's decision models ({error}); {fallback}. "
             'Mark one with LLM("openrouter:...", kind="decision").'
         )
-        models = stored[1] if stored is not None else {}
+        models: Catalog = stored[1] if stored is not None else {}
     else:
         _write(path, now, models)
     _loaded = (now, models)
@@ -67,73 +67,92 @@ _loaded: tuple[float, Catalog] | None = None
 """When the catalog was read, and what it holds."""
 
 
-def _download() -> object:
+def _download() -> JsonValue:
     with httpx2.Client(timeout=_TIMEOUT) as client:
         response = client.get(_OPENROUTER_URL)
         response.raise_for_status()
-        return response.json()
+        payload: JsonValue = response.json()
+        return payload
 
 
-def _parse(payload: object) -> dict[str, Price | None]:
-    """Decision models from a catalog response; prices per token become per million."""
-    data = payload.get("data") if isinstance(payload, dict) else None
-    if not isinstance(data, list):
-        raise ValueError("the catalog has no model list")
+def _parse(payload: JsonValue) -> dict[str, Price | None]:
+    """Decision models from a catalog response; prices per token become per million.
+
+    Raises:
+        ValueError: The response has no model list.
+    """
+    listed = (_listed(entry) for entry in _Catalog.model_validate(payload).data)
     return {
-        model["id"]: _price(model.get("pricing"))
-        for model in data
-        if isinstance(model, dict)
-        and isinstance(model.get("id"), str)
-        and "decisions" in _outputs(model)
+        model.id: model.pricing.per_million() if model.pricing else None
+        for model in listed
+        if model is not None and "decisions" in model.architecture.output_modalities
     }
 
 
-def _outputs(model: dict[str, object]) -> list[object]:
-    architecture = model.get("architecture")
-    outputs = (
-        architecture.get("output_modalities")
-        if isinstance(architecture, dict)
-        else None
-    )
-    return outputs if isinstance(outputs, list) else []
-
-
-def _price(pricing: object) -> Price | None:
-    if not isinstance(pricing, dict):
-        return None
+def _listed(entry: JsonValue) -> _Listed | None:
+    """One model of the catalog; an entry this library cannot read is skipped."""
     try:
-        per_token = [
-            Decimal(str(pricing.get(k, "0"))) for k in ("prompt", "completion")
-        ]
-    except InvalidOperation:
+        return _Listed.model_validate(entry)
+    except ValidationError:
         return None
-    million = Decimal(1_000_000)
-    return Price(
-        input=float(per_token[0] * million), output=float(per_token[1] * million)
-    )
 
 
 def _read(path: Path) -> tuple[float, Catalog] | None:
     try:
-        stored = json.loads(path.read_text(encoding="utf-8"))
-        models = {
-            name: Price(*price) if price is not None else None
-            for name, price in stored["models"].items()
-        }
-        return float(stored["fetched_at"]), models
-    except (OSError, ValueError, KeyError, TypeError) as error:
+        stored = _Stored.model_validate_json(path.read_text(encoding="utf-8"))
+    except (OSError, ValidationError) as error:
         if path.exists():
             logger.warning(f"Ignoring an unreadable {path.name}: {error}")
         return None
+    models = {
+        name: Price(*price) if price is not None else None
+        for name, price in stored.models.items()
+    }
+    return stored.fetched_at, models
 
 
 def _write(path: Path, now: float, models: Catalog) -> None:
-    rows = {
-        name: [price.input, price.output] if price is not None else None
-        for name, price in models.items()
-    }
+    stored = _Stored(
+        fetched_at=now,
+        models={
+            name: (price.input, price.output) if price is not None else None
+            for name, price in models.items()
+        },
+    )
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"fetched_at": now, "models": rows}), "utf-8")
+        path.write_text(stored.model_dump_json(), "utf-8")
     except OSError as error:
         logger.warning(f"Could not keep OpenRouter's decision models on disk: {error}")
+
+
+class _Catalog(BaseModel):
+    data: list[JsonValue]
+
+
+class _Architecture(BaseModel):
+    output_modalities: list[str] = Field(default_factory=list[str])
+
+
+class _Pricing(BaseModel):
+    prompt: Decimal = Decimal(0)
+    completion: Decimal = Decimal(0)
+
+    def per_million(self) -> Price:
+        million = Decimal(1_000_000)
+        return Price(
+            input=float(self.prompt * million), output=float(self.completion * million)
+        )
+
+
+class _Listed(BaseModel):
+    id: str
+    architecture: _Architecture = Field(default_factory=_Architecture)
+    pricing: _Pricing | None = None
+
+
+class _Stored(BaseModel):
+    """The catalog as kept on disk."""
+
+    fetched_at: float
+    models: dict[str, tuple[float, float] | None]

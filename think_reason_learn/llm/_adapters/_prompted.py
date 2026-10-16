@@ -107,7 +107,10 @@ def _schema(labels: tuple[tuple[str, ...], ...]) -> type[BaseModel]:
         for i, options in enumerate(labels, 1)
     }
     # pydantic types **field_definitions loosely; the fields are (type, Field).
-    return create_model("Answers", **fields)  # pyright: ignore[reportCallIssue, reportArgumentType]
+    model: object = create_model("Answers", **fields)  # pyright: ignore[reportCallIssue, reportArgumentType, reportUnknownVariableType]
+    if not (isinstance(model, type) and issubclass(model, BaseModel)):
+        raise TypeError("create_model did not return a model.")
+    return model
 
 
 def _picked(output: str | BaseModel | None, count: int) -> list[str]:

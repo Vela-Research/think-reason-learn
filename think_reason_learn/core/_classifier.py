@@ -18,7 +18,6 @@ import numpy as np
 import numpy.typing as npt
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.utils import Tags
-from sklearn.utils.validation import check_is_fitted
 
 from think_reason_learn.core._data import (
     Classes,
@@ -29,6 +28,7 @@ from think_reason_learn.core._data import (
 )
 from think_reason_learn.core._persistence import Persistable
 from think_reason_learn.core._prompts import write_instructions
+from think_reason_learn.core._sklearn import require_fitted, text_tags
 from think_reason_learn.exceptions import DataError
 from think_reason_learn.llm import (
     Endpoint,
@@ -102,7 +102,7 @@ class TRLClassifier(Persistable, ClassifierMixin, BaseEstimator, ABC):
 
     async def apredict_proba(self, X: TextInput) -> Proba:
         """Class probabilities, from async code. See ``predict_proba``."""
-        check_is_fitted(self)
+        require_fitted(self)
         return await run_async(self._arun(X, "predicting", self._checked_proba))
 
     def predict(self, X: TextInput) -> Classes:
@@ -130,7 +130,7 @@ class TRLClassifier(Persistable, ClassifierMixin, BaseEstimator, ABC):
         """
         texts, _ = to_texts(X)
         if y is None:
-            check_is_fitted(self)
+            require_fitted(self)
             planned = self._predict_plan(texts)
         else:
             classes, codes = _encoded(texts, y)
@@ -156,10 +156,8 @@ class TRLClassifier(Persistable, ClassifierMixin, BaseEstimator, ABC):
 
     def __sklearn_tags__(self) -> Tags:
         """Text input, and answers that can vary between calls."""
-        tags = super().__sklearn_tags__()
-        tags.input_tags.string = True
-        tags.non_deterministic = True
-        return tags
+        base = super().__sklearn_tags__()  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]  # BaseEstimator types it loosely
+        return text_tags(base)  # pyright: ignore[reportUnknownArgumentType]  # as above
 
     def _fit_plan(
         self, texts: list[str], y: Labels, classes: Classes
@@ -233,7 +231,7 @@ class TRLClassifier(Persistable, ClassifierMixin, BaseEstimator, ABC):
 
     def _run[T](self, X: TextInput, doing: str, work: Work[T]) -> T:
         """Run ``work`` on the texts of ``X``, recorded in ``usage_``."""
-        check_is_fitted(self)
+        require_fitted(self)
         return run_sync(self._arun(X, doing, work))
 
     async def _arun[T](self, X: TextInput, doing: str, work: Work[T]) -> T:
@@ -335,10 +333,13 @@ def positive_index(classes: Classes, pos_label: str | int | None) -> int:
     """
     if pos_label is None:
         return 1
-    for same in (lambda c: c == pos_label, lambda c: str(c) == str(pos_label)):
-        if matches := [i for i, c in enumerate(classes.tolist()) if same(c)]:
-            return matches[0]
-    raise ValueError(f"pos_label={pos_label!r} is not one of {classes.tolist()}.")
+    labels: list[object] = classes.tolist()
+    if pos_label in labels:
+        return labels.index(pos_label)
+    texts = [str(label) for label in labels]
+    if str(pos_label) in texts:
+        return texts.index(str(pos_label))
+    raise ValueError(f"pos_label={pos_label!r} is not one of {labels}.")
 
 
 def binary_proba(positive: npt.NDArray[np.float64], pos: int) -> Proba:

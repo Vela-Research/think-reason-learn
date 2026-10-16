@@ -68,7 +68,7 @@ class Reply[T]:
     tokens: TokenCounts
     served_model: str | None = None
     provider_cost: float | None = None
-    headers: Mapping[str, str] = field(default_factory=dict)
+    headers: Mapping[str, str] = field(default_factory=dict[str, str])
 
 
 @dataclass(frozen=True, slots=True)

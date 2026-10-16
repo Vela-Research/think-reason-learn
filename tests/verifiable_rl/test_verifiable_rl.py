@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import pickle
 from functools import partial
 from pathlib import Path
@@ -10,14 +11,9 @@ import numpy as np
 import pytest
 import torch
 import torch.nn as nn
-from sklearn.base import clone
 from sklearn.exceptions import NotFittedError
-from sklearn.utils.estimator_checks import (
-    check_get_params_invariance,
-    check_no_attributes_set_in_init,
-    check_set_params,
-)
 
+from think_reason_learn.core._sklearn import check_constructor, clone_estimator
 from think_reason_learn.exceptions import DataError
 from think_reason_learn.llm import LLMSession, resolve_models
 from think_reason_learn.testing import FakeLLM, GenerateRequest, fake_llms
@@ -52,16 +48,11 @@ fast = partial(
 
 
 def test_contract(tmp_path: Path) -> None:
-    for check in (
-        check_no_attributes_set_in_init,
-        check_get_params_invariance,
-        check_set_params,
-    ):
-        check("VerifiableRL", fast())
+    check_constructor("VerifiableRL", fast)
     with pytest.raises(NotFittedError):
         fast().predict(X)
     model = fast()
-    clone(model)
+    clone_estimator(model)
     assert model.fit(X, Y) is model
     proba = model.predict_proba(X)
     assert proba.shape == (60, 2) and np.allclose(proba.sum(axis=1), 1)
@@ -128,7 +119,7 @@ def test_supervisor_is_not_asked_when_stop_wins_anyway() -> None:
 
 
 def test_deterministic_without_touching_global_torch_state() -> None:
-    torch.manual_seed(123)
+    torch.default_generator.manual_seed(123)
     before = torch.get_rng_state()
     first, second = fast().fit(X, Y), fast().fit(X, Y)
     assert torch.equal(before, torch.get_rng_state())
@@ -167,7 +158,7 @@ def test_slot_costs_lower_the_return() -> None:
     unpaid = rollouts(free, masks, 2, _networks(), 1, SEARCH, np.random.default_rng(0))[
         0
     ]
-    assert paid[0] == pytest.approx(unpaid[0] - 1.0)
+    assert math.isclose(paid[0], unpaid[0] - 1.0)
 
 
 def test_targets_are_two_part() -> None:
@@ -180,7 +171,7 @@ def test_targets_are_two_part() -> None:
         SEARCH,
         np.random.default_rng(0),
     )
-    assert info.shape == (3,) and info.sum() == pytest.approx(1.0)
+    assert info.shape == (3,) and math.isclose(float(info.sum()), 1.0, rel_tol=1e-6)
     assert stop < 1e-6  # no slot revealed yet: min_queries forbids stopping
     assert finals.shape == (3 * SEARCH.n_rollouts, 6)
 
@@ -188,8 +179,8 @@ def test_targets_are_two_part() -> None:
 def test_supervisor_boost_is_multiplicative_and_keeps_stop() -> None:
     probs = np.array([0.3, 0.3, 0.2, 0.2])
     boosted = boost(probs, 3, 1, 0.5)
-    assert boosted[3] == 0.2 and boosted[:3].sum() == pytest.approx(0.8)
-    assert boosted[1] / boosted[0] == pytest.approx(1.5)
+    assert boosted[3] == 0.2 and math.isclose(boosted[:3].sum(), 0.8)
+    assert math.isclose(boosted[1] / boosted[0], 1.5)
     assert is_uncertain(probs, 3, 0.01) and not is_uncertain(
         np.array([0.6, 0.1, 0.1, 0.2]), 3, 0.01
     )

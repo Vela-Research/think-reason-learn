@@ -7,10 +7,10 @@ probability for each yes/no question and a label for each choice question.
 
 from __future__ import annotations
 
-import math
 from collections.abc import Mapping
 
 import httpx2
+from pydantic import BaseModel, Field, FiniteFloat, JsonValue, ValidationError
 
 from .._config import get_config
 from .._questions import Answer, ChoiceQuestion, Question, YesNoQuestion
@@ -20,7 +20,6 @@ from ._base import Answers, DecisionAdapter, ProviderError, Reply, classify
 from ._http import http_client
 
 type _Wire = dict[str, str | dict[str, None]]
-type _Raw = dict[str, object]
 
 
 class SystemOneAdapter(DecisionAdapter):
@@ -51,15 +50,13 @@ class SystemOneAdapter(DecisionAdapter):
             raise classify(None, f"{type(exc).__name__}: {exc}", {}) from exc
         if response.status_code != 200:
             raise classify(response.status_code, response.text[:300], response.headers)
-        payload = _json(response)
-        raw = payload.get("answers")
-        raw_answers = raw if isinstance(raw, dict) else {}
-        served = payload.get("model")
+        reply = _read(response)
+        usage = _usage(reply.usage)
         return Reply(
-            {qid: _answer(q, raw_answers.get(qid)) for qid, q in questions.items()},
-            _tokens(payload.get("usage")),
-            served if isinstance(served, str) else None,
-            _cost(payload.get("usage")),
+            {qid: _answer(q, reply.answers.get(qid)) for qid, q in questions.items()},
+            TokenCounts(input=usage.input_tokens, output=usage.output_tokens),
+            reply.model,
+            usage.cost,
             dict(response.headers),
         )
 
@@ -80,59 +77,51 @@ def _wire(question: Question) -> _Wire:
     return {"type": "noul", "instructions": question.text}
 
 
-def _json(response: httpx2.Response) -> _Raw:
+def _read(response: httpx2.Response) -> _Reply:
+    """The reply; an unreadable one is a transient failure."""
     try:
-        payload = response.json()
-    except ValueError as exc:
+        return _Reply.model_validate_json(response.content)
+    except ValidationError as exc:
         raise ProviderError("transient", f"Unreadable response: {exc}") from exc
-    if not isinstance(payload, dict):
-        raise ProviderError("transient", "The response is not a JSON object.")
-    return payload
 
 
-def _answer(question: Question, raw: object) -> Answer | None:
-    if not isinstance(raw, dict):
+def _answer(question: Question, raw: JsonValue) -> Answer | None:
+    """One answer, if it is readable and of the question's kind; else ``None``."""
+    try:
+        answer = _RawAnswer.model_validate(raw)
+    except ValidationError:
         return None
     if isinstance(question, YesNoQuestion):
-        value = raw.get("noul")
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            return None
-        return Answer.yes_probability(float(value)) if 0 <= value <= 1 else None
-    label = raw.get("choice")
-    if not isinstance(label, str) or label not in question.labels:
+        return Answer.yes_probability(answer.noul) if answer.noul is not None else None
+    label = answer.choice
+    if label is None or label not in question.labels:
         return None
-    probabilities = _probabilities(raw.get("probabilities"), question.labels)
-    return (
-        Answer(label, probabilities)
-        if probabilities
-        else Answer.certain(label, question.labels)
-    )
+    if set(question.labels) <= set(answer.probabilities):
+        return Answer(label, {k: answer.probabilities[k] for k in question.labels})
+    return Answer.certain(label, question.labels)
 
 
-def _probabilities(raw: object, labels: tuple[str, ...]) -> dict[str, float] | None:
-    if not isinstance(raw, dict):
-        return None
-    values = {label: raw.get(label) for label in labels}
-    if not all(
-        isinstance(v, (int, float)) and math.isfinite(v) for v in values.values()
-    ):
-        return None
-    return {
-        label: float(v) for label, v in values.items() if isinstance(v, (int, float))
-    }
+def _usage(raw: JsonValue) -> _Usage:
+    try:
+        return _Usage.model_validate(raw or {})
+    except ValidationError:
+        return _Usage()
 
 
-def _cost(usage: object) -> float | None:
+class _Reply(BaseModel):
+    answers: dict[str, JsonValue] = Field(default_factory=dict[str, JsonValue])
+    model: str | None = None
+    usage: JsonValue = None
+
+
+class _RawAnswer(BaseModel):
+    noul: float | None = Field(default=None, ge=0, le=1)
+    choice: str | None = None
+    probabilities: dict[str, FiniteFloat] = Field(default_factory=dict[str, float])
+
+
+class _Usage(BaseModel):
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost: float | None = None
     """The cost some providers (OpenRouter) report with the usage."""
-    cost = usage.get("cost") if isinstance(usage, dict) else None
-    return float(cost) if isinstance(cost, (int, float)) else None
-
-
-def _tokens(usage: object) -> TokenCounts:
-    if not isinstance(usage, dict):
-        return TokenCounts()
-    sent, received = usage.get("input_tokens"), usage.get("output_tokens")
-    return TokenCounts(
-        input=sent if isinstance(sent, int) else 0,
-        output=received if isinstance(received, int) else 0,
-    )

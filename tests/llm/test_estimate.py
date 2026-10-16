@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import pytest
+import math
 
 from think_reason_learn import LLM
 from think_reason_learn.llm import (
@@ -26,7 +26,8 @@ def test_answers_are_grouped_per_call_like_the_session() -> None:
     sent = [call_tokens(s, *chunk) for s in samples for chunk in chunks]
     assert planned.calls == 2 * len(sent)
     assert planned.input_tokens == 2 * sum(sent)
-    assert planned.cost_usd == pytest.approx(planned.input_tokens / 1e6, rel=0.01)
+    assert planned.cost_usd is not None
+    assert math.isclose(planned.cost_usd, planned.input_tokens / 1e6, rel_tol=0.01)
 
 
 def test_decision_models_take_every_question_in_one_call() -> None:

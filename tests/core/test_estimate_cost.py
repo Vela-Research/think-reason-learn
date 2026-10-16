@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import itertools
+import math
 from collections.abc import Callable
 
 import pytest
@@ -109,7 +110,7 @@ def test_estimates_match_the_calls_made(name: str) -> None:
         assert made <= planned.calls
     else:
         assert planned.calls == made
-    assert predicted == pytest.approx(model.usage_.calls - made, rel=0.2)
+    assert math.isclose(predicted, model.usage_.calls - made, rel_tol=0.2)
 
 
 def test_predict_needs_a_fitted_model_and_fit_matching_labels() -> None:

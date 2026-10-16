@@ -101,7 +101,9 @@ def test_questions_are_written_and_scored_on_different_samples(judge: FakeLLM) -
 
 def test_weak_questions_are_dropped(judge: FakeLLM) -> None:
     model = rrf().fit(FOUNDERS, LABELS)
-    lawyer = model.questions_.set_index("question").loc["Is the founder a lawyer?"]
+    [lawyer] = model.questions_[
+        model.questions_["question"] == "Is the founder a lawyer?"
+    ].to_dict("records")
     assert lawyer["precision"] == 0 and not lawyer["used"]
 
 
@@ -227,9 +229,7 @@ def test_one_failed_prompt_is_skipped() -> None:
 
 
 def test_integer_labels_work_with_scikit_learn_metrics(judge: FakeLLM) -> None:
-    from sklearn.metrics import accuracy_score
-
     y = [int(label == "YES") for label in LABELS]
     model = rrf().fit(FOUNDERS, y)
     assert model.classes_.dtype.kind == "i"
-    assert accuracy_score(y, model.predict(FOUNDERS)) == 1.0
+    assert (model.predict(FOUNDERS) == np.array(y)).all()

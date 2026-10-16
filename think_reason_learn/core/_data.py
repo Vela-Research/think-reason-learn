@@ -9,7 +9,7 @@ from __future__ import annotations
 import math
 import numbers
 from collections.abc import Mapping, Sequence
-from typing import Literal
+from typing import Literal, SupportsFloat
 
 import numpy as np
 import numpy.typing as npt
@@ -47,15 +47,16 @@ def to_texts(X: TextInput) -> tuple[list[str], list[str] | None]:
             accepted types.
     """
     if isinstance(X, np.ndarray) and X.ndim == 2:
-        X = X.ravel() if X.shape[1] == 1 else pd.DataFrame(X)
+        return to_texts(X.ravel() if X.shape[1] == 1 else pd.DataFrame(X))
     if isinstance(X, pd.DataFrame):
         names = [str(c) for c in X.columns]
         texts = [_row_text(names, row) for row in X.itertuples(index=False, name=None)]
     elif isinstance(X, (pd.Series, np.ndarray, list, tuple)):
         names = None
-        if missing := [i for i, x in enumerate(X) if _missing(x)]:
+        values: list[object] = list(X)
+        if missing := [i for i, x in enumerate(values) if _missing(x)]:
             raise DataError(f"X has missing texts at rows {missing[:10]}.")
-        texts = [str(x) for x in X]
+        texts = [str(x) for x in values]
     else:
         raise DataError(
             f"X must be a DataFrame or a sequence of texts, got {type(X).__name__}."
@@ -135,6 +136,12 @@ def balanced_subset(
     return np.sort(np.concatenate(chosen)).astype(np.intp)
 
 
+def take(texts: Sequence[str], rows: npt.NDArray[np.intp]) -> list[str]:
+    """The texts at ``rows``, in that order."""
+    indices: list[int] = rows.tolist()
+    return [texts[i] for i in indices]
+
+
 def count(value: float | np.integer | np.floating, n: int) -> int:
     """An int as is; a float as that fraction of ``n``, rounded up.
 
@@ -154,7 +161,12 @@ def _row_text(names: Sequence[str], values: tuple[object, ...]) -> str:
 
 
 def _missing(value: object) -> bool:
-    return bool(pd.api.types.is_scalar(value) and pd.isna(value))  # None, NaN, NA, NaT
+    """None, NaN, ``pd.NA`` or ``pd.NaT``."""
+    if value is None or value is pd.NA or value is pd.NaT:
+        return True
+    if isinstance(value, str | bytes):  # numpy strings also convert to float
+        return False
+    return isinstance(value, SupportsFloat) and math.isnan(float(value))
 
 
 def _weights(classes: Classes, class_ratio: ClassRatio) -> npt.NDArray[np.float64]:

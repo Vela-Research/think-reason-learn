@@ -21,17 +21,11 @@ from typing import Final, Literal
 import numpy as np
 import numpy.typing as npt
 from pydantic import BaseModel
-from sklearn.base import clone
 from sklearn.exceptions import NotFittedError
-from sklearn.utils.estimator_checks import (
-    check_get_params_invariance,
-    check_no_attributes_set_in_init,
-    check_set_params,
-)
 
 from think_reason_learn.core._classifier import TRLClassifier
 from think_reason_learn.core._data import LabelInput, TextInput
-from think_reason_learn.llm import _spec
+from think_reason_learn.core._sklearn import check_constructor, clone_estimator
 from think_reason_learn.llm._adapters import (
     ADAPTERS,
     Answers,
@@ -48,7 +42,7 @@ from think_reason_learn.llm._questions import (
     Question,
     YesNoQuestion,
 )
-from think_reason_learn.llm._spec import Endpoint, ModelKind
+from think_reason_learn.llm._spec import Endpoint, ModelKind, extra_provider
 from think_reason_learn.llm._usage import Price, TokenCounts
 
 type FakeFailure = Literal[
@@ -97,9 +91,9 @@ class FakeLLM:
     generate: Callable[[GenerateRequest], GenerateReply] | None = None
     answer: Callable[[str, Question], AnswerReply] | None = None
     kind: ModelKind = "reasoning"
-    failures: list[FakeFailure] = field(default_factory=list)
+    failures: list[FakeFailure] = field(default_factory=list[FakeFailure])
     tokens: tuple[int, int] = (10, 5)
-    calls: list[FakeCall] = field(default_factory=list)
+    calls: list[FakeCall] = field(default_factory=list[FakeCall])
 
     @property
     def n_calls(self) -> int:
@@ -111,23 +105,15 @@ class FakeLLM:
 def fake_llms(**models: FakeLLM) -> Iterator[None]:
     """Make each fake callable as ``"fake:<name>"`` inside the block."""
     ADAPTERS["fake"] = _ADAPTER
-    before = _spec._PROVIDERS.get("fake")
-    # A fresh address per block, so replies cached by earlier fakes never answer.
-    _spec._PROVIDERS["fake"] = _spec._Provider(
-        "fake",
-        f"fake://{uuid.uuid4().hex}",
-        local=True,
-        decision="fake",
-        catalog=_decision_fakes,
-    )
     _registry.update(models)
+    # A fresh address per block, so replies cached by earlier fakes never answer.
+    address = f"fake://{uuid.uuid4().hex}"
     try:
-        yield
+        with extra_provider("fake", "fake", address, catalog=_decision_fakes):
+            yield
     finally:
         for name in models:
             _registry.pop(name, None)
-        if before is not None:
-            _spec._PROVIDERS["fake"] = before
 
 
 _registry: Final[dict[str, FakeLLM]] = {}
@@ -172,10 +158,9 @@ def check_classifier(
     """
     model = make()
     name = type(model).__name__
-    for check in _SKLEARN_CHECKS:
-        check(name, make())
+    check_constructor(name, make)
     type(model)()  # every setting has a default
-    clone(model)
+    clone_estimator(model)
     try:
         model.predict(X)
     except NotFittedError:
@@ -291,13 +276,6 @@ def _answer(reply: AnswerReply, question: Question, *, decision: bool) -> Answer
     if isinstance(reply, str) and reply in question.labels:
         return Answer.certain(reply, question.labels)
     return None
-
-
-_SKLEARN_CHECKS: Final = (
-    check_no_attributes_set_in_init,
-    check_get_params_invariance,
-    check_set_params,
-)
 
 
 __all__ = [

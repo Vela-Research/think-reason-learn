@@ -79,7 +79,9 @@ _MODELS: dict[str, Make] = {
         cv=2,
         pos_label="good",
     ),
-    "gptree": lambda: GPTree(task="t", generator=_WRITER, answerer=_JUDGE, critic=True),
+    "gptree": lambda: GPTree(
+        task="t", generator=_WRITER, answerer=_JUDGE, use_critic=True
+    ),
 }
 
 OPENROUTER_DECISIONS = {

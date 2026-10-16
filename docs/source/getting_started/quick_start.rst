@@ -61,7 +61,7 @@ answer; decision models such as Jev only answer, with probabilities.
        task=task,
        generator=("anthropic:claude-sonnet-5-5", "openai:gpt-5-mini"),
        answerer=LLM("ollama:qwen3:8b", questions_per_call=5),
-       critic=True,
+       use_critic=True,
    )
 
 Async code

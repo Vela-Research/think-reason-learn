@@ -43,6 +43,7 @@ from think_reason_learn.core._data import (
 from think_reason_learn.core._prompts import examples_block
 from think_reason_learn.exceptions import NoOutputError
 from think_reason_learn.llm import (
+    QUESTION_TOKENS,
     YES_AT,
     Endpoint,
     LLMSession,
@@ -50,8 +51,8 @@ from think_reason_learn.llm import (
     UsageRecord,
     estimate_answers,
     estimate_generations,
+    mean_tokens,
 )
-from think_reason_learn.llm._estimate import QUESTION_TOKENS, mean_tokens
 
 from ._prompts import (
     INSTRUCTIONS_PURPOSE,

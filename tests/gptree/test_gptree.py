@@ -121,7 +121,7 @@ def test_critic_reviews_without_adding_questions() -> None:
     with fake_llms(
         writer=FakeLLM(generate=write), judge=FakeLLM(answer=answer), reviewer=reviewer
     ):
-        model = tree(critic="fake:reviewer").fit(FOUNDERS, LABELS)
+        model = tree(use_critic=True, critic="fake:reviewer").fit(FOUNDERS, LABELS)
     assert reviewer.n_calls >= 1
     assert model.tree_.nodes[0].candidates == ("Is the founder an engineer?",)
     assert "critic" in set(model.usage_.by("role")["role"])
@@ -280,7 +280,7 @@ def test_a_failed_critic_keeps_the_written_questions() -> None:
         judge=FakeLLM(answer=answer),
         reviewer=FakeLLM(generate=lambda request: None),
     ):
-        model = tree(critic="fake:reviewer").fit(FOUNDERS, LABELS)
+        model = tree(use_critic=True, critic="fake:reviewer").fit(FOUNDERS, LABELS)
     assert not model.tree_.nodes[0].is_leaf
 
 

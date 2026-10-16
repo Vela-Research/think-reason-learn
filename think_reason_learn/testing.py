@@ -26,24 +26,27 @@ from sklearn.exceptions import NotFittedError
 from think_reason_learn.core._classifier import TRLClassifier
 from think_reason_learn.core._data import LabelInput, TextInput
 from think_reason_learn.core._sklearn import check_constructor, clone_estimator
+from think_reason_learn.llm import (
+    NO,
+    YES,
+    YES_AT,
+    Answer,
+    Answers,
+    Endpoint,
+    ModelKind,
+    Price,
+    Question,
+    YesNoQuestion,
+)
 from think_reason_learn.llm._adapters import (
     ADAPTERS,
-    Answers,
     GenerateRequest,
     ProviderError,
     Reply,
 )
 from think_reason_learn.llm._adapters._base import DecisionAdapter, Failure
-from think_reason_learn.llm._questions import (
-    NO,
-    YES,
-    YES_AT,
-    Answer,
-    Question,
-    YesNoQuestion,
-)
-from think_reason_learn.llm._spec import Endpoint, ModelKind, extra_provider
-from think_reason_learn.llm._usage import Price, TokenCounts
+from think_reason_learn.llm._spec import extra_provider
+from think_reason_learn.llm._usage import TokenCounts
 
 __all__ = [
     "FakeCall",

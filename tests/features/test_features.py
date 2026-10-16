@@ -14,8 +14,6 @@ from think_reason_learn.features import (
     DataSchema,
     FeatureEvaluator,
     FeatureGenerator,
-    GeneratedRule,
-    GeneratedRules,
     HelperFunction,
     Rule,
 )
@@ -25,7 +23,7 @@ from think_reason_learn.features._prompts import (
     build_user_prompt,
     format_samples,
 )
-from think_reason_learn.features._types import Record
+from think_reason_learn.features._types import GeneratedRule, GeneratedRules, Record
 from think_reason_learn.testing import FakeLLM, fake_llms
 
 # ---------------------------------------------------------------------------

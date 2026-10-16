@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+import think_reason_learn
 from think_reason_learn.core._classifier import BinaryTRLClassifier, TRLClassifier
 from think_reason_learn.exceptions import DataError
 from think_reason_learn.testing import FakeLLM, check_classifier
@@ -34,3 +35,15 @@ def test_two_class_models_refuse_more_classes(
         model.fit(X, [str(i % 3) for i in range(len(X))])
     writer, judge = generic_fakes
     assert writer.n_calls == judge.n_calls == 0
+
+
+def test_models_use_only_the_public_llm_interface() -> None:
+    package = Path(think_reason_learn.__file__).parent
+    framework = {"core", "llm", "testing.py"}  # may reach inside the LLM layer
+    private = [
+        str(path.relative_to(package))
+        for path in package.rglob("*.py")
+        if path.relative_to(package).parts[0] not in framework
+        and "think_reason_learn.llm._" in path.read_text(encoding="utf-8")
+    ]
+    assert not private

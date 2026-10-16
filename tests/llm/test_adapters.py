@@ -19,12 +19,12 @@ from think_reason_learn.llm import (
     LLMSession,
     Model,
     YesNoQuestion,
-    resolve,
     resolve_models,
     run_sync,
 )
 from think_reason_learn.llm._adapters._base import Failure, ProviderError, classify
 from think_reason_learn.llm._calls import _drop, _dropped
+from think_reason_learn.llm._spec import resolve
 
 type Handler = Callable[[httpx2.Request], httpx2.Response]
 type Wire = Callable[[Handler], list[httpx2.Request]]

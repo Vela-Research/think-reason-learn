@@ -14,17 +14,13 @@ import pytest
 from think_reason_learn.exceptions import BudgetExceededError
 from think_reason_learn.llm import (
     LLM,
-    Budget,
     LLMSession,
     Price,
-    TokenCounts,
     Usage,
     UsageRecord,
     YesNoQuestion,
     config_context,
-    format_usd,
     get_config,
-    resolve,
     resolve_models,
     run_async,
     run_sync,
@@ -40,7 +36,8 @@ from think_reason_learn.llm._limiter import (
     _rate_headers,
     _reset_seconds,
 )
-from think_reason_learn.llm._usage import call_cost
+from think_reason_learn.llm._spec import resolve
+from think_reason_learn.llm._usage import Budget, TokenCounts, call_cost, format_usd
 from think_reason_learn.testing import FakeLLM, fake_llms
 
 

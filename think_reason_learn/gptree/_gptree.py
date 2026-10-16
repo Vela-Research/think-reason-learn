@@ -46,23 +46,20 @@ from think_reason_learn.core._data import (
 from think_reason_learn.core._prompts import examples_block
 from think_reason_learn.exceptions import NoOutputError
 from think_reason_learn.llm import (
+    GENERATE_OUTPUT_TOKENS,
+    QUESTION_TOKENS,
     Answer,
     ChoiceQuestion,
     Endpoint,
     LLMSession,
-    Model,
     Models,
     Question,
     UsageRecord,
     YesNoQuestion,
     estimate_answers,
     estimate_generations,
-    resolve_models,
-)
-from think_reason_learn.llm._estimate import (
-    GENERATE_OUTPUT_TOKENS,
-    QUESTION_TOKENS,
     mean_tokens,
+    resolve_models,
     text_tokens,
 )
 
@@ -95,8 +92,8 @@ class GPTree(TRLClassifier):
         generator: Model(s) that write the instructions, insights and questions.
         answerer: Model(s) that answer the questions about each sample. Defaults
             to Jev; any reasoning model works too.
-        critic: Review each node's questions before answering them: ``True``
-            uses the generator, or give a model.
+        use_critic: Review each node's questions before answering them.
+        critic: Model(s) that review the questions; defaults to ``generator``.
         instructions: Instructions for writing questions. Written from ``task``
             during ``fit`` when not given; see ``write_instructions``.
         expert_advice: Guidance added to every question-writing prompt.
@@ -132,7 +129,8 @@ class GPTree(TRLClassifier):
         generator: Models | None = None,
         answerer: Models = "jev",
         *,
-        critic: bool | Model = False,
+        use_critic: bool = False,
+        critic: Models | None = None,
         instructions: str | None = None,
         expert_advice: str | None = None,
         criterion: Criterion = "gini",
@@ -156,6 +154,7 @@ class GPTree(TRLClassifier):
         self.task = task
         self.generator = generator
         self.answerer = answerer
+        self.use_critic = use_critic
         self.critic = critic
         self.instructions = instructions
         self.expert_advice = expert_advice
@@ -237,7 +236,9 @@ class GPTree(TRLClassifier):
             *self._insights_plan(writer, y, example),
             estimate_generations(writer, prompt, calls=nodes),
         ]
-        if (critic := _critic(writer, critic=self.critic)) is not None:
+        if (
+            critic := _critic(writer, use_critic=self.use_critic, critic=self.critic)
+        ) is not None:
             planned.append(
                 estimate_generations(critic, prompt, calls=nodes, role="critic")
             )
@@ -409,7 +410,7 @@ class _Grower:
             _sample_weights(y, model.classes_, model.class_weight),
             session,
             writer,
-            _critic(writer, critic=model.critic),
+            _critic(writer, use_critic=model.use_critic, critic=model.critic),
             answerer,
             np.random.default_rng(model.random_state),
             max(1, count(model.min_samples_leaf, n)),
@@ -682,11 +683,11 @@ class _Proposal:
 
 
 def _critic(
-    writer: tuple[Endpoint, ...], *, critic: bool | Model
+    writer: tuple[Endpoint, ...], *, use_critic: bool, critic: Models | None
 ) -> tuple[Endpoint, ...] | None:
-    if critic is False:
+    if not use_critic:
         return None
-    if critic is True:
+    if critic is None:
         return writer
     return resolve_models(critic, param="critic", task="generate")
 

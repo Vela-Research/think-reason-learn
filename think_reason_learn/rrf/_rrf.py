@@ -40,14 +40,15 @@ from think_reason_learn.core._data import (
 from think_reason_learn.core._prompts import examples_block, most_written
 from think_reason_learn.exceptions import DataError, NoOutputError
 from think_reason_learn.llm import (
+    QUESTION_TOKENS,
     Endpoint,
     LLMSession,
     Models,
     UsageRecord,
     estimate_answers,
     estimate_generations,
+    mean_tokens,
 )
-from think_reason_learn.llm._estimate import QUESTION_TOKENS, mean_tokens
 
 from ._prompts import INSTRUCTIONS_PURPOSE, QUESTION_INSTRUCTIONS, question_prompt
 from ._selection import as_yes, question_stats, rank, tune_vote

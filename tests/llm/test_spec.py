@@ -13,10 +13,9 @@ from think_reason_learn.llm import (
     Price,
     _catalog,
     get_config,
-    resolve,
     resolve_models,
 )
-from think_reason_learn.llm._spec import keys_optional
+from think_reason_learn.llm._spec import keys_optional, resolve
 
 
 @pytest.fixture(autouse=True)

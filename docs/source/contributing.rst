@@ -48,7 +48,8 @@ Adding a model
 --------------
 
 Subclass ``TRLClassifier`` (or ``BinaryTRLClassifier``), store every constructor argument unchanged, and implement
-``_afit`` and ``_apredict_proba``. Make every model call through the ``LLMSession`` you are given. Test it offline with
+``_afit`` and ``_apredict_proba``. Make every model call through the ``LLMSession`` you are given, and import only
+what ``think_reason_learn.llm`` exports, as the built-in models do. Test it offline with
 ``think_reason_learn.testing``: ``fake_llms`` for scripted models, and ``check_classifier`` for the shared contract.
 
 Code of conduct

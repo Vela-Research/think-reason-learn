@@ -31,6 +31,7 @@ from think_reason_learn.core._prompts import write_instructions
 from think_reason_learn.core._sklearn import require_fitted, text_tags
 from think_reason_learn.exceptions import DataError
 from think_reason_learn.llm import (
+    GENERATE_OUTPUT_TOKENS,
     Endpoint,
     LLMSession,
     Model,
@@ -41,8 +42,8 @@ from think_reason_learn.llm import (
     resolve_models,
     run_async,
     run_sync,
+    text_tokens,
 )
-from think_reason_learn.llm._estimate import GENERATE_OUTPUT_TOKENS, text_tokens
 from think_reason_learn.llm._spec import Task, keys_optional
 
 logger = logging.getLogger(__name__)

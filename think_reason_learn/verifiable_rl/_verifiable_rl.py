@@ -350,6 +350,9 @@ class VerifiableRL(Persistable, ClassifierMixin, BaseEstimator):
             self.costs_ = np.array([costs.get(s, 0.0) for s in names], dtype=float)
         return matrix.astype(np.float32)
 
+    # ponytail: repeats BinaryTRLClassifier's two-class methods through the shared
+    # functions, since VerifiableRL is not a TRLClassifier. Share a mixin if a
+    # second two-class model outside TRLClassifier appears.
     def _pos_index(self) -> int:
         return positive_index(self.classes_, self.pos_label)
 

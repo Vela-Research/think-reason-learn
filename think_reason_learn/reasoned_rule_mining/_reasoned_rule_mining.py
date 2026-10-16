@@ -36,18 +36,16 @@ from think_reason_learn.core._combine import LinearCombiner, fit_combiner, held_
 from think_reason_learn.core._data import Classes, balanced_subset, take
 from think_reason_learn.core._prompts import most_written
 from think_reason_learn.llm import (
+    GENERATE_OUTPUT_TOKENS,
+    QUESTION_TOKENS,
     Endpoint,
     LLMSession,
     Models,
     UsageRecord,
     estimate_answers,
     estimate_generations,
-    resolve_models,
-)
-from think_reason_learn.llm._estimate import (
-    GENERATE_OUTPUT_TOKENS,
-    QUESTION_TOKENS,
     mean_tokens,
+    resolve_models,
 )
 
 from ._prompts import (

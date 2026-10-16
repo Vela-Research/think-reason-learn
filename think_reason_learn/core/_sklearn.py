@@ -51,12 +51,10 @@ def clone_estimator[E](estimator: E) -> E:
 
 def check_constructor(name: str, make: Callable[[], object]) -> None:
     """scikit-learn's checks that a constructor stores its settings untouched."""
-    for check in (  # pyright: ignore[reportUnknownVariableType]  # partial annotations
-        check_no_attributes_set_in_init,
-        check_get_params_invariance,
-        check_set_params,
-    ):
-        check(name, make())
+    # Each check is wrapped by ignore_warnings, which pyright reads as an object.
+    check_no_attributes_set_in_init(name, make())  # pyright: ignore[reportCallIssue]
+    check_get_params_invariance(name, make())  # pyright: ignore[reportCallIssue]
+    check_set_params(name, make())  # pyright: ignore[reportCallIssue]
 
 
 def text_tags(tags: Tags) -> Tags:

@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import os
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
@@ -279,7 +279,7 @@ _keys_needed: Final[ContextVar[bool]] = ContextVar("trl_keys_needed", default=Tr
 
 
 @contextmanager
-def keys_optional() -> Iterator[None]:
+def keys_optional() -> Generator[None]:
     """Resolve models without their API keys inside the block.
 
     For planning calls that are never sent, as ``estimate_cost`` does.
@@ -298,7 +298,7 @@ def extra_provider(
     base_url: str,
     *,
     catalog: Callable[[], Catalog] | None = None,
-) -> Iterator[None]:
+) -> Generator[None]:
     """Serve ``"<name>:<model>"`` inside the block, from a local endpoint.
 
     For tests: ``testing.fake_llms`` adds its fake provider this way.

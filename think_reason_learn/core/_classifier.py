@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from collections.abc import Awaitable, Callable, Iterator
+from collections.abc import Awaitable, Callable, Generator
 from contextlib import contextmanager
 from typing import ClassVar, Self
 
@@ -228,7 +228,7 @@ class TRLClassifier(Persistable, ClassifierMixin, BaseEstimator, ABC):
         return resolve_models(models, param=param, task=task)
 
     @contextmanager
-    def _session(self, doing: str, usage: Usage | None = None) -> Iterator[LLMSession]:
+    def _session(self, doing: str, usage: Usage | None = None) -> Generator[LLMSession]:
         """A session for one run, counting answers on a progress bar if ``verbose``."""
         if not self.verbose:
             yield LLMSession(usage=usage)

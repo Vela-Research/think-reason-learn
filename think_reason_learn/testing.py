@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pickle
 import uuid
-from collections.abc import Callable, Iterable, Iterator, Mapping
+from collections.abc import Callable, Generator, Iterable, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -128,7 +128,7 @@ class FakeLLM:
 
 
 @contextmanager
-def fake_llms(**models: FakeLLM) -> Iterator[None]:
+def fake_llms(**models: FakeLLM) -> Generator[None]:
     """Make each fake callable as ``"fake:<name>"`` inside the block."""
     ADAPTERS["fake"] = _ADAPTER
     _registry.update(models)

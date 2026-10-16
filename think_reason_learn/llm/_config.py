@@ -5,7 +5,7 @@ from __future__ import annotations
 import dataclasses
 import os
 import threading
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -92,7 +92,7 @@ def set_config(**changes: Unpack[ConfigChanges]) -> None:
 
 
 @contextmanager
-def config_context(**changes: Unpack[ConfigChanges]) -> Iterator[Config]:
+def config_context(**changes: Unpack[ConfigChanges]) -> Generator[Config]:
     """Change the settings inside a ``with`` block only. See ``Config``.
 
     Example:

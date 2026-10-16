@@ -45,7 +45,7 @@ include = ["think_reason_learn/py.typed"]
 pytest = "^8.4.2"
 pytest-asyncio = "^1.1.0"
 ruff = "^0.12.12"
-pyright = { version = "^1.1.405", extras = ["nodejs"] }
+pyright = { version = "^1.1.414", extras = ["nodejs"] }
 pandas-stubs = ">=2.3,<3"  # pyright strict needs pandas types
 sphinx = "^8.2.3"
 pre-commit = "^4.3.0"

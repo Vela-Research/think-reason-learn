@@ -6,7 +6,7 @@ ignore`` comments they need.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 
 import numpy as np
@@ -31,7 +31,7 @@ def shuffled_batches(
 
 
 @contextmanager
-def private_cpu_rng(seed: int) -> Iterator[None]:
+def private_cpu_rng(seed: int) -> Generator[None]:
     """Seed torch's CPU generator inside the block, restoring it afterwards."""
     with torch.random.fork_rng(devices=[]):  # pyright: ignore[reportUnknownMemberType]  # partial annotation
         torch.default_generator.manual_seed(seed)

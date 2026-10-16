@@ -196,21 +196,7 @@ class LLMSession:
             )
             if not await pass_.run(results, errors):
                 break
-        if (
-            samples
-            and questions
-            and all(a is None for r in results for a in r.values())
-        ):
-            first = errors[0] if errors else "no usable answers"
-            raise NoOutputError(
-                f"No answers from {[m.name for m in models]}. First error: {first}"
-            )
-        if errors:
-            missing = sum(a is None for r in results for a in r.values())
-            logger.warning(
-                f"{len(errors)} answer calls failed and {missing} answers are "
-                f"missing; the first error: {errors[0]}"
-            )
+        _report(results, errors, models)
         return results
 
 
@@ -404,7 +390,7 @@ class _AnswerPass:
         try:
             await _bounded(requests, lambda r: self._send(r, results, errors), _WINDOW)
         except BaseExceptionGroup as group:
-            raise _first(group) from None
+            raise group.exceptions[0] from None  # tasks do not nest groups
         if self.fatal is not None:
             raise self.fatal
         return True
@@ -543,10 +529,21 @@ async def _bounded[X](
             group.create_task(guarded(item))
 
 
-def _first(group: BaseExceptionGroup[BaseException]) -> BaseException:
-    """The first error of a task group."""
-    first: BaseException = group.exceptions[0]  # tasks do not nest groups
-    return first
+def _report(
+    results: Sequence[Answers], errors: Sequence[str], models: Sequence[Endpoint]
+) -> None:
+    """Raise if nothing was answered; else warn about the answers missing."""
+    answers = [a for r in results for a in r.values()]
+    if answers and answers.count(None) == len(answers):
+        first = errors[0] if errors else "no usable answers"
+        raise NoOutputError(
+            f"No answers from {[m.name for m in models]}. First error: {first}"
+        )
+    if errors:
+        logger.warning(
+            f"{len(errors)} answer calls failed and {answers.count(None)} answers "
+            f"are missing; the first error: {errors[0]}"
+        )
 
 
 def _endpoint_identity(endpoint: Endpoint) -> dict[str, JSON]:

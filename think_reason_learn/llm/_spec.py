@@ -7,6 +7,7 @@ import ipaddress
 import os
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from typing import Final, Literal
 from urllib.parse import urlparse
@@ -14,6 +15,7 @@ from urllib.parse import urlparse
 from think_reason_learn.exceptions import MissingAPIKeyError
 
 from ._catalog import Catalog, openrouter_decisions
+from ._config import MODEL_ALIASES
 from ._usage import Price
 
 type ModelName = str
@@ -142,7 +144,7 @@ def resolve(model: Model) -> Endpoint:
         MissingAPIKeyError: The provider needs a key that is not set.
     """
     spec = model if isinstance(model, LLM) else LLM(model)
-    name = _ALIASES.get(spec.model, spec.model)
+    name = MODEL_ALIASES.get(spec.model, spec.model)
     provider_name, has_provider, model_id = name.partition(":")
     provider = _PROVIDERS.get(provider_name)
     if not has_provider or (provider is None and spec.base_url is not None):
@@ -271,7 +273,21 @@ _PROVIDERS: Final[dict[str, _Provider]] = {
     ),
 }
 
-_ALIASES: Final[dict[str, str]] = {"jev": "typesafe:jev-latest"}
+
+_keys_needed: Final[ContextVar[bool]] = ContextVar("trl_keys_needed", default=True)
+
+
+@contextmanager
+def keys_optional() -> Iterator[None]:
+    """Resolve models without their API keys inside the block.
+
+    For planning calls that are never sent, as ``estimate_cost`` does.
+    """
+    token = _keys_needed.set(False)
+    try:
+        yield
+    finally:
+        _keys_needed.reset(token)
 
 
 @contextmanager
@@ -377,7 +393,7 @@ def _api_key(spec: LLM, provider: _Provider, name: str) -> str | None:
     found = next(
         (os.environ[env] for env in provider.key_env if os.environ.get(env)), None
     )
-    if found is None and provider.key_env:
+    if found is None and provider.key_env and _keys_needed.get():
         raise MissingAPIKeyError(
             f"{name} needs {provider.key_env[0]}, and it is not set. Set it in your "
             f'environment, or pass LLM("{name}", api_key=...).'

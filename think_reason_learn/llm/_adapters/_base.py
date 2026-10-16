@@ -128,21 +128,24 @@ class DecisionAdapter:
         raise ProviderError("bad_request", f"{endpoint.name} cannot write text.")
 
 
-async def read_reply[T](parse: Callable[[], object], kind: type[T]) -> T:
-    """A reply's body as ``kind``.
+async def read_reply[T, R](
+    parse: Callable[[], object], kind: type[T], read: Callable[[T], R]
+) -> R:
+    """``read`` applied to a reply's body, parsed as ``kind``.
 
-    An unreadable body (a proxy's HTML page, cut-off JSON) is a transient
-    failure, never a crash.
+    An unreadable body (a proxy's HTML page, cut-off JSON, a missing field) is a
+    transient failure, never a crash. SDKs build replies without checking them,
+    so a missing field only shows when ``read`` touches it.
     """
     try:
         body = parse()
         if inspect.isawaitable(body):
             body = await body
-    except (ValueError, TypeError) as exc:
+        if not isinstance(body, kind):
+            raise TypeError(f"not a {kind.__name__}")
+        return read(body)
+    except (ValueError, TypeError, AttributeError, KeyError) as exc:
         raise ProviderError("transient", f"Unreadable reply: {exc}") from exc
-    if not isinstance(body, kind):
-        raise ProviderError("transient", f"Unreadable reply: not a {kind.__name__}.")
-    return body
 
 
 def classify(
@@ -153,6 +156,8 @@ def classify(
     lowered = message.lower()
     if status is None or status in _TRANSIENT:
         return ProviderError("transient", message, retry_after=retry_after)
+    if _mentions(lowered, _FLAGGED_WORDS):  # one sample's problem, on a 403
+        return ProviderError("bad_request", message)
     if status == 404 or _mentions(lowered, _NO_MODEL_WORDS):
         return ProviderError("unavailable", message)
     if status in (401, 403) or _mentions(lowered, _AUTH_WORDS):
@@ -189,6 +194,8 @@ _AUTH_WORDS: Final = (
     "incorrect api key",
     "invalid x-api-key",
 )
+_FLAGGED_WORDS: Final = ("flagged", "moderation")
+"""An input a moderation check refused, as OpenRouter's 403 says."""
 _NO_MODEL_WORDS: Final = ("model_not_found", "does not have access to model")
 """A model this account cannot use: try the next model, not a fatal key error."""
 _QUOTA_WORDS: Final = (

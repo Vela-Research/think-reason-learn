@@ -230,6 +230,7 @@ class TestOpenAICompatible:
             "rejected_param",
         ),
         (400, "max_tokens is too large", "bad_request"),  # no rejection words
+        (403, "Input was flagged by moderation", "bad_request"),  # one sample
     ],
 )
 def test_classify(status: int | None, message: str, failure: Failure) -> None:
@@ -416,11 +417,47 @@ class TestOpenAIDecisions:
         assert _label(result, "tech") == "NO" and result["stage"] is None
 
 
-def test_an_unreadable_reply_is_retried_not_a_crash(wire: Wire) -> None:
-    replies = iter([httpx2.Response(200, text="<html>proxy error</html>")])
+@pytest.mark.parametrize(
+    "broken",
+    [
+        httpx2.Response(200, text="<html>proxy error</html>"),
+        httpx2.Response(200, json={"choices": "zzz"}),
+        _chat('{"a1": "YES"}', usage={"prompt_tokens": None, "total_tokens": 1}),
+    ],
+)
+def test_an_unreadable_reply_is_retried_not_a_crash(
+    wire: Wire, broken: httpx2.Response
+) -> None:
+    replies = iter([broken])
     sent = wire(lambda r: next(replies, None) or _chat('{"a1": "YES"}'))
     _, [result] = _answer(LLM("openai:gpt-5-mini", api_key="k"))
     assert _label(result, "tech") == "YES" and len(sent) == 2
+
+
+def test_an_unreadable_decision_is_retried_not_a_crash(wire: Wire) -> None:
+    decision = {
+        "model": "gpt-6-luna",
+        "answers": [{"type": "predicate", "name": "tech", "probability": 0.9}],
+    }
+    usage = {
+        "input_tokens": 50,
+        "input_tokens_details": {"cached_tokens": 0, "cache_write_tokens": 0},
+        "output_tokens": 2,
+        "output_tokens_details": {"reasoning_tokens": 0},
+        "total_tokens": 52,
+    }
+    replies = iter(
+        [
+            httpx2.Response(200, text="<html>proxy error</html>"),
+            httpx2.Response(200, json=decision),  # no usage
+        ]
+    )
+    sent = wire(
+        lambda r: next(replies, None)
+        or httpx2.Response(200, json={**decision, "usage": usage})
+    )
+    _, [result] = _answer(LLM("openai:gpt-6-luna", api_key="k", kind="decision"))
+    assert _label(result, "tech") == "YES" and len(sent) == 3
 
 
 def test_reasoning_tokens_left_out_of_completion_tokens_are_counted(

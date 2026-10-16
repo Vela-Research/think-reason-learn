@@ -56,13 +56,16 @@ class AnthropicAdapter(ReasoningAdapter):
             raise classify(exc.status_code, exc.message, exc.response.headers) from exc
         except anthropic.APIConnectionError as exc:
             raise classify(None, str(exc), {}) from exc
-        message = await read_reply(raw.parse, anthropic.types.Message)
-        return Reply(
-            _output(message, request.schema),
-            _tokens(message.usage),
-            message.model,
-            None,
-            dict(raw.headers),
+        return await read_reply(
+            raw.parse,
+            anthropic.types.Message,
+            lambda message: Reply(
+                _output(message, request.schema),
+                _tokens(message.usage),
+                message.model,
+                None,
+                dict(raw.headers),
+            ),
         )
 
 

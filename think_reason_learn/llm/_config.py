@@ -15,6 +15,9 @@ from typing import TYPE_CHECKING, Final, TypedDict, Unpack
 if TYPE_CHECKING:
     from ._spec import Endpoint, ModelName
 
+MODEL_ALIASES: Final[dict[str, str]] = {"jev": "typesafe:jev-latest"}
+"""Short model names, and the ``"provider:model"`` each stands for."""
+
 
 @dataclass(frozen=True, slots=True)
 class Config:
@@ -128,7 +131,7 @@ def set_limits(
     if any(rate is not None and rate <= 0 for rate in (rpm, tpm)):
         raise ValueError("rpm and tpm must be above 0.")
     with _lock:
-        _limits[model] = Limits(max_concurrency, rpm, tpm)
+        _limits[MODEL_ALIASES.get(model, model)] = Limits(max_concurrency, rpm, tpm)
 
 
 def limits_for(endpoint: Endpoint) -> Limits:

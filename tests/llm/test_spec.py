@@ -16,6 +16,7 @@ from think_reason_learn.llm import (
     resolve,
     resolve_models,
 )
+from think_reason_learn.llm._spec import keys_optional
 
 
 @pytest.fixture(autouse=True)
@@ -162,6 +163,14 @@ def test_a_tampered_catalog_file_is_ignored(monkeypatch: pytest.MonkeyPatch) -> 
     _catalog._loaded = None
     endpoint = resolve(LLM("openrouter:typesafe/jev-1.14", api_key="k"))
     assert endpoint.settings.price == Price(0.042, 0.0)  # downloaded again
+
+
+def test_planning_needs_no_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY")
+    with keys_optional():
+        assert resolve("openai:gpt-5-mini").api_key is None
+    with pytest.raises(MissingAPIKeyError):
+        resolve("openai:gpt-5-mini")
 
 
 def test_decision_model_cannot_write() -> None:

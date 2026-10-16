@@ -14,7 +14,7 @@ import logging
 import math
 import re
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Final, Literal
@@ -30,6 +30,9 @@ _BURST_SECONDS: Final = 10.0
 _MAX_PAUSE: Final = 120.0
 
 logger = logging.getLogger(__name__)
+
+_limiters: Final[dict[str, Limiter]] = {}
+on_fork(_limiters.clear)
 
 
 type Outcome = Literal["ok", "rate_limited", "failed"]
@@ -57,23 +60,36 @@ class Limiter:
             _LOCAL_CEILING if local else _HOSTED_CEILING
         )
         self._allowed = min(self._allowed, self._ceiling)
-        self._set_rpm, self._set_tpm = limits.rpm is not None, limits.tpm is not None
         if limits.rpm is not None:
             self._learn("requests", limits.rpm)
+        elif self._set_rpm:  # lifted
+            self._requests = None
         if limits.tpm is not None:
             self._learn("tokens", limits.tpm)
+        elif self._set_tpm:
+            self._tokens = None
+        self._set_rpm, self._set_tpm = limits.rpm is not None, limits.tpm is not None
 
-    async def acquire(self, tokens: int) -> None:
-        """Wait for a slot, a request and ``tokens`` under the limits."""
+    async def acquire(
+        self, tokens: int, stopped: Callable[[], bool] = lambda: False
+    ) -> bool:
+        """Wait for a slot, a request and ``tokens`` under the limits.
+
+        Returns ``False``, having taken nothing, if ``stopped()`` turns true first.
+        """
         async with self._cond:
-            while (delay := self._delay(tokens)) > 0:
+            while (delay := self._delay(tokens)) > 0 and not stopped():
                 timeout = None if math.isinf(delay) else delay
                 with contextlib.suppress(TimeoutError):  # time to check again
                     await asyncio.wait_for(self._cond.wait(), timeout)
+            if stopped():
+                self._cond.notify()  # pass the wake-up on to the next waiter
+                return False
             self._in_flight += 1
             for bucket, amount in ((self._requests, 1), (self._tokens, tokens)):
                 if bucket is not None:
                     bucket.take(amount)
+            return True
 
     async def release(
         self,
@@ -136,8 +152,10 @@ class Limiter:
         paused = False
         for unit in ("requests", "tokens"):
             limit, remaining, reset = _rate_headers(lowered, unit)
-            if limit is not None and not (
-                self._set_rpm if unit == "requests" else self._set_tpm
+            if (
+                limit is not None
+                and 1 <= limit < math.inf  # below 1 a minute is no real limit
+                and not (self._set_rpm if unit == "requests" else self._set_tpm)
             ):
                 self._learn(unit, limit)
             if remaining == 0 and reset is not None:
@@ -171,9 +189,6 @@ def apply_limits(endpoint: Endpoint) -> None:
     """Re-read ``set_limits`` for ``endpoint`` (at the start of each run)."""
     limiter_for(endpoint).configure(limits_for(endpoint), local=endpoint.local)
 
-
-_limiters: Final[dict[str, Limiter]] = {}
-on_fork(_limiters.clear)
 
 _DURATION_RE: Final = re.compile(r"(\d+(?:\.\d+)?)(ms|h|m|s)")
 _UNIT_SECONDS: Final = {"ms": 0.001, "s": 1.0, "m": 60.0, "h": 3600.0}

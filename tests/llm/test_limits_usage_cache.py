@@ -19,6 +19,7 @@ from think_reason_learn.llm import (
     Price,
     TokenCounts,
     Usage,
+    UsageRecord,
     YesNoQuestion,
     config_context,
     format_usd,
@@ -31,6 +32,7 @@ from think_reason_learn.llm import (
     set_limits,
 )
 from think_reason_learn.llm._cache import Cache, cache_key
+from think_reason_learn.llm._calls import _backoff
 from think_reason_learn.llm._config import Limits, limits_for
 from think_reason_learn.llm._limiter import (
     Limiter,
@@ -157,6 +159,34 @@ class TestLimiter:
         limiter.configure(Limits(rpm=60), local=False)  # a new run, same limits
         assert limiter._delay(1) > 0.5
 
+    def test_a_stopped_call_takes_nothing(self) -> None:
+        async def wait() -> tuple[bool, int]:
+            limiter = Limiter(Limits(max_concurrency=1, rpm=60), local=False)
+            await limiter.acquire(1)  # the only slot
+            stop: list[bool] = []
+            waiting = asyncio.create_task(limiter.acquire(1, lambda: bool(stop)))
+            await asyncio.sleep(0)
+            stop.append(True)
+            await limiter.release(estimated=1, used=None, headers={}, outcome="failed")
+            return await waiting, limiter._in_flight
+
+        assert run_sync(wait()) == (False, 0)
+
+    def test_a_lifted_limit_is_gone(self) -> None:
+        limiter = Limiter(Limits(rpm=10), local=False)
+        limiter.configure(Limits(), local=False)
+        assert limiter._requests is None
+
+    def test_a_limit_below_one_a_minute_is_not_learned(self) -> None:
+        limiter = Limiter(Limits(), local=False)
+        limiter._observe(
+            {"x-ratelimit-limit-tokens": "0.001", "x-ratelimit-remaining-tokens": "5"}
+        )
+        assert limiter._tokens is None
+
+    def test_a_retry_always_waits(self) -> None:
+        assert _backoff(1, 0.0) > 0 and _backoff(1, 5.0) >= 5.0
+
     def test_limits_must_be_positive(self) -> None:
         with pytest.raises(ValueError, match="above 0"):
             set_limits("openai", rpm=0)
@@ -171,6 +201,8 @@ class TestLimiter:
         assert (
             limits_for(resolve(LLM("openai:gpt-4.1", api_key="k"))).max_concurrency == 3
         )
+        set_limits("jev", rpm=10)
+        assert limits_for(resolve(LLM("jev", api_key="k"))) == Limits(rpm=10)
 
 
 class TestUsageAndPrices:
@@ -229,6 +261,16 @@ class TestUsageAndPrices:
         usage.to_json(tmp_path / "run.json")
         assert len(json.loads((tmp_path / "run.json").read_text())) == 2
         assert Usage().by("model").empty
+
+    def test_answers_from_the_cache_are_not_calls(self) -> None:
+        usage = Usage(
+            [
+                UsageRecord(0, "a", "m", 0.0, "cache", calls=5, cached=True),
+                UsageRecord(0, "a", "m", 0.1, "price"),
+            ]
+        )
+        [row] = usage.by("model").to_dict("records")
+        assert (row["calls"], row["from_cache"]) == (usage.calls, 5) == (1, 5)
 
     def test_format_usd(self) -> None:
         assert (format_usd(0), format_usd(1.234), format_usd(0.000123)) == (

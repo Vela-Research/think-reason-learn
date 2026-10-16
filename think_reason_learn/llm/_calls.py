@@ -18,6 +18,10 @@ logger = logging.getLogger(__name__)
 _MAX_WAIT: Final = 120.0
 _RETRIED: Final = frozenset({"rate_limit", "transient"})
 
+_dropped: Final[dict[str, frozenset[str]]] = {}
+"""Settings each endpoint rejected, left out of its later calls."""
+on_fork(_dropped.clear)
+
 
 class Skipped(ProviderError):
     """A call not sent, because its pass stopped while it waited for a slot."""
@@ -60,11 +64,6 @@ async def send[T](
             await asyncio.sleep(_backoff(retries, error.retry_after))
 
 
-_dropped: Final[dict[str, frozenset[str]]] = {}
-"""Settings each endpoint rejected, left out of its later calls."""
-on_fork(_dropped.clear)
-
-
 def _drop(endpoint: Endpoint, error: ProviderError, dropped: frozenset[str]) -> bool:
     if (
         error.failure != "rejected_param"
@@ -80,9 +79,9 @@ def _drop(endpoint: Endpoint, error: ProviderError, dropped: frozenset[str]) -> 
 
 
 def _backoff(retry: int, retry_after: float | None) -> float:
-    if retry_after is not None:
-        return min(retry_after, _MAX_WAIT)
-    return min(0.5 * 2 ** (retry - 1), 30.0) * random.uniform(0.5, 1.0)
+    """At least what the provider asked, and never no wait at all."""
+    backoff = min(0.5 * 2 ** (retry - 1), 30.0) * random.uniform(0.5, 1.0)
+    return min(max(retry_after or 0.0, backoff), _MAX_WAIT)
 
 
 async def _attempt[T](
@@ -93,14 +92,13 @@ async def _attempt[T](
     stopped: Callable[[], bool],
 ) -> Reply[T]:
     """One call in one limiter slot; the slot is returned whatever happens."""
-    await limiter.acquire(estimated)
+    if not await limiter.acquire(estimated, stopped):
+        raise Skipped
     outcome: Outcome = "failed"
     used: int | None = None
     headers: dict[str, str] = {}
     retry_after: float | None = None
     try:
-        if stopped():
-            raise Skipped
         reply = await call(dropped)
         outcome, used = "ok", reply.tokens.input + reply.tokens.output
         headers = dict(reply.headers)

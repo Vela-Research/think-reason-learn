@@ -165,12 +165,14 @@ def test_rules_predictor_drops_unweighted_rules(fakes: tuple[FakeLLM, FakeLLM]) 
 
 
 def test_an_empty_first_policy_is_an_error() -> None:
-    with fake_llms(
-        writer=FakeLLM(generate=writer(())),
-        judge=FakeLLM(answer=judge_answer, kind="decision"),
+    with (
+        fake_llms(
+            writer=FakeLLM(generate=writer(())),
+            judge=FakeLLM(answer=judge_answer, kind="decision"),
+        ),
+        pytest.raises(LLMError, match="empty policy"),
     ):
-        with pytest.raises(LLMError, match="empty policy"):
-            policy_induction().fit(FOUNDERS, LABELS)
+        policy_induction().fit(FOUNDERS, LABELS)
 
 
 def test_a_failed_refinement_keeps_the_policy() -> None:

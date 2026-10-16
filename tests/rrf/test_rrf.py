@@ -9,7 +9,6 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from think_reason_learn.core._combine import best_threshold, fit_logistic
 from think_reason_learn.exceptions import DataError, LLMError
 from think_reason_learn.llm import Question, config_context
 from think_reason_learn.rrf import RRF
@@ -184,30 +183,6 @@ class TestSelection:
         assert (ranked, n, t) == ([0], 1, 1)
 
 
-class TestCombine:
-    def test_best_threshold(self) -> None:
-        scores = np.array([0.1, 0.4, 0.6, 0.9])
-        threshold, f = best_threshold(scores, np.array([False, False, True, True]), 1.0)
-        assert threshold == 0.5 and f == 1.0  # midway between 0.4 and 0.6
-
-    def test_logistic_learns_a_separable_feature(self) -> None:
-        rng = np.random.default_rng(0)
-        y = rng.random(80) > 0.5
-        features = np.column_stack([y.astype(float), rng.random(80)])
-        fitted = fit_logistic(
-            features,
-            y,
-            l1_ratios=(0.5,),
-            cs=4,
-            cv=3,
-            beta=1.0,
-            class_weight=None,
-            random_state=0,
-        )
-        assert fitted.coef[0] > abs(fitted.coef[1])
-        assert ((fitted.scores(features) >= fitted.threshold) == y).mean() == 1.0
-
-
 def test_integer_labels_and_pos_label(judge: FakeLLM) -> None:
     labels = [1 if label == "YES" else 0 for label in LABELS]
     model = rrf(pos_label=1).fit(FOUNDERS, labels)
@@ -228,12 +203,14 @@ def test_screening_reuses_screened_answers() -> None:
 
 
 def test_no_questions_is_an_error_not_a_silent_no() -> None:
-    with fake_llms(
-        writer=FakeLLM(generate=lambda r: {"questions": []} if r.schema else "x"),
-        judge=FakeLLM(answer=answer),
+    with (
+        fake_llms(
+            writer=FakeLLM(generate=lambda r: {"questions": []} if r.schema else "x"),
+            judge=FakeLLM(answer=answer),
+        ),
+        pytest.raises(LLMError, match="no usable questions"),
     ):
-        with pytest.raises(LLMError, match="no usable questions"):
-            rrf().fit(FOUNDERS, LABELS)
+        rrf().fit(FOUNDERS, LABELS)
 
 
 def test_one_failed_prompt_is_skipped() -> None:

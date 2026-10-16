@@ -11,7 +11,6 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from think_reason_learn.exceptions import DataError
-
 from think_reason_learn.llm import (
     LLMSession,
     Models,

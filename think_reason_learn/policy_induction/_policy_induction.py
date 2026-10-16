@@ -21,24 +21,24 @@ import logging
 import math
 from collections.abc import Mapping, Sequence
 from functools import partial
-from typing import Literal
+from typing import Final, Literal
 
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
 from pydantic import BaseModel
 
+from think_reason_learn.core._answers import yes_probabilities
 from think_reason_learn.core._classifier import (
     BinaryTRLClassifier,
     Labels,
     Proba,
     positive_index,
 )
-from think_reason_learn.core._answers import yes_probabilities
 from think_reason_learn.core._combine import LinearCombiner, fit_logistic, held_out_rows
 from think_reason_learn.core._data import Classes, balanced_subset, example_batches
-from think_reason_learn.core._prompts import examples_block, wrote_nothing
-from think_reason_learn.exceptions import LLMError
+from think_reason_learn.core._prompts import examples_block
+from think_reason_learn.exceptions import NoOutputError
 from think_reason_learn.llm import (
     YES_AT,
     Endpoint,
@@ -62,11 +62,12 @@ from ._prompts import (
 
 logger = logging.getLogger(__name__)
 
+_HISTORY: Final = pd.Index(
+    ["round", "cases", "precision_before", "precision_after", "kept"]
+)
+"""Columns of ``history_``: one row per refinement."""
+
 type Predictor = Literal["policy", "rules"]
-
-
-class _Policy(BaseModel):
-    rules: list[str]
 
 
 class PolicyInduction(BinaryTRLClassifier):
@@ -183,12 +184,15 @@ class PolicyInduction(BinaryTRLClassifier):
             texts, y, cases, writer, session, rng
         )
         if not policy:
-            raise LLMError("The generator wrote an empty policy.")
+            raise NoOutputError("The generator wrote an empty policy.")
         scores = await self._judge(policy, judged, session)
         history: list[tuple[int, int, float, float, bool]] = []
         for round_ in range(self.n_rounds):
-            for batch in itertools.batched(rng.permutation(cases), self.batch_size):
-                if _precision(scores, positive[cases]) == 1.0:
+            for batch in itertools.batched(
+                rng.permutation(cases), self.batch_size, strict=False
+            ):
+                before = _precision(scores, positive[cases])
+                if before == 1.0:
                     break
                 refined = await self._refine(
                     policy, texts, y, np.array(batch), writer, session, draw=round_
@@ -198,15 +202,11 @@ class PolicyInduction(BinaryTRLClassifier):
                     if refined == tuple(policy)
                     else await self._judge(refined, judged, session)
                 )
-                before = _precision(scores, positive[cases])
                 after = _precision(refined_scores, positive[cases])
                 history.append((round_, len(batch), before, after, after > before))
                 if after > before:
                     policy, scores = refined, refined_scores
-        columns = pd.Index(
-            ["round", "cases", "precision_before", "precision_after", "kept"]
-        )
-        self.history_ = pd.DataFrame(history, columns=columns)
+        self.history_ = pd.DataFrame(history, columns=_HISTORY)
         return tuple(policy)
 
     def _fit_plan(
@@ -296,9 +296,7 @@ class PolicyInduction(BinaryTRLClassifier):
             refined = await self._write(
                 prompt, UPDATE_INSTRUCTIONS, writer, session, draw
             )
-        except LLMError as error:
-            if not wrote_nothing(error):
-                raise
+        except NoOutputError as error:
             logger.warning(f"A refinement wrote nothing ({error}); the policy stays.")
             return tuple(policy)
         return refined or tuple(policy)
@@ -397,3 +395,7 @@ def _precision(
     """Precision of calling a sample positive when its probability is at least 0.5."""
     called = scores >= YES_AT
     return float((called & positive).sum() / called.sum()) if called.any() else 0.0
+
+
+class _Policy(BaseModel):
+    rules: list[str]

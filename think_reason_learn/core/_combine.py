@@ -111,6 +111,29 @@ def fit_logistic(
     return LinearCombiner.from_model(model.fit(features, y), threshold)
 
 
+def n_folds(cv: int, y: Bools) -> int:
+    """Folds for stratified cross-validation: at most the smaller class's size."""
+    return min(cv, int(np.bincount(y.astype(int), minlength=2).min()))
+
+
+def held_out_rows(
+    positive: Bools, used: npt.NDArray[np.intp], cv: int
+) -> npt.NDArray[np.intp]:
+    """The rows not in ``used``, if each class has enough of them for ``cv`` folds.
+
+    Otherwise every row, with a warning: what is fitted on them (weights, a
+    threshold) is then tuned on samples the model already learned from.
+    """
+    rest = np.setdiff1d(np.arange(len(positive)), used).astype(np.intp)
+    if n_folds(cv, positive[rest]) >= 2:
+        return rest
+    logger.warning(
+        "Too few unused samples of each class to fit on; fitting on every sample, "
+        "so the threshold may be optimistic. Use fewer samples to learn from."
+    )
+    return np.arange(len(positive), dtype=np.intp)
+
+
 def _chosen(
     features: Floats,
     y: Bools,
@@ -149,29 +172,6 @@ def _logistic(
         random_state=random_state,
         **_SOLVER,
     )
-
-
-def n_folds(cv: int, y: Bools) -> int:
-    """Folds for stratified cross-validation: at most the smaller class's size."""
-    return min(cv, int(np.bincount(y.astype(int), minlength=2).min()))
-
-
-def held_out_rows(
-    positive: Bools, used: npt.NDArray[np.intp], cv: int
-) -> npt.NDArray[np.intp]:
-    """The rows not in ``used``, if each class has enough of them for ``cv`` folds.
-
-    Otherwise every row, with a warning: what is fitted on them (weights, a
-    threshold) is then tuned on samples the model already learned from.
-    """
-    rest = np.setdiff1d(np.arange(len(positive)), used).astype(np.intp)
-    if n_folds(cv, positive[rest]) >= 2:
-        return rest
-    logger.warning(
-        "Too few unused samples of each class to fit on; fitting on every sample, "
-        "so the threshold may be optimistic. Use fewer samples to learn from."
-    )
-    return np.arange(len(positive), dtype=np.intp)
 
 
 def _penalty() -> str:

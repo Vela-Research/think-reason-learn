@@ -98,29 +98,9 @@ def _client(endpoint: Endpoint) -> anthropic.AsyncAnthropic:
 def _params(
     endpoint: Endpoint, request: GenerateRequest, dropped: frozenset[str]
 ) -> _Params:
-    import anthropic
     from anthropic import omit
 
     settings = endpoint.settings
-    blocks: list[TextBlockParam] = [{"type": "text", "text": request.prompt}]
-    if request.prefix:
-        # The cache breakpoint sits after the sample, before the question.
-        prefix: TextBlockParam = {
-            "type": "text",
-            "text": request.prefix,
-            "cache_control": {"type": "ephemeral"},
-        }
-        blocks.insert(0, prefix)
-    config: OutputConfigParam = {}
-    if (
-        effort := _EFFORTS.get(settings.reasoning_effort or "")
-    ) and "reasoning_effort" not in dropped:
-        config["effort"] = effort
-    if request.schema is not None:
-        config["format"] = {
-            "type": "json_schema",
-            "schema": anthropic.transform_schema(request.schema),
-        }
     extra = {
         name: value
         for name, value in (
@@ -132,11 +112,41 @@ def _params(
     return _Params(
         model=endpoint.model_id,
         max_tokens=settings.max_output_tokens or _MAX_TOKENS,
-        messages=[{"role": "user", "content": blocks}],
+        messages=[{"role": "user", "content": _blocks(request)}],
         system=request.instructions or omit,
-        output_config=config or omit,
+        output_config=_output_config(endpoint, request, dropped) or omit,
         extra_body=extra or None,
     )
+
+
+def _blocks(request: GenerateRequest) -> list[TextBlockParam]:
+    """The prompt, after the prefix; the cache breakpoint sits after the prefix."""
+    blocks: list[TextBlockParam] = [{"type": "text", "text": request.prompt}]
+    if request.prefix:
+        prefix: TextBlockParam = {
+            "type": "text",
+            "text": request.prefix,
+            "cache_control": {"type": "ephemeral"},
+        }
+        blocks.insert(0, prefix)
+    return blocks
+
+
+def _output_config(
+    endpoint: Endpoint, request: GenerateRequest, dropped: frozenset[str]
+) -> OutputConfigParam:
+    import anthropic
+
+    config: OutputConfigParam = {}
+    effort = _EFFORTS.get(endpoint.settings.reasoning_effort or "")
+    if effort and "reasoning_effort" not in dropped:
+        config["effort"] = effort
+    if request.schema is not None:
+        config["format"] = {
+            "type": "json_schema",
+            "schema": anthropic.transform_schema(request.schema),
+        }
+    return config
 
 
 def _output(message: Message, schema: type[BaseModel] | None) -> str | BaseModel | None:

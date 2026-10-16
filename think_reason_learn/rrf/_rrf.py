@@ -24,8 +24,8 @@ import numpy.typing as npt
 import pandas as pd
 from pydantic import BaseModel
 
-from think_reason_learn.core._classifier import BinaryTRLClassifier, Labels, Proba
 from think_reason_learn.core._answers import yes_probabilities
+from think_reason_learn.core._classifier import BinaryTRLClassifier, Labels, Proba
 from think_reason_learn.core._combine import LinearCombiner, fit_logistic
 from think_reason_learn.core._data import (
     Classes,
@@ -36,7 +36,7 @@ from think_reason_learn.core._data import (
     example_batches,
 )
 from think_reason_learn.core._prompts import examples_block, most_written
-from think_reason_learn.exceptions import LLMError
+from think_reason_learn.exceptions import NoOutputError
 from think_reason_learn.llm import (
     Endpoint,
     LLMSession,
@@ -51,10 +51,6 @@ from ._prompts import INSTRUCTIONS_PURPOSE, QUESTION_INSTRUCTIONS, question_prom
 from ._selection import as_yes, question_stats, rank, tune_vote
 
 type Combiner = Literal["vote", "elasticnet"]
-
-
-class _Questions(BaseModel):
-    questions: list[str]
 
 
 class RRF(BinaryTRLClassifier):
@@ -171,7 +167,7 @@ class RRF(BinaryTRLClassifier):
         generation, scoring = self._split_generation(y, len(self.classes_), rng)
         questions = await self._write(texts, y, generation, writer, session, rng)
         if not questions:
-            raise LLMError("The generator wrote no usable questions.")
+            raise NoOutputError("The generator wrote no usable questions.")
         questions, answers = await self._score(
             texts, scoring, positive[scoring], questions, session, rng
         )
@@ -244,23 +240,7 @@ class RRF(BinaryTRLClassifier):
         rng: np.random.Generator,
     ) -> list[str]:
         """Questions from every prompt, deduplicated, then the expert's."""
-        batches = example_batches(
-            y[generation],
-            self.classes_,
-            n_batches=self.n_prompts,
-            batch_size=min(self.n_examples, len(generation)),
-            class_ratio=self.example_class_ratio,
-            rng=rng,
-        )
-        prompts = [
-            question_prompt(
-                self._task(),
-                self.instructions_,
-                self.questions_per_prompt,
-                examples_block(texts, y, self.classes_, generation[batch]),
-            )
-            for batch in batches
-        ]
+        prompts = self._prompts(texts, y, generation, rng)
         written = await most_written(
             [
                 session.generate(
@@ -278,6 +258,32 @@ class RRF(BinaryTRLClassifier):
             q for batch in written for q in batch.questions[: self.questions_per_prompt]
         ]
         return _unique([*candidates, *self.expert_questions])
+
+    def _prompts(
+        self,
+        texts: list[str],
+        y: Labels,
+        generation: npt.NDArray[np.intp],
+        rng: np.random.Generator,
+    ) -> list[str]:
+        """One prompt per batch of class-balanced examples from ``generation``."""
+        batches = example_batches(
+            y[generation],
+            self.classes_,
+            n_batches=self.n_prompts,
+            batch_size=min(self.n_examples, len(generation)),
+            class_ratio=self.example_class_ratio,
+            rng=rng,
+        )
+        return [
+            question_prompt(
+                self._task(),
+                self.instructions_,
+                self.questions_per_prompt,
+                examples_block(texts, y, self.classes_, generation[batch]),
+            )
+            for batch in batches
+        ]
 
     async def _score(
         self,
@@ -405,3 +411,7 @@ def _unique(questions: Sequence[str]) -> list[str]:
             seen.add(question.lower())
             unique.append(question)
     return unique
+
+
+class _Questions(BaseModel):
+    questions: list[str]

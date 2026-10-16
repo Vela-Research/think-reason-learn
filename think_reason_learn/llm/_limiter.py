@@ -9,6 +9,7 @@ and adapts concurrency: halved on a rate limit, raised by one per success.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import math
 import re
@@ -29,31 +30,6 @@ _BURST_SECONDS: Final = 10.0
 _MAX_PAUSE: Final = 120.0
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass(slots=True)
-class _Bucket:
-    per_second: float
-    capacity: float
-    level: float
-    stamp: float
-
-    @classmethod
-    def per_minute(cls, amount: float) -> _Bucket:
-        capacity = max(1.0, amount * _BURST_SECONDS / 60)
-        return cls(amount / 60, capacity, capacity, time.monotonic())
-
-    def wait(self, amount: float, now: float) -> float:
-        """Seconds until ``amount`` can be taken (more than fits: a full bucket)."""
-        self.level = min(
-            self.capacity, self.level + (now - self.stamp) * self.per_second
-        )
-        self.stamp = now
-        missing = min(amount, self.capacity) - self.level
-        return max(missing, 0.0) / self.per_second
-
-    def take(self, amount: float) -> None:
-        self.level -= amount
 
 
 type Outcome = Literal["ok", "rate_limited", "failed"]
@@ -92,10 +68,8 @@ class Limiter:
         async with self._cond:
             while (delay := self._delay(tokens)) > 0:
                 timeout = None if math.isinf(delay) else delay
-                try:
+                with contextlib.suppress(TimeoutError):  # time to check again
                     await asyncio.wait_for(self._cond.wait(), timeout)
-                except TimeoutError:
-                    pass
             self._in_flight += 1
             for bucket, amount in ((self._requests, 1), (self._tokens, tokens)):
                 if bucket is not None:
@@ -244,3 +218,28 @@ def _reset_seconds(value: str | None) -> float | None:
         return max(datetime.fromisoformat(value).timestamp() - time.time(), 0.0)
     except ValueError:
         return None
+
+
+@dataclass(slots=True)
+class _Bucket:
+    per_second: float
+    capacity: float
+    level: float
+    stamp: float
+
+    @classmethod
+    def per_minute(cls, amount: float) -> _Bucket:
+        capacity = max(1.0, amount * _BURST_SECONDS / 60)
+        return cls(amount / 60, capacity, capacity, time.monotonic())
+
+    def wait(self, amount: float, now: float) -> float:
+        """Seconds until ``amount`` can be taken (more than fits: a full bucket)."""
+        self.level = min(
+            self.capacity, self.level + (now - self.stamp) * self.per_second
+        )
+        self.stamp = now
+        missing = min(amount, self.capacity) - self.level
+        return max(missing, 0.0) / self.per_second
+
+    def take(self, amount: float) -> None:
+        self.level -= amount

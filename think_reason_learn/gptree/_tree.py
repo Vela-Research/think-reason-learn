@@ -121,7 +121,7 @@ class Tree:
                 "question": n.question.text if n.question else None,
                 "children": dict(n.children) or None,
                 "n_samples": n.n_samples,
-                **{str(c): v for c, v in zip(classes, n.value)},
+                **{str(c): v for c, v in zip(classes, n.value, strict=True)},
             }
             for n in self.nodes
         ]
@@ -132,7 +132,7 @@ class Tree:
         lines = ["digraph GPTree {", '  node [shape=box, fontname="Helvetica"];']
         for n in self.nodes:
             shares = ", ".join(
-                f"{c}: {p:.0%}" for c, p in zip(classes, self.proba(n.id))
+                f"{c}: {p:.0%}" for c, p in zip(classes, self.proba(n.id), strict=True)
             )
             head = n.question.text if n.question else "leaf"
             label = f"{head}\\nsamples: {n.n_samples}\\n{shares}".replace('"', "'")

@@ -16,7 +16,7 @@ import numpy as np
 import numpy.typing as npt
 from pydantic import BaseModel
 
-from think_reason_learn.exceptions import LLMError
+from think_reason_learn.exceptions import NoOutputError
 from think_reason_learn.llm import Endpoint, LLMSession, run_sync
 
 logger = logging.getLogger(__name__)
@@ -25,10 +25,6 @@ INSTRUCTIONS: Final = """\
 You advise an agent that gathers information about a sample one slot at a time
 before making a decision. Given what it has seen so far, pick the one remaining
 slot most likely to change the decision. If none stands out, pick none."""
-
-
-class _Pick(BaseModel):
-    slot: str | None = None
 
 
 def is_uncertain(probs: npt.NDArray[np.float64], n_slots: int, delta: float) -> bool:
@@ -103,7 +99,7 @@ class Supervisor:
             and is_uncertain(row, n_slots, self.delta)
         ]
         picks = run_sync(_gather(self._pick(masks[k], samples[k]) for k in unsure))
-        for k, pick in zip(unsure, picks):
+        for k, pick in zip(unsure, picks, strict=True):
             if pick is not None:
                 probs[k] = boost(probs[k], n_slots, pick, self.bias)
         return probs
@@ -114,12 +110,12 @@ class Supervisor:
         shown = (
             "\n".join(
                 f"{name}: {self.slot_texts[name][sample]}"
-                for name, seen in zip(names, mask)
+                for name, seen in zip(names, mask, strict=True)
                 if seen
             )
             or "(nothing yet)"
         )
-        available = [name for name, seen in zip(names, mask) if not seen]
+        available = [name for name, seen in zip(names, mask, strict=True) if not seen]
         prompt = (
             f"Revealed so far:\n{shown}\n\n"
             f"Slots you may reveal next: {', '.join(available)}"
@@ -132,7 +128,7 @@ class Supervisor:
                 schema=_Pick,
                 instructions=INSTRUCTIONS,
             )
-        except LLMError as error:
+        except NoOutputError as error:
             logger.warning(f"The supervisor gave no advice: {error}")
             return None
         return names.index(reply.slot) if reply.slot in available else None
@@ -140,3 +136,7 @@ class Supervisor:
 
 async def _gather[T](calls: Iterable[Coroutine[object, object, T]]) -> list[T]:
     return list(await asyncio.gather(*calls))
+
+
+class _Pick(BaseModel):
+    slot: str | None = None

@@ -9,8 +9,8 @@ rerun after a crash or a budget stop replays what was already paid for.
 from __future__ import annotations
 
 import hashlib
-import json
 import itertools
+import json
 import logging
 import sqlite3
 import threading
@@ -59,7 +59,7 @@ class Cache:
     def get_many(self, keys: Iterable[str]) -> dict[str, JSON]:
         """The stored replies among ``keys``; an unreadable one counts as missing."""
         found: dict[str, JSON] = {}
-        for batch in itertools.batched(dict.fromkeys(keys), _BATCH):
+        for batch in itertools.batched(dict.fromkeys(keys), _BATCH, strict=False):
             marks = ",".join("?" * len(batch))
             try:
                 with self._lock:

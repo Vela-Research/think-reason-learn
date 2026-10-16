@@ -7,8 +7,8 @@ import ipaddress
 import os
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
-from urllib.parse import urlparse
 from typing import Final, Literal
+from urllib.parse import urlparse
 
 from think_reason_learn.exceptions import MissingAPIKeyError
 

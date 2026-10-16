@@ -13,11 +13,10 @@ from functools import partial
 
 import numpy as np
 import numpy.typing as npt
-
-from think_reason_learn.llm import YES_AT
 from sklearn.model_selection import StratifiedKFold
 
 from think_reason_learn.core._combine import Bools, Floats, fbeta, n_folds
+from think_reason_learn.llm import YES_AT
 
 
 def question_stats(
@@ -75,11 +74,6 @@ def vote_grid(ranked: Bools, y: Bools, beta: float) -> Floats:
     return grid
 
 
-def _at_least(votes: npt.NDArray[np.int_], n: int) -> Floats:
-    """For T = 1..n, how many of ``votes`` are at least T."""
-    return np.cumsum(np.bincount(votes, minlength=n + 1)[::-1])[::-1][1:].astype(float)
-
-
 def tune_vote(
     answers: Bools,
     y: Bools,
@@ -117,6 +111,16 @@ def tune_vote(
     return ranked, int(n) + 1, int(t) + 1
 
 
+def as_yes(probabilities: npt.NDArray[np.float64]) -> Bools:
+    """Answers as YES (probability of yes at least 0.5); missing answers are NO."""
+    return np.nan_to_num(probabilities, nan=0.0) >= YES_AT
+
+
+def _at_least(votes: npt.NDArray[np.int_], n: int) -> Floats:
+    """For T = 1..n, how many of ``votes`` are at least T."""
+    return np.cumsum(np.bincount(votes, minlength=n + 1)[::-1])[::-1][1:].astype(float)
+
+
 def _cross_validated_grid(
     answers: Bools,
     y: Bools,
@@ -141,8 +145,3 @@ def _cross_validated_grid(
     grid = np.divide(total, seen, out=np.zeros_like(total), where=seen > 0)
     complete = seen == folds
     return np.where(complete, grid, -np.inf) if complete.any() else grid
-
-
-def as_yes(probabilities: npt.NDArray[np.float64]) -> Bools:
-    """Answers as YES (probability of yes at least 0.5); missing answers are NO."""
-    return np.nan_to_num(probabilities, nan=0.0) >= YES_AT

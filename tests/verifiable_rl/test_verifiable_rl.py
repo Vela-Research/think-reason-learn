@@ -19,9 +19,9 @@ from sklearn.utils.estimator_checks import (
 )
 
 from think_reason_learn.exceptions import DataError
+from think_reason_learn.llm import LLMSession, resolve_models
 from think_reason_learn.testing import FakeLLM, GenerateRequest, fake_llms
 from think_reason_learn.verifiable_rl import VerifiableRL
-from think_reason_learn.llm import LLMSession, resolve_models
 from think_reason_learn.verifiable_rl._episodes import Sample, Search, rollouts, targets
 from think_reason_learn.verifiable_rl._networks import Classifier, PolicyNet
 from think_reason_learn.verifiable_rl._supervisor import Supervisor, boost, is_uncertain

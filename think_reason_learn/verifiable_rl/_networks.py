@@ -10,18 +10,6 @@ import torch
 import torch.nn as nn
 
 
-def _mlp(inputs: int, hidden: int, outputs: int) -> nn.Sequential:
-    return nn.Sequential(
-        nn.Linear(inputs, hidden),
-        nn.ReLU(),
-        nn.Linear(hidden, hidden // 2),
-        nn.ReLU(),
-        nn.Linear(hidden // 2, hidden // 2),
-        nn.ReLU(),
-        nn.Linear(hidden // 2, outputs),
-    )
-
-
 class PolicyNet(nn.Module):
     """Logits for each information action, then one for STOP."""
 
@@ -53,3 +41,15 @@ class Classifier(nn.Module):
     def forward(self, states: torch.Tensor) -> torch.Tensor:
         """Logits, shape ``(batch,)``."""
         return self.net(states).squeeze(-1)
+
+
+def _mlp(inputs: int, hidden: int, outputs: int) -> nn.Sequential:
+    return nn.Sequential(
+        nn.Linear(inputs, hidden),
+        nn.ReLU(),
+        nn.Linear(hidden, hidden // 2),
+        nn.ReLU(),
+        nn.Linear(hidden // 2, hidden // 2),
+        nn.ReLU(),
+        nn.Linear(hidden // 2, outputs),
+    )

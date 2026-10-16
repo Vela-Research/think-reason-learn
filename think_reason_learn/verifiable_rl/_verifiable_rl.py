@@ -299,7 +299,7 @@ class VerifiableRL(Persistable, ClassifierMixin, BaseEstimator):
             )
             if supervisor is not None:
                 probs = supervisor.nudge(probs, allowed, masks[rows], rows)
-            for row, action in zip(rows, greedy(probs, allowed)):
+            for row, action in zip(rows, greedy(probs, allowed), strict=True):
                 if action == n_slots:
                     active[row] = False
                 else:
@@ -533,7 +533,11 @@ class _Trainer:
 
     def _frozen_copy(self) -> Classifier:
         """A frozen copy for the rollouts (a deep copy draws no random numbers)."""
-        return copy.deepcopy(self.model.classifier_).requires_grad_(False).eval()
+        return (
+            copy.deepcopy(self.model.classifier_)
+            .requires_grad_(requires_grad=False)
+            .eval()
+        )
 
 
 def _sample[E](examples: list[E], size: int, rng: np.random.Generator) -> list[E]:

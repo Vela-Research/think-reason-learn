@@ -51,7 +51,7 @@ class OneQuestion(TRLClassifier):
         self.question_ = written.text
         yes = await self._yes(texts, session)
         table = np.ones((2, len(self.classes_)))  # Laplace smoothing
-        for answer, label in zip(yes, y):
+        for answer, label in zip(yes, y, strict=True):
             table[int(answer), label] += 1
         self.table_ = table / table.sum(axis=1, keepdims=True)
 
@@ -120,11 +120,11 @@ def test_missing_role_and_wrong_columns() -> None:
 
 
 def test_decision_model_cannot_write() -> None:
-    with fake_llms(writer=WRITER, judge=JUDGE):
-        with pytest.raises(ValueError, match="decision model"):
-            OneQuestion(task="t", generator="fake:judge", answerer="fake:judge").fit(
-                X, y
-            )
+    with (
+        fake_llms(writer=WRITER, judge=JUDGE),
+        pytest.raises(ValueError, match="decision model"),
+    ):
+        OneQuestion(task="t", generator="fake:judge", answerer="fake:judge").fit(X, y)
 
 
 def test_saved_model_has_no_key(tmp_path: Path) -> None:
@@ -216,7 +216,7 @@ class TestData:
             )
 
 
-class TestReviewFixes:
+class TestRefitsAndCounts:
     def test_count_takes_numpy_integers(self) -> None:
         from think_reason_learn.core._data import count
 
@@ -236,9 +236,11 @@ class TestReviewFixes:
             with pytest.raises(NotFittedError):
                 fresh.predict(X)
             mute = OneQuestion(task="t", generator="fake:writer", answerer="fake:mute")
-            with fake_llms(mute=FakeLLM(answer=lambda sample, question: None)):
-                with pytest.raises(LLMError):
-                    mute.fit(X, y)  # fails mid-fit: nothing half-learned is kept
+            with (
+                fake_llms(mute=FakeLLM(answer=lambda sample, question: None)),
+                pytest.raises(LLMError),
+            ):
+                mute.fit(X, y)  # fails mid-fit: nothing half-learned is kept
             with pytest.raises(NotFittedError):
                 mute.predict(X)
 

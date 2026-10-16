@@ -3,15 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-
 from typing import Any
 
 import pandas as pd
 import pytest
 
 from think_reason_learn.exceptions import DataError
-from think_reason_learn.testing import FakeLLM, fake_llms
-
 from think_reason_learn.features import (
     CognitiveMode,
     DataSchema,
@@ -28,6 +25,7 @@ from think_reason_learn.features._prompts import (
     build_user_prompt,
     format_samples,
 )
+from think_reason_learn.testing import FakeLLM, fake_llms
 
 # ---------------------------------------------------------------------------
 # Fixtures & helpers

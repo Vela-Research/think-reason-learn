@@ -307,3 +307,14 @@ def test_class_weights_by_label_and_unknown_labels() -> None:
     assert list(weights) == [1.0, 1.0, 5.0]
     with pytest.raises(ValueError, match="unknown classes"):
         _sample_weights(y, np.array(["no", "yes"]), {"YES": 5.0})
+
+
+def test_a_budget_stop_inside_the_tree_stops_the_fit(
+    fakes: tuple[FakeLLM, FakeLLM],
+) -> None:
+    from think_reason_learn.exceptions import BudgetExceededError
+    from think_reason_learn.llm import LLM, Price, config_context
+
+    priced = LLM("fake:judge", price=Price(input=1e6))  # a dollar a token
+    with config_context(max_cost_usd=0.01), pytest.raises(BudgetExceededError):
+        tree(answerer=priced).fit(FOUNDERS, LABELS)

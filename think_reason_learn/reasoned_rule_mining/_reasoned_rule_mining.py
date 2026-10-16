@@ -26,13 +26,13 @@ import numpy as np
 import numpy.typing as npt
 from pydantic import BaseModel
 
+from think_reason_learn.core._answers import yes_probabilities
 from think_reason_learn.core._classifier import (
     BinaryTRLClassifier,
     Labels,
     Proba,
     positive_index,
 )
-from think_reason_learn.core._answers import yes_probabilities
 from think_reason_learn.core._combine import LinearCombiner, fit_logistic, held_out_rows
 from think_reason_learn.core._data import Classes, balanced_subset
 from think_reason_learn.core._prompts import most_written
@@ -65,11 +65,6 @@ logger = logging.getLogger(__name__)
 
 _CLIP: Final = 1e-3
 """Probabilities are clipped to [_CLIP, 1 - _CLIP] before taking log-odds."""
-
-
-class _Mined(BaseModel):
-    reasoning: str
-    rule: str
 
 
 class ReasonedRuleMining(BinaryTRLClassifier):
@@ -349,3 +344,8 @@ class ReasonedRuleMining(BinaryTRLClassifier):
 def _logit(p: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
     clipped = np.clip(p, _CLIP, 1 - _CLIP)
     return np.log(clipped / (1 - clipped))
+
+
+class _Mined(BaseModel):
+    reasoning: str
+    rule: str

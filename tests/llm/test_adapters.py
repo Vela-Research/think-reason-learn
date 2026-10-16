@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 from collections.abc import Callable, Mapping
 
@@ -11,9 +12,9 @@ import pytest
 from think_reason_learn.exceptions import LLMError, ProviderAuthError
 from think_reason_learn.llm import (
     LLM,
-    Endpoint,
     Answers,
     ChoiceQuestion,
+    Endpoint,
     LLMSession,
     Model,
     YesNoQuestion,
@@ -26,6 +27,11 @@ from think_reason_learn.llm._calls import _drop, _dropped
 
 type Handler = Callable[[httpx2.Request], httpx2.Response]
 type Wire = Callable[[Handler], list[httpx2.Request]]
+
+NEEDS_ANTHROPIC = pytest.mark.skipif(
+    importlib.util.find_spec("anthropic") is None,
+    reason="needs the [anthropic] extra",
+)
 
 TECH = {"tech": YesNoQuestion("Is the founder technical?")}
 
@@ -255,6 +261,7 @@ def _message(text: str) -> httpx2.Response:
     )
 
 
+@NEEDS_ANTHROPIC
 class TestAnthropic:
     def test_sample_is_cached_and_question_follows(self, wire: Wire) -> None:
         sent = wire(lambda r: _message('{"a1": "YES"}'))
@@ -434,6 +441,7 @@ def test_a_model_the_account_cannot_use_tries_the_next() -> None:
     assert error.failure == "unavailable"
 
 
+@NEEDS_ANTHROPIC
 def test_claude_gets_the_service_tier(wire: Wire) -> None:
     sent = wire(lambda r: _message('{"a1": "YES"}'))
     _answer(LLM("anthropic:claude-haiku-4-5", api_key="k", service_tier="auto"))

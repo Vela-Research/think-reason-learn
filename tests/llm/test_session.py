@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 import pytest
 from pydantic import BaseModel
 
@@ -16,18 +15,19 @@ from think_reason_learn.exceptions import (
 from think_reason_learn.llm import (
     LLM,
     ChoiceQuestion,
+    Endpoint,
     LLMSession,
     Price,
     YesNoQuestion,
     config_context,
+    get_config,
     resolve_models,
     run_sync,
 )
-from think_reason_learn.llm import Endpoint, get_config
 from think_reason_learn.llm._cache import open_cache
 from think_reason_learn.llm._estimate import call_tokens
 from think_reason_learn.testing import (
-    Failure,
+    FakeFailure,
     FakeLLM,
     GenerateRequest,
     fake_llms,
@@ -78,9 +78,11 @@ def test_generate_falls_back_when_a_model_gives_nothing() -> None:
 
 
 def test_generate_raises_when_every_model_fails() -> None:
-    with fake_llms(bad=FakeLLM(failures=["bad_request"])):
-        with pytest.raises(LLMError, match="fake bad request"):
-            run_sync(LLMSession().generate(_resolved("bad"), "p", role="generator"))
+    with (
+        fake_llms(bad=FakeLLM(failures=["bad_request"])),
+        pytest.raises(LLMError, match="fake bad request"),
+    ):
+        run_sync(LLMSession().generate(_resolved("bad"), "p", role="generator"))
 
 
 def test_generation_is_cached_per_draw() -> None:
@@ -152,9 +154,11 @@ def test_unanswered_questions_fall_back_to_the_next_model() -> None:
 
 
 def test_nothing_answered_raises() -> None:
-    with fake_llms(mute=FakeLLM(answer=lambda s, q: None)):
-        with pytest.raises(LLMError, match="No answers"):
-            run_sync(LLMSession().answer(_resolved("mute"), ["x"], QUESTIONS, role="a"))
+    with (
+        fake_llms(mute=FakeLLM(answer=lambda s, q: None)),
+        pytest.raises(LLMError, match="No answers"),
+    ):
+        run_sync(LLMSession().answer(_resolved("mute"), ["x"], QUESTIONS, role="a"))
 
 
 def test_answers_are_never_paid_for_twice() -> None:
@@ -195,7 +199,7 @@ def test_no_cache_asks_again() -> None:
 
 
 @pytest.mark.parametrize("failure", ["rate_limit", "server_error", "timeout"])
-def test_temporary_failures_are_retried(failure: Failure) -> None:
+def test_temporary_failures_are_retried(failure: FakeFailure) -> None:
     judge = FakeLLM(answer=_answer, failures=[failure])
     with fake_llms(judge=judge):
         [result] = run_sync(
@@ -207,13 +211,13 @@ def test_temporary_failures_are_retried(failure: Failure) -> None:
 
 
 @pytest.mark.parametrize("failure", ["auth", "quota"])
-def test_a_rejected_key_stops_the_run(failure: Failure) -> None:
+def test_a_rejected_key_stops_the_run(failure: FakeFailure) -> None:
     judge = FakeLLM(answer=_answer, failures=[failure])
-    with fake_llms(judge=judge):
-        with pytest.raises(ProviderAuthError):
-            run_sync(
-                LLMSession().answer(_resolved("judge"), ["x"], QUESTIONS, role="a")
-            )
+    with (
+        fake_llms(judge=judge),
+        pytest.raises(ProviderAuthError),
+    ):
+        run_sync(LLMSession().answer(_resolved("judge"), ["x"], QUESTIONS, role="a"))
 
 
 def test_a_missing_model_is_abandoned_for_the_next() -> None:
@@ -235,16 +239,18 @@ def test_a_missing_model_is_abandoned_for_the_next() -> None:
 
 def test_a_fatal_error_sends_nothing_more() -> None:
     judge = FakeLLM(answer=_answer, failures=["auth"])
-    with fake_llms(judge=judge):
-        with pytest.raises(ProviderAuthError):
-            run_sync(
-                LLMSession().answer(
-                    _resolved("judge"),
-                    [f"s{i}" for i in range(50)],
-                    {"tech": QUESTIONS["tech"]},
-                    role="a",
-                )
+    with (
+        fake_llms(judge=judge),
+        pytest.raises(ProviderAuthError),
+    ):
+        run_sync(
+            LLMSession().answer(
+                _resolved("judge"),
+                [f"s{i}" for i in range(50)],
+                {"tech": QUESTIONS["tech"]},
+                role="a",
             )
+        )
     assert judge.n_calls <= 8
 
 

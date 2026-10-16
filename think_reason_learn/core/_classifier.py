@@ -20,7 +20,6 @@ from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.utils import Tags
 from sklearn.utils.validation import check_is_fitted
 
-from think_reason_learn.core._persistence import Persistable
 from think_reason_learn.core._data import (
     Classes,
     LabelInput,
@@ -28,6 +27,7 @@ from think_reason_learn.core._data import (
     encode_labels,
     to_texts,
 )
+from think_reason_learn.core._persistence import Persistable
 from think_reason_learn.core._prompts import write_instructions
 from think_reason_learn.exceptions import DataError
 from think_reason_learn.llm import (

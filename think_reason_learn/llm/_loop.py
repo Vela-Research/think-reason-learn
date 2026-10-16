@@ -60,6 +60,11 @@ async def run_async[T](coro: Coroutine[object, object, T]) -> T:
     return await asyncio.wrap_future(asyncio.run_coroutine_threadsafe(coro, loop))
 
 
+def on_fork(reset: Callable[[], None]) -> None:
+    """Run ``reset`` in a forked child, to drop state bound to the parent's loop."""
+    _fork_resets.append(reset)
+
+
 def _on(loop: asyncio.AbstractEventLoop) -> bool:
     try:
         return asyncio.get_running_loop() is loop
@@ -72,11 +77,6 @@ def _wait[T](future: Future[T]) -> T:
     while not future.done():
         wait([future], timeout=0.5)
     return future.result()
-
-
-def on_fork(reset: Callable[[], None]) -> None:
-    """Run ``reset`` in a forked child, to drop state bound to the parent's loop."""
-    _fork_resets.append(reset)
 
 
 _fork_resets: Final[list[Callable[[], None]]] = []

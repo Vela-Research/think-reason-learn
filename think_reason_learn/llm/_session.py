@@ -13,13 +13,14 @@ import logging
 import time
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from functools import partial
 from typing import Final, TypeIs, overload
 
 from pydantic import BaseModel, ValidationError
 
 from think_reason_learn.exceptions import (
     BudgetExceededError,
-    LLMError,
+    NoOutputError,
     ProviderAuthError,
 )
 
@@ -140,7 +141,7 @@ class LLMSession:
                 reply = await self._call(
                     endpoint,
                     role,
-                    lambda dropped: adapter.generate(endpoint, request, dropped),
+                    partial(adapter.generate, endpoint, request),
                     TokenCounts(
                         input=call_tokens(prompt, instructions, prefix),
                         output=GENERATE_OUTPUT_TOKENS,
@@ -154,7 +155,9 @@ class LLMSession:
                 self.budget.check()
                 return reply.output
             errors.append(f"{endpoint.name}: no usable output")
-        raise LLMError(f"No model gave usable output for {role}: {'; '.join(errors)}")
+        raise NoOutputError(
+            f"No model gave usable output for {role}: {'; '.join(errors)}"
+        )
 
     async def answer(
         self,
@@ -197,7 +200,7 @@ class LLMSession:
             and all(a is None for r in results for a in r.values())
         ):
             first = errors[0] if errors else "no usable answers"
-            raise LLMError(
+            raise NoOutputError(
                 f"No answers from {[m.name for m in models]}. First error: {first}"
             )
         if errors:
@@ -216,7 +219,7 @@ class LLMSession:
         if endpoint.key not in self._configured:
             self._first_call(endpoint, estimate)
         held = self.budget.reserve(call_cost(endpoint, estimate, None)[0])
-        start = time.perf_counter()
+        start, cost = time.perf_counter(), None
         try:
             reply = await send(
                 endpoint,
@@ -225,28 +228,23 @@ class LLMSession:
                 max_retries=self.config.max_retries,
                 stopped=stopped,
             )
-        except Skipped:
-            self.budget.settle(held, None)
-            raise
+            cost = self._record(
+                endpoint,
+                role,
+                reply.tokens,
+                start,
+                served=reply.served_model,
+                provider_cost=reply.provider_cost,
+            )
+            return reply
         except ProviderError as error:
-            self.budget.settle(held, None)
-            self._record(endpoint, role, TokenCounts(), start, error=str(error))
+            if not isinstance(error, Skipped):  # nothing was sent
+                self._record(endpoint, role, TokenCounts(), start, error=str(error))
             if error.failure in ("auth", "quota"):
                 raise ProviderAuthError(f"{endpoint.name}: {error}") from error
             raise
-        except BaseException:
-            self.budget.settle(held, None)
-            raise
-        cost = self._record(
-            endpoint,
-            role,
-            reply.tokens,
-            start,
-            served=reply.served_model,
-            provider_cost=reply.provider_cost,
-        )
-        self.budget.settle(held, cost)
-        return reply
+        finally:
+            self.budget.settle(held, cost)
 
     def _first_call(self, endpoint: Endpoint, estimate: TokenCounts) -> None:
         apply_limits(endpoint)
@@ -471,7 +469,7 @@ class _AnswerPass:
             stopped=lambda: self.unavailable or self.fatal is not None,
         )
         stored: dict[str, JSON] = {}
-        for qid, key in zip(request.qids, request.keys):
+        for qid, key in zip(request.qids, request.keys, strict=True):
             if (answer := reply.output.get(qid)) is None:
                 continue
             probabilities: dict[str, JSON] = {**answer.probabilities}

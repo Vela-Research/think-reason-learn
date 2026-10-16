@@ -32,16 +32,16 @@ from think_reason_learn.core._classifier import (
     positive_index,
 )
 from think_reason_learn.core._combine import best_threshold
-from think_reason_learn.exceptions import LLMError
 from think_reason_learn.core._data import (
     Classes,
-    ClassWeight,
     ClassRatio,
+    ClassWeight,
     TextInput,
     count,
     example_batches,
 )
 from think_reason_learn.core._prompts import examples_block
+from think_reason_learn.exceptions import NoOutputError
 from think_reason_learn.llm import (
     Answer,
     ChoiceQuestion,
@@ -77,15 +77,6 @@ _MAX_INSIGHT_BATCHES: Final = 4
 
 ponytail: caps insight cost on large classes; raise if insights miss rare patterns.
 """
-
-
-class _Written(BaseModel):
-    text: str
-    options: list[str] = Field(default_factory=list)
-
-
-class _Questions(BaseModel):
-    questions: list[_Written]
 
 
 class GPTree(TRLClassifier):
@@ -229,7 +220,7 @@ class GPTree(TRLClassifier):
             *self._insights_plan(writer, y, example),
             estimate_generations(writer, prompt, calls=nodes),
         ]
-        if (critic := _critic(self.critic, writer)) is not None:
+        if (critic := _critic(writer, critic=self.critic)) is not None:
             planned.append(
                 estimate_generations(critic, prompt, calls=nodes, role="critic")
             )
@@ -324,7 +315,7 @@ class GPTree(TRLClassifier):
             answers = await session.answer(
                 answerer, [texts[i] for i in idx], {"q": node.question}, role="answerer"
             )
-        except LLMError:
+        except NoOutputError:
             logger.warning(
                 f"No answers at node {node_id}; following its largest branch."
             )
@@ -381,7 +372,7 @@ class _Grower:
             _sample_weights(y, model.classes_, model.class_weight),
             session,
             writer,
-            _critic(model.critic, writer),
+            _critic(writer, critic=model.critic),
             model._models("answerer", "answer"),
             np.random.default_rng(model.random_state),
             max(1, count(model.min_samples_leaf, n)),
@@ -396,7 +387,7 @@ class _Grower:
         )
         return "\n\n".join(
             f"{label}:\n{summary}"
-            for label, summary in zip(self.model.classes_, summaries)
+            for label, summary in zip(self.model.classes_, summaries, strict=True)
             if summary
         )
 
@@ -457,22 +448,10 @@ class _Grower:
     async def _propose(self, node: Node, idx: npt.NDArray[np.intp]) -> _Proposal | None:
         if self._is_final(node, idx):
             return None
-        try:
-            questions = await self._questions(node, idx)
-        except LLMError:
-            logger.warning(f"No questions written at node {node.id}; it stays a leaf.")
+        asked = await self._asked(node, idx)
+        if asked is None:
             return None
-        node.candidates = tuple(q.text for q in questions.values())
-        if not questions:
-            return None
-        try:
-            answers = await self.session.answer(
-                self.answerer, [self.texts[i] for i in idx], questions, role="answerer"
-            )
-        except LLMError:
-            logger.warning(f"No answers at node {node.id}; it stays a leaf.")
-            return None
-        labels = {qid: [_label(a.get(qid)) for a in answers] for qid in questions}
+        questions, labels = asked
         split = best_split(
             labels,
             self.y[idx],
@@ -486,6 +465,28 @@ class _Grower:
         if split is None:
             return None
         return _Proposal(node, idx, split, questions[split.qid], labels[split.qid])
+
+    async def _asked(
+        self, node: Node, idx: npt.NDArray[np.intp]
+    ) -> tuple[dict[str, Question], dict[str, list[str | None]]] | None:
+        """The node's candidate questions and each sample's answers.
+
+        ``None`` when none were written or answered: the node stays a leaf.
+        """
+        try:
+            questions = await self._questions(node, idx)
+            node.candidates = tuple(q.text for q in questions.values())
+            if not questions:
+                return None
+            answers = await self.session.answer(
+                self.answerer, [self.texts[i] for i in idx], questions, role="answerer"
+            )
+        except NoOutputError as error:
+            logger.warning(f"Node {node.id} stays a leaf: {error}")
+            return None
+        return questions, {
+            qid: [_label(a.get(qid)) for a in answers] for qid in questions
+        }
 
     def _is_final(self, node: Node, idx: npt.NDArray[np.intp]) -> bool:
         max_depth = self.model.max_depth
@@ -629,7 +630,7 @@ class _Proposal:
 
 
 def _critic(
-    critic: bool | Model, writer: tuple[Endpoint, ...]
+    writer: tuple[Endpoint, ...], *, critic: bool | Model
 ) -> tuple[Endpoint, ...] | None:
     if critic is False:
         return None
@@ -665,3 +666,12 @@ def _sample_weights(
 
 def _label(answer: Answer | None) -> str | None:
     return answer.label if answer is not None else None
+
+
+class _Written(BaseModel):
+    text: str
+    options: list[str] = Field(default_factory=list)
+
+
+class _Questions(BaseModel):
+    questions: list[_Written]

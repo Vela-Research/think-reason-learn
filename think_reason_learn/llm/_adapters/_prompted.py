@@ -79,7 +79,7 @@ async def prompted_answer(
     picked = _picked(reply.output, len(ids))
     answers: Answers = {
         qid: Answer.certain(label, q.labels) if label in q.labels else None
-        for qid, q, label in zip(ids, asked, picked)
+        for qid, q, label in zip(ids, asked, picked, strict=True)
     }
     return Reply(
         answers, reply.tokens, reply.served_model, reply.provider_cost, reply.headers

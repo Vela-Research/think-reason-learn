@@ -52,9 +52,10 @@ X = [
     "Casey started a company out of high school and failed twice.",
 ]
 y = ["successful", "failed", "successful", "failed"]
+task = "Predict whether a startup founder will succeed."
 
 tree = GPTree(
-    task="Predict whether a startup founder will succeed.",
+    task=task,
     generator="openai:gpt-5-mini",   # writes the questions
     answerer="jev",                  # answers them (Typesafe's Jev, the default)
 )
@@ -104,11 +105,11 @@ from its public catalog (kept for a day, so new ones work at once). Elsewhere, a
 import think_reason_learn as trl
 
 trl.set_limits("openai:gpt-5-mini", max_concurrency=64, rpm=5_000, tpm=4_000_000)
-model.estimate_cost(X, y).cost_usd  # what fit(X, y) would spend; nothing is sent
+tree.estimate_cost(X, y).cost_usd  # what fit(X, y) would spend; nothing is sent
 with trl.config_context(max_cost_usd=5):
-    model.fit(X, y)
+    tree.fit(X, y)
 
-model.usage_.by("role", "model")   # calls, tokens and dollars
+tree.usage_.by("role", "model")    # calls, tokens and dollars
 ```
 
 - Limits are per model and account, shared by every model in the process. Without limits, calls start at 8 in
@@ -126,6 +127,7 @@ from sklearn.metrics import f1_score, make_scorer
 from sklearn.model_selection import cross_val_score
 from think_reason_learn.rrf import RRF
 
+# On a real dataset: five folds need at least five samples of each class.
 f1 = make_scorer(f1_score, pos_label="successful")
 cross_val_score(RRF(task=task, generator="openai:gpt-5-mini"), X, y, cv=5, scoring=f1)
 ```

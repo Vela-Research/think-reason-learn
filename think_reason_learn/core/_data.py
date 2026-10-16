@@ -147,7 +147,9 @@ def count(value: float | np.integer | np.floating, n: int) -> int:
 
 def _row_text(names: Sequence[str], values: tuple[object, ...]) -> str:
     return "\n".join(
-        f"{name}: {value}" for name, value in zip(names, values) if not _missing(value)
+        f"{name}: {value}"
+        for name, value in zip(names, values, strict=True)
+        if not _missing(value)
     )
 
 

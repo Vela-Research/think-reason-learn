@@ -11,11 +11,7 @@ import numpy as np
 import numpy.typing as npt
 
 from think_reason_learn.core._data import Classes
-from think_reason_learn.exceptions import (
-    BudgetExceededError,
-    LLMError,
-    ProviderAuthError,
-)
+from think_reason_learn.exceptions import NoOutputError
 from think_reason_learn.llm import Endpoint, LLMSession
 
 logger = logging.getLogger(__name__)
@@ -33,12 +29,12 @@ async def most_written[T](calls: Sequence[Awaitable[T]], what: str) -> list[T]:
     """The replies of ``calls`` run at once, skipping those that wrote nothing.
 
     One refusal or unusable reply among many (prompts, mined samples) is
-    logged and skipped; a bad key or the budget still stops the run, and so
-    does every call failing.
+    logged and skipped; any other error, such as a bad key or the budget,
+    stops the run, and so does every call writing nothing.
     """
     replies = await asyncio.gather(*calls, return_exceptions=True)
     failed = [r for r in replies if isinstance(r, BaseException)]
-    if fatal := next((e for e in failed if not wrote_nothing(e)), None):
+    if fatal := next((e for e in failed if not isinstance(e, NoOutputError)), None):
         raise fatal
     written = [r for r in replies if not isinstance(r, BaseException)]
     if failed and not written:
@@ -48,12 +44,6 @@ async def most_written[T](calls: Sequence[Awaitable[T]], what: str) -> list[T]:
             f"{len(failed)} of {len(replies)} {what} wrote nothing: {failed[0]}"
         )
     return written
-
-
-def wrote_nothing(error: BaseException) -> bool:
-    """Whether ``error`` is a call that wrote nothing usable, not a fatal one."""
-    fatal = (ProviderAuthError, BudgetExceededError)
-    return isinstance(error, LLMError) and not isinstance(error, fatal)
 
 
 def examples_block(

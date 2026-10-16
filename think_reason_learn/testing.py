@@ -43,7 +43,14 @@ from think_reason_learn.llm._spec import Endpoint, ModelKind
 from think_reason_learn.llm._usage import TokenCounts
 
 type Failure = Literal[
-    "rate_limit", "server_error", "timeout", "auth", "quota", "bad_request", "empty"
+    "rate_limit",
+    "server_error",
+    "timeout",
+    "auth",
+    "quota",
+    "unavailable",
+    "bad_request",
+    "empty",
 ]
 """What a fake call does instead of replying."""
 
@@ -116,6 +123,7 @@ _ERRORS: Final[dict[Failure, tuple[Failure_, str]]] = {
     "timeout": ("transient", "fake timeout"),
     "auth": ("auth", "fake key rejected"),
     "quota": ("quota", "fake insufficient_quota"),
+    "unavailable": ("unavailable", "fake model not found"),
     "bad_request": ("bad_request", "fake bad request"),
 }
 

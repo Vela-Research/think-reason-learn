@@ -12,6 +12,7 @@ splits the node. Nodes of one level grow concurrently.
 from __future__ import annotations
 
 import asyncio
+import logging
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -22,7 +23,15 @@ import numpy as np
 import numpy.typing as npt
 from pydantic import BaseModel, Field
 
-from think_reason_learn.core._classifier import Labels, Proba, TRLClassifier
+from think_reason_learn.core._classifier import (
+    Labels,
+    Proba,
+    TRLClassifier,
+    binary_decision,
+    positive_index,
+)
+from think_reason_learn.core._combine import best_threshold
+from think_reason_learn.exceptions import LLMError
 from think_reason_learn.core._data import (
     ClassRatio,
     TextInput,
@@ -55,6 +64,8 @@ from ._prompts import (
 )
 from ._split import Criterion, Split, best_split
 from ._tree import Node, Tree
+
+logger = logging.getLogger(__name__)
 
 _MAX_INSIGHT_BATCHES: Final = 4
 """Insight batches per class.
@@ -102,6 +113,11 @@ class GPTree(TRLClassifier):
             weight per label.
         insights: Summarise each class before growing the tree, as the paper does.
         insight_batch_size: Samples per insight prompt.
+        pos_label: For two classes, the positive one (by default the second
+            sorted label).
+        beta: For two classes, leaves are called positive above the share of
+            positives that maximises F-beta on the training samples, as the
+            paper does (F0.5). More classes take the most likely class.
         random_state: Seed for the examples shown.
         verbose: Show progress when above 0.
     """
@@ -128,6 +144,8 @@ class GPTree(TRLClassifier):
         class_weight: Literal["balanced"] | Mapping[str, float] | None = None,
         insights: bool = True,
         insight_batch_size: int = 250,
+        pos_label: str | int | None = None,
+        beta: float = 0.5,
         random_state: int | None = None,
         verbose: int = 0,
     ) -> None:
@@ -150,6 +168,8 @@ class GPTree(TRLClassifier):
         self.class_weight = class_weight
         self.insights = insights
         self.insight_batch_size = insight_batch_size
+        self.pos_label = pos_label
+        self.beta = beta
         self.random_state = random_state
         self.verbose = verbose
 
@@ -160,6 +180,7 @@ class GPTree(TRLClassifier):
     instructions_: str
     insights_: str
     tree_: Tree
+    threshold_: float | None
 
     def apply(self, X: TextInput) -> npt.NDArray[np.intp]:
         """The leaf each sample reaches."""
@@ -183,6 +204,13 @@ class GPTree(TRLClassifier):
         self.instructions_ = await self._instructions(session, grower.writer)
         self.insights_ = await grower.insights() if self.insights else ""
         self.tree_ = await grower.grow()
+        self.threshold_ = grower.threshold()
+
+    def _decide(self, proba: Proba) -> Labels:
+        if self.threshold_ is None:
+            return super()._decide(proba)
+        pos = positive_index(self.classes_, self.pos_label)
+        return binary_decision(proba, pos, self.threshold_)
 
     async def _apredict_proba(self, texts: list[str], session: LLMSession) -> Proba:
         leaves = await self._route(texts, session)
@@ -221,9 +249,15 @@ class GPTree(TRLClassifier):
     ) -> dict[int, npt.NDArray[np.intp]]:
         node = self.tree_.nodes[node_id]
         assert node.question is not None and node.default is not None
-        answers = await session.answer(
-            answerer, [texts[i] for i in idx], {"q": node.question}, role="answerer"
-        )
+        try:
+            answers = await session.answer(
+                answerer, [texts[i] for i in idx], {"q": node.question}, role="answerer"
+            )
+        except LLMError:
+            logger.warning(
+                f"No answers at node {node_id}; following its largest branch."
+            )
+            return {node.children[node.default]: idx}
         children = np.array(
             [
                 node.children.get(
@@ -260,6 +294,7 @@ class _Grower:
     rng: np.random.Generator
     min_leaf: int
     min_split: int
+    leaf_of: npt.NDArray[np.intp]
     tree: Tree = field(default_factory=Tree)
 
     @classmethod
@@ -280,6 +315,7 @@ class _Grower:
             np.random.default_rng(model.random_state),
             max(1, count(model.min_samples_leaf, n)),
             max(2, count(model.min_samples_split, n)),
+            np.zeros(n, dtype=np.intp),
         )
 
     async def insights(self) -> str:
@@ -301,7 +337,8 @@ class _Grower:
             n_samples=len(self.texts),
         )
         frontier = [(root, np.arange(len(self.texts)))]
-        while frontier:
+        budget = self.model.max_leaf_nodes
+        while frontier and (budget is None or self.tree.n_leaves < budget):
             proposals = await asyncio.gather(
                 *(self._propose(node, idx) for node, idx in frontier)
             )
@@ -352,9 +389,13 @@ class _Grower:
         node.candidates = tuple(q.text for q in questions.values())
         if not questions:
             return None
-        answers = await self.session.answer(
-            self.answerer, [self.texts[i] for i in idx], questions, role="answerer"
-        )
+        try:
+            answers = await self.session.answer(
+                self.answerer, [self.texts[i] for i in idx], questions, role="answerer"
+            )
+        except LLMError:
+            logger.warning(f"No answers at node {node.id}; it stays a leaf.")
+            return None
         labels = {qid: [_label(a.get(qid)) for a in answers] for qid in questions}
         split = best_split(
             labels,
@@ -482,8 +523,17 @@ class _Grower:
                 branch=branch,
             )
             node.children[branch] = child.id
+            self.leaf_of[child_idx] = child.id
             children.append((child, child_idx))
         return children
+
+    def threshold(self) -> float | None:
+        """For two classes, the leaf share of positives that maximises F-beta."""
+        if len(self.model.classes_) != 2:
+            return None
+        pos = positive_index(self.model.classes_, self.model.pos_label)
+        shares = np.array([self.tree.proba(int(leaf))[pos] for leaf in self.leaf_of])
+        return best_threshold(shares, self.y == pos, self.model.beta)[0]
 
     def _value(self, idx: npt.NDArray[np.intp]) -> tuple[float, ...]:
         counts = np.bincount(

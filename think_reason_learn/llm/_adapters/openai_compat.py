@@ -2,23 +2,23 @@
 
 Google, xAI, OpenRouter, Groq, Together, DeepSeek, Mistral, Azure, Ollama, vLLM,
 LM Studio and llama.cpp all speak it. Settings a model does not accept are sent
-only when set, and dropped for good when the model rejects them.
+only when set, and dropped for good when the model rejects them. Replies are
+validated here, so a malformed one is "no usable output", never a crash.
 """
 
 from __future__ import annotations
 
 import hashlib
+import json
 from collections.abc import Mapping
 from typing import Final, TypedDict
 
 import openai
 from openai import Omit, omit
+from openai.lib import type_to_response_format_param
 from openai.types import CompletionUsage
-from openai.types.chat import (
-    ChatCompletion,
-    ChatCompletionMessageParam,
-    ParsedChatCompletion,
-)
+from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
+from openai.types.chat.completion_create_params import ResponseFormat
 from openai.types.shared import ReasoningEffort
 from pydantic import BaseModel, ValidationError
 
@@ -27,8 +27,12 @@ from .._questions import Question
 from .._spec import Endpoint
 from .._usage import TokenCounts
 from ._base import Answers, GenerateRequest, Reply, classify
-from ._http import http_client
+from ._http import cached, http_client
 from ._prompted import prompted_answer
+
+_JSON_ONLY: Final = (
+    "Reply with only a JSON object (no other text) matching this JSON schema:\n"
+)
 
 
 class OpenAICompatAdapter:
@@ -41,33 +45,21 @@ class OpenAICompatAdapter:
     async def generate(
         self, endpoint: Endpoint, request: GenerateRequest, dropped: frozenset[str]
     ) -> Reply[str | BaseModel | None]:
-        """Text, or an instance of ``request.schema``."""
-        client, params = openai_client(endpoint), _params(endpoint, request, dropped)
+        """Text, or an instance of ``request.schema``; ``None`` if unusable."""
+        client = openai_client(endpoint)
         try:
-            if request.schema is not None and not endpoint.json_object_only:
-                raw = await client.chat.completions.with_raw_response.parse(
-                    response_format=request.schema, **params
-                )
-                parsed = raw.parse()
-                output: str | BaseModel | None = _parsed(parsed)
-                completion: ChatCompletion = parsed
-            else:
-                raw = await client.chat.completions.with_raw_response.create(
-                    response_format={"type": "json_object"} if request.schema else omit,
-                    **params,
-                )
-                completion = raw.parse()
-                output = _content(completion, request.schema)
-        except openai.LengthFinishReasonError as exc:
-            return Reply(None, _tokens(exc.completion.usage), exc.completion.model)
-        except openai.ContentFilterFinishReasonError:
-            return Reply(None, TokenCounts())
+            raw = await client.chat.completions.with_raw_response.create(
+                response_format=_response_format(endpoint, request),
+                timeout=get_config().timeout,
+                **_params(endpoint, request, dropped),
+            )
         except openai.APIStatusError as exc:
             raise classify(exc.status_code, exc.message, exc.response.headers) from exc
         except openai.APIConnectionError as exc:
             raise classify(None, str(exc), {}) from exc
+        completion = raw.parse()
         return Reply(
-            output,
+            _output(completion, request.schema),
             _tokens(completion.usage),
             completion.model,
             _provider_cost(completion.usage),
@@ -89,22 +81,18 @@ class OpenAICompatAdapter:
 
 def openai_client(endpoint: Endpoint) -> openai.AsyncOpenAI:
     """The OpenAI SDK client for ``endpoint``'s base URL and account."""
-    key = endpoint.client_key
-    if key not in _clients:
-        timeout = get_config().timeout
+
+    def build() -> openai.AsyncOpenAI:
         header_key = endpoint.api_key if endpoint.api_key_header else None
-        _clients[key] = openai.AsyncOpenAI(
+        return openai.AsyncOpenAI(
             api_key=endpoint.api_key or "not-needed",
             base_url=endpoint.base_url,
             max_retries=0,
-            timeout=timeout,
-            http_client=http_client(key, timeout),
+            http_client=http_client(endpoint.client_key),
             default_headers={"api-key": header_key} if header_key else None,
         )
-    return _clients[key]
 
-
-_clients: Final[dict[str, openai.AsyncOpenAI]] = {}
+    return cached(f"openai|{endpoint.client_key}", build)
 
 
 class _Params(TypedDict):
@@ -125,9 +113,13 @@ def _params(
     def kept[V](name: str, value: V | None) -> V | Omit:
         return omit if value is None or name in dropped else value
 
+    instructions = request.instructions or ""
+    if request.schema is not None and endpoint.json_object_only:
+        schema = json.dumps(request.schema.model_json_schema())
+        instructions = f"{instructions}\n\n{_JSON_ONLY}{schema}".strip()
     messages: list[ChatCompletionMessageParam] = []
-    if request.instructions:
-        messages.append({"role": "system", "content": request.instructions})
+    if instructions:
+        messages.append({"role": "system", "content": instructions})
     user = f"{request.prefix}\n\n{request.prompt}" if request.prefix else request.prompt
     messages.append({"role": "user", "content": user})
     cache_key = (
@@ -147,15 +139,27 @@ def _params(
     )
 
 
-def _parsed(completion: ParsedChatCompletion[BaseModel]) -> BaseModel | None:
-    return completion.choices[0].message.parsed if completion.choices else None
+def _response_format(
+    endpoint: Endpoint, request: GenerateRequest
+) -> ResponseFormat | Omit:
+    if request.schema is None:
+        return omit
+    if endpoint.json_object_only:
+        return {"type": "json_object"}
+    return type_to_response_format_param(request.schema)
 
 
-def _content(
+def _output(
     completion: ChatCompletion, schema: type[BaseModel] | None
 ) -> str | BaseModel | None:
-    content = completion.choices[0].message.content if completion.choices else None
-    if schema is None or content is None:
+    """The reply as text or ``schema``; ``None`` if truncated, refused or invalid."""
+    if not completion.choices:
+        return None
+    choice = completion.choices[0]
+    content = choice.message.content
+    if choice.finish_reason == "length" or content is None:
+        return None
+    if schema is None:
         return content
     try:
         return schema.model_validate_json(content)

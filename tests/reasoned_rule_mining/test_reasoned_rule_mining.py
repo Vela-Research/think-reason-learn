@@ -121,3 +121,36 @@ def test_two_classes_only(fakes: tuple[FakeLLM, FakeLLM]) -> None:
 def test_paper_defaults() -> None:
     model = ReasonedRuleMining()
     assert (model.harsh_gate, model.harsh_level, model.beta) == (0.95, "strict", 0.5)
+
+
+def test_rare_positives_still_calibrate_on_unmined_samples() -> None:
+    founders = [
+        f"founder {i}: {'engineer' if i % 10 == 0 else 'chef'}" for i in range(60)
+    ]
+    labels = ["YES" if "engineer" in f else "NO" for f in founders]
+    writer, answerer = FakeLLM(generate=write), FakeLLM(answer=judge, kind="decision")
+    with fake_llms(writer=writer, judge=answerer):
+        model = rule_mining(n_samples=500, cv=2).fit(founders, labels)
+    mined = {
+        (c.prompt or "").split("\n\n")[1].removeprefix("Sample:\n")
+        for c in writer.calls
+        if c.schema
+    }
+    judged = {c.sample for c in answerer.calls}
+    assert {label for label, _ in model.rules_} == {"YES", "NO"}
+    assert (
+        len([m for m in mined if "engineer" in m]) <= 3
+    )  # at most half of 6 positives
+    assert not mined & judged
+
+
+def test_probabilities_are_not_pulled_to_one_half(
+    fakes: tuple[FakeLLM, FakeLLM],
+) -> None:
+    founders = [
+        f"founder {i}: {'engineer' if i % 10 == 0 else 'chef'}" for i in range(100)
+    ]
+    labels = ["YES" if "engineer" in f else "NO" for f in founders]
+    model = rule_mining(n_samples=10, cv=3).fit(founders, labels)
+    mean_positive = model.predict_proba(founders)[:, 1].mean()
+    assert abs(mean_positive - 0.1) < 0.1

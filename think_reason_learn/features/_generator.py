@@ -51,7 +51,8 @@ class FeatureGenerator:
     ) -> None:
         self._schema = schema
         self._helpers = list(helpers)
-        self._generator = resolve_models(generator, param="generator", task="generate")
+        resolve_models(generator, param="generator", task="generate")  # fail early
+        self._generator = generator  # resolved per call, so no key is held
         self._cognitive_modes = cognitive_modes or set()
         self.usage = Usage()
 
@@ -109,7 +110,7 @@ class FeatureGenerator:
             format_samples(samples, labels, n_samples), n_rules, prior_rules
         )
         written = await LLMSession(usage=self.usage).generate(
-            self._generator,
+            resolve_models(self._generator, param="generator", task="generate"),
             user_prompt,
             role="generator",
             schema=GeneratedRules,

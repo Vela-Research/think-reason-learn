@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from think_reason_learn.core._classifier import Labels, Proba, TRLClassifier
 from think_reason_learn.core._data import encode_labels, example_batches, to_texts
-from think_reason_learn.exceptions import DataError
+from think_reason_learn.exceptions import DataError, LLMError
 from think_reason_learn.llm import LLMSession, Models, YesNoQuestion
 from think_reason_learn.testing import FakeLLM, check_classifier, fake_llms
 
@@ -207,3 +207,30 @@ class TestData:
                 class_ratio={"c": 1},
                 rng=np.random.default_rng(0),
             )
+
+
+class TestReviewFixes:
+    def test_count_takes_numpy_integers(self) -> None:
+        from think_reason_learn.core._data import count
+
+        assert count(np.int64(5), 100) == 5 and count(0.05, 100) == 5
+
+    def test_refit_forgets_columns_and_failed_fit_is_not_fitted(self) -> None:
+        from sklearn.exceptions import NotFittedError
+
+        with fake_llms(writer=WRITER, judge=JUDGE):
+            model = make().fit(X, y)
+            model.fit(list(X["bio"]), y)
+            assert not hasattr(model, "feature_names_in_")
+            assert len(model.predict(X)) == 4  # a DataFrame works after a list fit
+            fresh = OneQuestion(generator="fake:writer", answerer="fake:judge")
+            with pytest.raises(ValueError, match="needs task"):
+                fresh.fit(X, y)  # checked before anything is set or sent
+            with pytest.raises(NotFittedError):
+                fresh.predict(X)
+            mute = OneQuestion(task="t", generator="fake:writer", answerer="fake:mute")
+            with fake_llms(mute=FakeLLM(answer=lambda sample, question: None)):
+                with pytest.raises(LLMError):
+                    mute.fit(X, y)  # fails mid-fit: nothing half-learned is kept
+            with pytest.raises(NotFittedError):
+                mute.predict(X)

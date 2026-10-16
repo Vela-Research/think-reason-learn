@@ -11,7 +11,7 @@ import pytest
 
 from think_reason_learn.core._combine import best_threshold, fit_logistic
 from think_reason_learn.exceptions import DataError
-from think_reason_learn.llm import Question
+from think_reason_learn.llm import Question, config_context
 from think_reason_learn.rrf import RRF
 from think_reason_learn.rrf._selection import question_stats, rank, tune_vote, vote_grid
 from think_reason_learn.testing import (
@@ -206,3 +206,22 @@ class TestCombine:
         )
         assert fitted.coef[0] > abs(fitted.coef[1])
         assert ((fitted.scores(features) >= fitted.threshold) == y).mean() == 1.0
+
+
+def test_integer_labels_and_pos_label(judge: FakeLLM) -> None:
+    labels = [1 if label == "YES" else 0 for label in LABELS]
+    model = rrf(pos_label=1).fit(FOUNDERS, labels)
+    assert list(model.predict(["an engineer", "a chef"])) == [1, 0]
+
+
+def test_screening_reuses_screened_answers() -> None:
+    screening = FakeLLM(answer=answer)
+    with (
+        fake_llms(writer=FakeLLM(generate=write), judge=screening),
+        config_context(cache=False),
+    ):
+        model = rrf(screening_size=8, screened_questions=1, random_state=1).fit(
+            FOUNDERS, LABELS
+        )
+    scored = len(FOUNDERS) - 24  # the generation set is not scored
+    assert screening.n_calls == 8 * 4 + (scored - 8) * len(model.questions_)

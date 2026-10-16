@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, TypedDict, Unpack
 
 if TYPE_CHECKING:
     from ._spec import Endpoint, ModelName
@@ -68,40 +68,35 @@ def get_config() -> Config:
     return _context.get() or _default
 
 
-def set_config(
-    *,
-    cache: bool | None = None,
-    cache_dir: str | os.PathLike[str] | None = None,
-    max_cost_usd: float | None = None,
-    max_retries: int | None = None,
-    timeout: float | None = None,
-) -> None:
-    """Change the settings for the whole process. See ``Config``."""
+class ConfigChanges(TypedDict, total=False):
+    """Settings to change; those left out keep their value. See ``Config``."""
+
+    cache: bool
+    cache_dir: str | os.PathLike[str] | None
+    max_cost_usd: float | None
+    max_retries: int
+    timeout: float
+
+
+def set_config(**changes: Unpack[ConfigChanges]) -> None:
+    """Change the settings for the whole process. See ``Config``.
+
+    Only the settings passed change; ``max_cost_usd=None`` lifts a cap.
+    """
     global _default
     with _lock:
-        _default = _changed(
-            _default, cache, cache_dir, max_cost_usd, max_retries, timeout
-        )
+        _default = _changed(_default, changes)
 
 
 @contextmanager
-def config_context(
-    *,
-    cache: bool | None = None,
-    cache_dir: str | os.PathLike[str] | None = None,
-    max_cost_usd: float | None = None,
-    max_retries: int | None = None,
-    timeout: float | None = None,
-) -> Iterator[Config]:
+def config_context(**changes: Unpack[ConfigChanges]) -> Iterator[Config]:
     """Change the settings inside a ``with`` block only. See ``Config``.
 
     Example:
         >>> with config_context(max_cost_usd=5):
         ...     model.fit(X, y)
     """
-    changed = _changed(
-        get_config(), cache, cache_dir, max_cost_usd, max_retries, timeout
-    )
+    changed = _changed(get_config(), changes)
     token = _context.set(changed)
     try:
         yield changed
@@ -130,6 +125,8 @@ def set_limits(
     """
     if max_concurrency is not None and max_concurrency < 1:
         raise ValueError(f"max_concurrency must be >= 1, got {max_concurrency}.")
+    if any(rate is not None and rate <= 0 for rate in (rpm, tpm)):
+        raise ValueError("rpm and tpm must be above 0.")
     with _lock:
         _limits[model] = Limits(max_concurrency, rpm, tpm)
 
@@ -146,21 +143,7 @@ _context: Final[ContextVar[Config | None]] = ContextVar("trl_config", default=No
 _limits: Final[dict[str, Limits]] = {}
 
 
-def _changed(
-    config: Config,
-    cache: bool | None,
-    cache_dir: str | os.PathLike[str] | None,
-    max_cost_usd: float | None,
-    max_retries: int | None,
-    timeout: float | None,
-) -> Config:
-    changes = {
-        "cache": cache,
-        "cache_dir": Path(cache_dir) if cache_dir is not None else None,
-        "max_cost_usd": max_cost_usd,
-        "max_retries": max_retries,
-        "timeout": timeout,
-    }
-    return dataclasses.replace(
-        config, **{k: v for k, v in changes.items() if v is not None}
-    )
+def _changed(config: Config, changes: ConfigChanges) -> Config:
+    if (folder := changes.get("cache_dir")) is not None:
+        changes = {**changes, "cache_dir": Path(folder)}
+    return dataclasses.replace(config, **changes)

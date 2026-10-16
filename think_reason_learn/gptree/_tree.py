@@ -97,6 +97,7 @@ class Tree:
             current = self.nodes[queue.pop(0)]
             reachable.append(current)
             queue.extend(current.children.values())
+        reachable.sort(key=lambda n: n.id)  # keep surviving nodes in their order
         new_id = {n.id: i for i, n in enumerate(reachable)}
         for n in reachable:
             n.id = new_id[n.id]

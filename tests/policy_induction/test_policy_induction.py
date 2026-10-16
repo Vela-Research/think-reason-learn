@@ -128,3 +128,26 @@ def test_paper_defaults() -> None:
         40,
     )
     assert (model.max_rules, model.predictor, model.beta) == (20, "policy", 0.5)
+
+
+def test_policy_predictor_takes_the_answerers_call(
+    fakes: tuple[FakeLLM, FakeLLM],
+) -> None:
+    assert policy_induction().fit(FOUNDERS, LABELS).threshold_ == 0.5
+
+
+def test_each_round_asks_for_fresh_refinements(fakes: tuple[FakeLLM, FakeLLM]) -> None:
+    write, _ = fakes
+    policy_induction(initial_policy=GOOD, n_rounds=2, batch_size=1).fit(
+        FOUNDERS, LABELS
+    )
+    assert sum(c.schema is not None for c in write.calls) == 2 * 12
+
+
+def test_rules_predictor_drops_unweighted_rules(fakes: tuple[FakeLLM, FakeLLM]) -> None:
+    model = policy_induction(
+        initial_policy=GOOD + ("Founders who like tea succeed.",),
+        n_rounds=0,
+        predictor="rules",
+    ).fit(FOUNDERS, LABELS)
+    assert model.weighted_rules_ and set(model.weighted_rules_) <= set(model.policy_)

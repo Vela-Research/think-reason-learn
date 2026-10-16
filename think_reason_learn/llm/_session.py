@@ -59,6 +59,7 @@ class LLMSession:
             open_cache(self.config.cache_path) if self.config.cache else None
         )
         self._configured: set[str] = set()
+        self._served: dict[str, set[str]] = {}
 
     @overload
     async def generate[S: BaseModel](
@@ -203,8 +204,7 @@ class LLMSession:
     ) -> Reply[T]:
         """One call under the budget, recorded in usage."""
         if endpoint.key not in self._configured:
-            apply_limits(endpoint)
-            self._configured.add(endpoint.key)
+            self._first_call(endpoint, estimate)
         held = self.budget.reserve(call_cost(endpoint, estimate, None)[0])
         start = time.perf_counter()
         try:
@@ -234,6 +234,17 @@ class LLMSession:
         self.budget.settle(held, cost)
         return reply
 
+    def _first_call(self, endpoint: Endpoint, estimate: TokenCounts) -> None:
+        apply_limits(endpoint)
+        self._configured.add(endpoint.key)
+        if self.budget.max_cost_usd is not None and (
+            call_cost(endpoint, estimate, None)[0] is None
+        ):
+            logger.warning(
+                f"{endpoint.name} has no known price, so max_cost_usd does not "
+                "count its calls. Set one with LLM(..., price=Price(...))."
+            )
+
     def _record(
         self,
         endpoint: Endpoint,
@@ -255,18 +266,19 @@ class LLMSession:
                 time=time.time(),
                 role=role,
                 model=endpoint.name,
+                cost_usd=cost,
+                cost_source=source,
                 served_model=served,
                 input_tokens=tokens.input,
                 output_tokens=tokens.output,
                 cache_read_tokens=tokens.cache_read,
                 cache_write_tokens=tokens.cache_write,
                 reasoning_tokens=tokens.reasoning,
-                cost_usd=cost,
-                cost_source=source,
                 latency_s=time.perf_counter() - start,
                 error=error,
             )
         )
+        self._check_served(endpoint, served)
         return cost
 
     def _record_hits(self, endpoint: Endpoint, role: str, count: int) -> None:
@@ -275,19 +287,24 @@ class LLMSession:
                 time=time.time(),
                 role=role,
                 model=endpoint.name,
-                served_model=None,
-                input_tokens=0,
-                output_tokens=0,
-                cache_read_tokens=0,
-                cache_write_tokens=0,
-                reasoning_tokens=0,
                 cost_usd=0.0,
                 cost_source="cache",
-                latency_s=0.0,
                 calls=count,
                 cached=True,
             )
         )
+
+    def _check_served(self, endpoint: Endpoint, served: str | None) -> None:
+        """Warn once when a provider switches the model behind a name mid-run."""
+        if served is None:
+            return
+        seen = self._served.setdefault(endpoint.name, set())
+        seen.add(served)
+        if len(seen) == 2:
+            logger.warning(
+                f"{endpoint.name} was served by {sorted(seen)} in one run; "
+                "pin a dated model for reproducible results."
+            )
 
     def _cached_generation(
         self, key: str, schema: type[BaseModel] | None
@@ -322,6 +339,8 @@ class _AnswerPass:
     role: str
     draw: int
     progress: Callable[[int], None] | None
+    unavailable: bool = False
+    fatal: ProviderAuthError | BudgetExceededError | None = None
 
     async def run(self, results: list[Answers], errors: list[str]) -> bool:
         """Fill what this model can. Returns whether anything was left to ask."""
@@ -347,7 +366,9 @@ class _AnswerPass:
         try:
             await _bounded(requests, lambda r: self._send(r, results, errors), _WINDOW)
         except BaseExceptionGroup as group:
-            raise _fatal(group) from None
+            raise _first(group) from None
+        if self.fatal is not None:
+            raise self.fatal
         return True
 
     def _key(self, i: int, qid: str) -> str:
@@ -402,22 +423,30 @@ class _AnswerPass:
     async def _send(
         self, request: _Request, results: list[Answers], errors: list[str]
     ) -> None:
+        """Ask, unless the run is stopping; calls in flight finish and are kept."""
+        if self.fatal is not None or self.unavailable:
+            return
+        try:
+            await self._ask(request, results)
+        except ProviderError as error:
+            errors.append(f"{self.endpoint.name}: {error}")
+            self.unavailable |= error.failure == "unavailable"
+        except (ProviderAuthError, BudgetExceededError) as error:
+            self.fatal = error
+
+    async def _ask(self, request: _Request, results: list[Answers]) -> None:
         sample = self.samples[request.sample]
         asked = {qid: self.questions[qid] for qid in request.qids}
         adapter, endpoint = ADAPTERS[self.endpoint.protocol], self.endpoint
-        try:
-            reply = await self.session._call(
-                endpoint,
-                self.role,
-                lambda dropped: adapter.answer(endpoint, sample, asked, dropped),
-                TokenCounts(
-                    input=self._estimate(request),
-                    output=len(asked) * _ANSWER_OUTPUT_ESTIMATE,
-                ),
-            )
-        except ProviderError as error:
-            errors.append(f"{endpoint.name}: {error}")
-            return
+        reply = await self.session._call(
+            endpoint,
+            self.role,
+            lambda dropped: adapter.answer(endpoint, sample, asked, dropped),
+            TokenCounts(
+                input=self._estimate(request),
+                output=len(asked) * _ANSWER_OUTPUT_ESTIMATE,
+            ),
+        )
         stored: dict[str, JSON] = {}
         for qid, key in zip(request.qids, request.keys):
             if (answer := reply.output.get(qid)) is None:
@@ -461,14 +490,10 @@ async def _bounded[X](
             group.create_task(guarded(item))
 
 
-def _fatal(group: BaseExceptionGroup[BaseException]) -> BaseException:
-    """The error that stopped the run, out of the task group's errors."""
-    for error in group.exceptions:
-        if isinstance(error, BaseExceptionGroup):
-            return _fatal(error)
-        if isinstance(error, (ProviderAuthError, BudgetExceededError)):
-            return error
-    return group.exceptions[0]
+def _first(group: BaseExceptionGroup[BaseException]) -> BaseException:
+    """The first error out of a task group's errors."""
+    error = group.exceptions[0]
+    return _first(error) if isinstance(error, BaseExceptionGroup) else error
 
 
 def _endpoint_identity(endpoint: Endpoint) -> dict[str, JSON]:
@@ -523,5 +548,12 @@ def _load_answer(stored: JSON, question: Question) -> Answer | None:
 
 
 def _tokens(*texts: str | None) -> int:
-    """A rough token count: four characters a token, plus framing."""
-    return 100 + sum(len(text) for text in texts if text) // 4
+    """A rough token count, plus framing.
+
+    Four ASCII characters a token; any other character (CJK, emoji) one each.
+    """
+    total = 0
+    for text in filter(None, texts):
+        ascii_chars = len(text.encode("ascii", "ignore"))
+        total += ascii_chars // 4 + len(text) - ascii_chars
+    return 100 + total

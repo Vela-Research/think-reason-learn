@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import multiprocessing
 import time
 from pathlib import Path
 
@@ -17,11 +18,15 @@ from think_reason_learn.llm import (
     Price,
     TokenCounts,
     Usage,
+    YesNoQuestion,
+    config_context,
     format_usd,
+    get_config,
     resolve,
     resolve_models,
     run_async,
     run_sync,
+    set_config,
     set_limits,
 )
 from think_reason_learn.llm._cache import Cache, cache_key
@@ -47,9 +52,7 @@ class TestLimiter:
             await limiter.acquire(1)
             peak = max(peak, limiter._in_flight)
             await asyncio.sleep(0.01)
-            await limiter.release(
-                estimated=1, used=1, headers={}, rate_limited=False, retry_after=None
-            )
+            await limiter.release(estimated=1, used=1, headers={}, outcome="ok")
 
         async def many() -> None:
             await asyncio.gather(*(call() for _ in range(10)))
@@ -64,7 +67,11 @@ class TestLimiter:
         async def hit() -> None:
             await limiter.acquire(1)
             await limiter.release(
-                estimated=1, used=None, headers={}, rate_limited=True, retry_after=5
+                estimated=1,
+                used=None,
+                headers={},
+                outcome="rate_limited",
+                retry_after=5,
             )
 
         await hit()
@@ -82,8 +89,7 @@ class TestLimiter:
                     estimated=1,
                     used=1,
                     headers={},
-                    rate_limited=False,
-                    retry_after=None,
+                    outcome="ok",
                 )
 
         await ok()
@@ -125,6 +131,36 @@ class TestLimiter:
             "anthropic-ratelimit-tokens-remaining": "0",
         }
         assert _rate_headers(anthropic, "tokens")[:2] == (8000, 0)
+
+    def test_long_waits_are_capped(self) -> None:
+        limiter = Limiter(Limits(), local=False)
+        limiter._pause(86_400)  # a daily quota's Retry-After
+        assert limiter._delay(1) == pytest.approx(120, abs=0.1)
+
+    def test_a_burst_of_rate_limits_halves_once(self) -> None:
+        async def burst() -> int:
+            limiter = Limiter(Limits(max_concurrency=64), local=False)
+            for _ in range(3):
+                limiter._in_flight += 1
+                await limiter.release(
+                    estimated=1, used=None, headers={}, outcome="rate_limited"
+                )
+            return limiter._allowed
+
+        assert run_sync(burst()) == 4
+
+    def test_reapplying_the_same_limits_keeps_the_spent_window(self) -> None:
+        limiter = Limiter(Limits(rpm=60), local=False)
+        assert limiter._requests is not None
+        limiter._requests.take(10)
+        limiter.configure(Limits(rpm=60), local=False)  # a new run, same limits
+        assert limiter._delay(1) > 0.5
+
+    def test_limits_must_be_positive(self) -> None:
+        with pytest.raises(ValueError, match="above 0"):
+            set_limits("openai", rpm=0)
+        with pytest.raises(ValueError, match=">= 1"):
+            set_limits("openai", max_concurrency=0)
 
     def test_set_limits_by_model_or_provider(self) -> None:
         set_limits("openai", max_concurrency=3)
@@ -205,6 +241,22 @@ class TestCache:
         assert cache_key(a=1, draw=0) != cache_key(a=1, draw=1)
 
 
+class TestConfig:
+    def test_a_cap_can_be_lifted(self) -> None:
+        with config_context(max_cost_usd=5):
+            with config_context(max_cost_usd=None, timeout=10):
+                assert (get_config().max_cost_usd, get_config().timeout) == (None, 10)
+            assert get_config().max_cost_usd == 5
+
+    def test_set_config_changes_only_what_is_passed(self) -> None:
+        before = get_config()
+        try:
+            set_config(max_retries=1)
+            assert get_config().cache_dir == before.cache_dir
+        finally:
+            set_config(max_retries=before.max_retries)
+
+
 class TestLoop:
     @pytest.mark.asyncio
     async def test_run_async_from_another_loop(self) -> None:
@@ -233,3 +285,20 @@ class TestLoop:
 
         with pytest.raises(RuntimeError, match="async API"):
             run_sync(nested())
+
+    @pytest.mark.filterwarnings("ignore::DeprecationWarning")  # fork with threads
+    def test_a_forked_child_calls_models_on_its_own_loop(self) -> None:
+        with fake_llms(judge=FakeLLM(answer=lambda sample, q: "YES")):
+            assert _ask_once() == "YES"  # the parent's loop, limiter and cache
+            with multiprocessing.get_context("fork").Pool(1) as pool:
+                assert pool.apply(_ask_once) == "YES"
+
+
+def _ask_once() -> str | None:
+    with config_context(cache=False):
+        models = resolve_models("fake:judge", param="answerer", task="answer")
+        [answers] = run_sync(
+            LLMSession().answer(models, ["x"], {"q": YesNoQuestion("Q?")}, role="a")
+        )
+    answer = answers["q"]
+    return answer.label if answer is not None else None

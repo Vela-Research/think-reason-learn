@@ -1,18 +1,22 @@
-"""Anthropic's Messages protocol, with native structured outputs and prompt caching."""
+"""Anthropic's Messages protocol, with native structured outputs and prompt caching.
+
+Replies are validated here, so a malformed, refused or truncated one is "no
+usable output", never a crash; every call returns the rate-limit headers.
+"""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Final, Literal, TypedDict
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from .._config import get_config
 from .._questions import Question
 from .._spec import Endpoint
 from .._usage import TokenCounts
 from ._base import Answers, GenerateRequest, Reply, classify
-from ._http import http_client
+from ._http import cached, http_client
 from ._prompted import prompted_answer
 
 if TYPE_CHECKING:
@@ -33,6 +37,7 @@ _EFFORTS: Final[dict[str, Literal["low", "medium", "high", "xhigh"]]] = {
     "high": "high",
     "xhigh": "xhigh",
 }
+_UNUSABLE: Final = frozenset({"refusal", "max_tokens"})
 
 
 class AnthropicAdapter:
@@ -45,31 +50,26 @@ class AnthropicAdapter:
     async def generate(
         self, endpoint: Endpoint, request: GenerateRequest, dropped: frozenset[str]
     ) -> Reply[str | BaseModel | None]:
-        """Text, or an instance of ``request.schema``."""
+        """Text, or an instance of ``request.schema``; ``None`` if unusable."""
+        client = _client(endpoint)  # first: it explains a missing SDK
         import anthropic
 
-        client, params = _client(endpoint), _params(endpoint, request, dropped)
-        headers: Mapping[str, str] = {}
         try:
-            if request.schema is not None:
-                parsed = await client.messages.parse(
-                    output_format=request.schema, **params
-                )
-                message: Message = parsed
-                output: str | BaseModel | None = parsed.parsed_output
-            else:
-                raw = await client.messages.with_raw_response.create(**params)
-                message, headers = await raw.parse(), dict(raw.headers)
-                output = (
-                    "".join(b.text for b in message.content if b.type == "text") or None
-                )
+            raw = await client.messages.with_raw_response.create(
+                timeout=get_config().timeout, **_params(endpoint, request, dropped)
+            )
         except anthropic.APIStatusError as exc:
             raise classify(exc.status_code, exc.message, exc.response.headers) from exc
         except anthropic.APIConnectionError as exc:
             raise classify(None, str(exc), {}) from exc
-        if message.stop_reason == "refusal":
-            output = None
-        return Reply(output, _tokens(message.usage), message.model, None, headers)
+        message = await raw.parse()
+        return Reply(
+            _output(message, request.schema),
+            _tokens(message.usage),
+            message.model,
+            None,
+            dict(raw.headers),
+        )
 
     async def answer(
         self,
@@ -101,51 +101,66 @@ def _client(endpoint: Endpoint) -> anthropic.AsyncAnthropic:
             f"{endpoint.name} needs the Anthropic SDK: pip install "
             "'think-reason-learn[anthropic]'."
         ) from exc
-    key = endpoint.client_key
-    if key not in _clients:
-        timeout = get_config().timeout
-        _clients[key] = anthropic.AsyncAnthropic(
+
+    def build() -> anthropic.AsyncAnthropic:
+        return anthropic.AsyncAnthropic(
             api_key=endpoint.api_key,
             base_url=endpoint.base_url,
             max_retries=0,
-            timeout=timeout,
-            http_client=http_client(key, timeout),
+            http_client=http_client(endpoint.client_key),
         )
-    return _clients[key]
 
-
-_clients: Final[dict[str, anthropic.AsyncAnthropic]] = {}
+    return cached(f"anthropic|{endpoint.client_key}", build)
 
 
 def _params(
     endpoint: Endpoint, request: GenerateRequest, dropped: frozenset[str]
 ) -> _Params:
+    import anthropic
     from anthropic import omit
 
     settings = endpoint.settings
     blocks: list[TextBlockParam] = [{"type": "text", "text": request.prompt}]
     if request.prefix:
         # The cache breakpoint sits after the sample, before the question.
-        blocks.insert(
-            0,
-            {
-                "type": "text",
-                "text": request.prefix,
-                "cache_control": {"type": "ephemeral"},
-            },
-        )
-    effort = _EFFORTS.get(settings.reasoning_effort or "")
-    if "reasoning_effort" in dropped:
-        effort = None
+        prefix: TextBlockParam = {
+            "type": "text",
+            "text": request.prefix,
+            "cache_control": {"type": "ephemeral"},
+        }
+        blocks.insert(0, prefix)
+    config: OutputConfigParam = {}
+    if (
+        effort := _EFFORTS.get(settings.reasoning_effort or "")
+    ) and "reasoning_effort" not in dropped:
+        config["effort"] = effort
+    if request.schema is not None:
+        config["format"] = {
+            "type": "json_schema",
+            "schema": anthropic.transform_schema(request.schema),
+        }
     temperature = None if "temperature" in dropped else settings.temperature
     return _Params(
         model=endpoint.model_id,
         max_tokens=settings.max_output_tokens or _MAX_TOKENS,
         messages=[{"role": "user", "content": blocks}],
         system=request.instructions or omit,
-        output_config={"effort": effort} if effort is not None else omit,
+        output_config=config or omit,
         extra_body={"temperature": temperature} if temperature is not None else None,
     )
+
+
+def _output(message: Message, schema: type[BaseModel] | None) -> str | BaseModel | None:
+    """The reply as text or ``schema``; ``None`` if refused, truncated or invalid."""
+    if message.stop_reason in _UNUSABLE:
+        return None
+    text = "".join(block.text for block in message.content if block.type == "text")
+    if schema is None or not text:
+        return text or None
+    try:
+        return schema.model_validate_json(text)
+    except ValidationError:
+        return None
 
 
 def _tokens(usage: Usage) -> TokenCounts:

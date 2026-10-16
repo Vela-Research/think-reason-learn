@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import os
 import threading
-from collections.abc import Coroutine
+from collections.abc import Callable, Coroutine
 from concurrent.futures import Future, wait
 from typing import Final
 
@@ -74,10 +74,20 @@ def _wait[T](future: Future[T]) -> T:
     return future.result()
 
 
+def on_fork(reset: Callable[[], None]) -> None:
+    """Run ``reset`` in a forked child, to drop state bound to the parent's loop."""
+    _fork_resets.append(reset)
+
+
+_fork_resets: Final[list[Callable[[], None]]] = []
+
+
 def _forget_loop() -> None:
     """A forked child has no loop thread: start a new loop on first use."""
     global _loop
     _loop = None
+    for reset in _fork_resets:
+        reset()
 
 
 os.register_at_fork(after_in_child=_forget_loop)

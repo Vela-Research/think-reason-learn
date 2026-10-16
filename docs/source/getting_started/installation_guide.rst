@@ -8,7 +8,6 @@ Think, Reason, Learn needs Python 3.13 or later.
    pip install think-reason-learn              # OpenAI-compatible providers and Jev
    pip install 'think-reason-learn[anthropic]'  # + Claude
    pip install 'think-reason-learn[rl]'         # + PyTorch, for VerifiableRL
-   pip install 'think-reason-learn[prices]'     # + a price table for providers that do not report cost
    pip install 'think-reason-learn[all]'
 
 Drawing trees with ``GPTree.plot`` needs `Graphviz <https://graphviz.org/download/>`_

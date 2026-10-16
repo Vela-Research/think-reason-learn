@@ -44,8 +44,8 @@ jobs:
           echo "Python executable: $(python -c 'import sys; print(sys.executable)')"
           poetry env use $(python -c 'import sys; print(sys.executable)')
 
-      - name: Fix lock file compatibility
-        run: poetry lock --no-update || poetry lock
+      - name: Check the lock file matches pyproject.toml
+        run: poetry check --lock
 
       - name: Install dependencies
         run: |
@@ -66,10 +66,9 @@ jobs:
         run: |
           poetry run pytest -q
 
-      - name: Build docs
-        continue-on-error: true
+      - name: Build docs (warnings fail)
         run: |
-          poetry run sphinx-build -b html docs/source docs/_build
+          poetry run sphinx-build -W --keep-going -b html docs/source docs/_build
 
   pre-commit:  # Run pre-commit hooks on all files
     runs-on: ubuntu-latest
@@ -102,8 +101,8 @@ jobs:
           echo "Python executable: $(python -c 'import sys; print(sys.executable)')"
           poetry env use $(python -c 'import sys; print(sys.executable)')
 
-      - name: Fix lock file compatibility
-        run: poetry lock --no-update || poetry lock
+      - name: Check the lock file matches pyproject.toml
+        run: poetry check --lock
 
       - name: Install dependencies
         run: |

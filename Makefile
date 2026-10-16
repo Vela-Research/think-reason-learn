@@ -17,9 +17,9 @@ install:
 	$(POETRY) config virtualenvs.prefer-active-python true || true; \
 	rm -rf .venv || true; \
 	$(POETRY) env use $$PY; \
-	$(POETRY) lock --no-update || $(POETRY) lock; \
+	$(POETRY) check --lock; \
 	$(POETRY) env remove --all || true; \
-	$(POETRY) install --with dev,docs; \
+	$(POETRY) install --with dev,docs --all-extras; \
 	$(MAKE) envinfo
 
 lint:
@@ -32,13 +32,13 @@ test:
 	$(POETRY) run pytest -q
 
 docs:
-	$(POETRY) run sphinx-build -b html $(DOCS_SRC) $(DOCS_BUILD)
+	$(POETRY) run sphinx-build -W --keep-going -b html $(DOCS_SRC) $(DOCS_BUILD)
 
 precommit:
 	$(POETRY) run pre-commit run --all-files --show-diff-on-failure
 
 lock:
-	$(POETRY) lock --no-update || $(POETRY) lock
+	$(POETRY) lock
 
 envinfo:
 	$(POETRY) env info

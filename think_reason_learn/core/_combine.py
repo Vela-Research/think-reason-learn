@@ -84,7 +84,7 @@ def fit_logistic(
     out-of-fold probabilities. With too few samples of a class for folds, the
     model is fitted once and the threshold tuned on its own scores.
     """
-    folds = min(cv, int(np.bincount(y.astype(int), minlength=2).min()))
+    folds = n_folds(cv, y)
     if folds < 2:
         model = _logistic(1.0, l1_ratios[0], class_weight, random_state).fit(
             features, y
@@ -139,6 +139,11 @@ def _logistic(
         random_state=random_state,
         penalty=_PENALTY,
     )
+
+
+def n_folds(cv: int, y: Bools) -> int:
+    """Folds for stratified cross-validation: at most the smaller class's size."""
+    return min(cv, int(np.bincount(y.astype(int), minlength=2).min()))
 
 
 def _penalty(version: str = sklearn.__version__) -> str:

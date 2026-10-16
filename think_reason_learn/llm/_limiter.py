@@ -9,21 +9,26 @@ and adapts concurrency: halved on a rate limit, raised by one per success.
 from __future__ import annotations
 
 import asyncio
+import logging
 import math
 import re
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Final
+from typing import Final, Literal
 
 from ._config import Limits, limits_for
+from ._loop import on_fork
 from ._spec import Endpoint
 
 _START: Final = 8
 _HOSTED_CEILING: Final = 64
 _LOCAL_CEILING: Final = 4
 _BURST_SECONDS: Final = 10.0
+_MAX_PAUSE: Final = 120.0
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -51,6 +56,10 @@ class _Bucket:
         self.level -= amount
 
 
+type Outcome = Literal["ok", "rate_limited", "failed"]
+"""How a call ended: answered, rate limited, or failed otherwise."""
+
+
 class Limiter:
     """Admission control for one endpoint on one account."""
 
@@ -59,6 +68,7 @@ class Limiter:
         self._cond = asyncio.Condition()
         self._in_flight = 0
         self._paused_until = 0.0
+        self._last_cut = -math.inf
         self._requests: _Bucket | None = None
         self._tokens: _Bucket | None = None
         self._set_rpm = self._set_tpm = False
@@ -66,16 +76,16 @@ class Limiter:
         self.configure(limits, local=local)
 
     def configure(self, limits: Limits, *, local: bool) -> None:
-        """Apply limits set with ``set_limits``."""
+        """Apply limits set with ``set_limits``; an unchanged rate keeps its bucket."""
         self._ceiling = limits.max_concurrency or (
             _LOCAL_CEILING if local else _HOSTED_CEILING
         )
         self._allowed = min(self._allowed, self._ceiling)
         self._set_rpm, self._set_tpm = limits.rpm is not None, limits.tpm is not None
         if limits.rpm is not None:
-            self._requests = _Bucket.per_minute(limits.rpm)
+            self._learn("requests", limits.rpm)
         if limits.tpm is not None:
-            self._tokens = _Bucket.per_minute(limits.tpm)
+            self._learn("tokens", limits.tpm)
 
     async def acquire(self, tokens: int) -> None:
         """Wait for a slot, a request and ``tokens`` under the limits."""
@@ -97,21 +107,31 @@ class Limiter:
         estimated: int,
         used: int | None,
         headers: Mapping[str, str],
-        rate_limited: bool,
-        retry_after: float | None,
+        outcome: Outcome,
+        retry_after: float | None = None,
     ) -> None:
-        """Return the slot, correct token spend and adapt to the outcome."""
+        """Return the slot, correct token spend and adapt to the outcome.
+
+        A rate limit halves concurrency (at most once a second, so one burst
+        of 429s does not collapse it) and pauses everyone; a success raises it
+        by one; other failures leave it alone.
+        """
         async with self._cond:
             self._in_flight -= 1
             if self._tokens is not None and used is not None:
                 self._tokens.take(used - estimated)
-            self._observe(headers)
-            if rate_limited:
-                self._allowed = max(1, self._allowed // 2)
-                self._pause(retry_after if retry_after is not None else 1.0)
-            else:
+            paused = self._observe(headers)
+            if outcome == "rate_limited":
+                now = time.monotonic()
+                if now - self._last_cut >= 1.0:
+                    self._allowed, self._last_cut = max(1, self._allowed // 2), now
+                paused = self._pause(retry_after if retry_after is not None else 1.0)
+            elif outcome == "ok":
                 self._allowed = min(self._ceiling, self._allowed + 1)
-            self._cond.notify_all()
+            if paused:
+                self._cond.notify_all()
+            else:
+                self._cond.notify(2)  # the freed slot, and one more if allowed grew
 
     def _delay(self, tokens: int) -> float:
         now = time.monotonic()
@@ -126,12 +146,20 @@ class Limiter:
         ]
         return max(waits, default=0.0)
 
-    def _pause(self, seconds: float) -> None:
+    def _pause(self, seconds: float) -> bool:
+        """Hold every call for ``seconds`` (at most ``_MAX_PAUSE``)."""
+        seconds = min(seconds, _MAX_PAUSE)
+        if seconds > 10:
+            logger.warning(
+                f"The provider asked to wait; pausing calls for {seconds:.0f}s."
+            )
         self._paused_until = max(self._paused_until, time.monotonic() + seconds)
+        return True
 
-    def _observe(self, headers: Mapping[str, str]) -> None:
-        """Learn limits the user did not set, and pause when a window is spent."""
+    def _observe(self, headers: Mapping[str, str]) -> bool:
+        """Learn limits the user did not set; pause when a window is spent."""
         lowered = {k.lower(): v for k, v in headers.items()}
+        paused = False
         for unit in ("requests", "tokens"):
             limit, remaining, reset = _rate_headers(lowered, unit)
             if limit is not None and not (
@@ -139,9 +167,12 @@ class Limiter:
             ):
                 self._learn(unit, limit)
             if remaining == 0 and reset is not None:
-                self._pause(reset)
+                paused = self._pause(reset)
+        return paused
 
     def _learn(self, unit: str, per_minute: float) -> None:
+        if per_minute <= 0:
+            return
         current = self._requests if unit == "requests" else self._tokens
         if current is not None and math.isclose(current.per_second * 60, per_minute):
             return
@@ -168,6 +199,7 @@ def apply_limits(endpoint: Endpoint) -> None:
 
 
 _limiters: Final[dict[str, Limiter]] = {}
+on_fork(_limiters.clear)
 
 _DURATION_RE: Final = re.compile(r"(\d+(?:\.\d+)?)(ms|h|m|s)")
 _UNIT_SECONDS: Final = {"ms": 0.001, "s": 1.0, "m": 60.0, "h": 3600.0}

@@ -117,10 +117,12 @@ model.usage_.by("role", "model")   # calls, tokens and dollars
 ## scikit-learn
 
 ```python
+from sklearn.metrics import f1_score, make_scorer
 from sklearn.model_selection import cross_val_score
 from think_reason_learn.rrf import RRF
 
-cross_val_score(RRF(task=task, generator="openai:gpt-5-mini"), X, y, cv=5, scoring="f1")
+f1 = make_scorer(f1_score, pos_label="successful")
+cross_val_score(RRF(task=task, generator="openai:gpt-5-mini"), X, y, cv=5, scoring=f1)
 ```
 
 Every model supports `clone`, `get_params`, `GridSearchCV`, `Pipeline`, pickling, and `save`/`load` (API keys are

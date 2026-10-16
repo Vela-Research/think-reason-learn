@@ -7,14 +7,19 @@ Its pick gets a multiplicative boost; STOP is never changed.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+import asyncio
+import logging
+from collections.abc import Coroutine, Iterable, Mapping, Sequence
 from typing import Final
 
 import numpy as np
 import numpy.typing as npt
 from pydantic import BaseModel
 
+from think_reason_learn.exceptions import LLMError
 from think_reason_learn.llm import Endpoint, LLMSession, run_sync
+
+logger = logging.getLogger(__name__)
 
 INSTRUCTIONS: Final = """\
 You advise an agent that gathers information about a sample one slot at a time
@@ -46,44 +51,92 @@ def boost(
 
 
 class Supervisor:
-    """Asks a reasoning model which unrevealed slot to reveal next."""
+    """Asks a reasoning model which unrevealed slot to reveal next.
+
+    Args:
+        models: Reasoning models, in fallback order.
+        session: Where calls are made and recorded.
+        slot_names: Slot names, in column order.
+        slot_texts: Per slot, one text per sample.
+        delta: Gap between the top two slots below which the model is asked.
+        bias: The pick is multiplied by ``1 + bias``.
+    """
 
     def __init__(
         self,
         models: tuple[Endpoint, ...],
         session: LLMSession,
         slot_names: Sequence[str],
+        slot_texts: Mapping[str, Sequence[str]],
+        delta: float,
+        bias: float,
     ) -> None:
         """Advise with ``models``, recording calls in ``session``."""
-        self.models = models
-        self.session = session
-        self.slot_names = list(slot_names)
+        self.models, self.session = models, session
+        self.slot_names, self.slot_texts = list(slot_names), slot_texts
+        self.delta, self.bias = delta, bias
 
-    def pick(self, seen: Mapping[str, str], available: Sequence[str]) -> int | None:
-        """The index of the suggested slot, or ``None``.
+    def nudge(
+        self,
+        probs: npt.NDArray[np.float64],
+        allowed: npt.NDArray[np.bool_],
+        masks: npt.NDArray[np.bool_],
+        samples: Sequence[int] | npt.NDArray[np.intp],
+    ) -> npt.NDArray[np.float64]:
+        """Boost the model's pick in rows where the policy is unsure.
+
+        Rows are skipped when STOP outweighs every slot together, since no boost
+        could change the action. The rows' questions are asked at once.
 
         Args:
-            seen: Text of each revealed slot; nothing unrevealed is shown.
-            available: Slots that may be revealed next.
+            probs: Action probabilities, one row per state.
+            allowed: The actions allowed in each row.
+            masks: The slots revealed in each row.
+            samples: The sample of each row, to look up its slot texts.
         """
+        n_slots = len(self.slot_names)
+        probs = np.where(allowed, probs, 0.0)
+        unsure = [
+            k
+            for k, row in enumerate(probs)
+            if row[n_slots] < row[:n_slots].sum()
+            and is_uncertain(row, n_slots, self.delta)
+        ]
+        picks = run_sync(_gather(self._pick(masks[k], samples[k]) for k in unsure))
+        for k, pick in zip(unsure, picks):
+            if pick is not None:
+                probs[k] = boost(probs[k], n_slots, pick, self.bias)
+        return probs
+
+    async def _pick(self, mask: npt.NDArray[np.bool_], sample: int) -> int | None:
+        """The suggested slot; only revealed slots' texts are shown."""
+        names = self.slot_names
         shown = (
-            "\n".join(f"{slot}: {text}" for slot, text in seen.items())
+            "\n".join(
+                f"{name}: {self.slot_texts[name][sample]}"
+                for name, seen in zip(names, mask)
+                if seen
+            )
             or "(nothing yet)"
         )
-        options = ", ".join(available)
-        prompt = f"Revealed so far:\n{shown}\n\nSlots you may reveal next: {options}"
-        reply = run_sync(
-            self.session.generate(
+        available = [name for name, seen in zip(names, mask) if not seen]
+        prompt = (
+            f"Revealed so far:\n{shown}\n\n"
+            f"Slots you may reveal next: {', '.join(available)}"
+        )
+        try:
+            reply = await self.session.generate(
                 self.models,
                 prompt,
                 role="supervisor",
                 schema=_Pick,
                 instructions=INSTRUCTIONS,
             )
-        )
-        slot = reply.slot
-        return (
-            self.slot_names.index(slot)
-            if slot is not None and slot in available
-            else None
-        )
+        except LLMError as error:
+            logger.warning(f"The supervisor gave no advice: {error}")
+            return None
+        return names.index(reply.slot) if reply.slot in available else None
+
+
+async def _gather[T](calls: Iterable[Coroutine[object, object, T]]) -> list[T]:
+    return list(await asyncio.gather(*calls))

@@ -24,14 +24,11 @@ import pandas as pd
 from pydantic import BaseModel
 
 from think_reason_learn.core._classifier import BinaryTRLClassifier, Labels, Proba
-from think_reason_learn.core._combine import (
-    LinearCombiner,
-    best_threshold,
-    fit_logistic,
-)
+from think_reason_learn.core._answers import yes_probabilities
+from think_reason_learn.core._combine import LinearCombiner, fit_logistic, n_folds
 from think_reason_learn.core._data import balanced_subset, example_batches
 from think_reason_learn.core._prompts import examples_block
-from think_reason_learn.llm import Endpoint, LLMSession, Models, YesNoQuestion
+from think_reason_learn.llm import Endpoint, LLMSession, Models
 
 from ._prompts import (
     INSTRUCTIONS_PURPOSE,
@@ -74,7 +71,9 @@ class PolicyInduction(BinaryTRLClassifier):
         predictor: ``"policy"`` (the paper's: judge each sample under the whole
             policy) or ``"rules"`` (judge each rule, weigh them with L1
             logistic regression).
-        beta: F-beta for the decision threshold; the paper reports F0.5.
+        beta: F-beta for the ``"rules"`` predictor's threshold. The ``"policy"``
+            predictor takes the answerer's call (probability 0.5 or more), as
+            the paper does.
         cv: Folds for the ``"rules"`` predictor.
         pos_label: The positive class.
         random_state: Seed for the examples and the order of the cases.
@@ -99,7 +98,7 @@ class PolicyInduction(BinaryTRLClassifier):
         predictor: Predictor = "policy",
         beta: float = 0.5,
         cv: int = 5,
-        pos_label: str | None = None,
+        pos_label: str | int | None = None,
         random_state: int | None = None,
         verbose: int = 0,
     ) -> None:
@@ -123,6 +122,7 @@ class PolicyInduction(BinaryTRLClassifier):
     predictor: Predictor
     instructions_: str
     policy_: tuple[str, ...]
+    weighted_rules_: tuple[str, ...]
     history_: pd.DataFrame
     combiner_: LinearCombiner | None
 
@@ -136,12 +136,11 @@ class PolicyInduction(BinaryTRLClassifier):
         policy, scores = await self._induce(
             texts, y, positive, cases, writer, session, rng
         )
-        self.policy_, self.combiner_ = policy, None
+        self.policy_, self.combiner_, self.weighted_rules_ = policy, None, ()
         if self.predictor == "policy":
-            self.threshold_, _ = best_threshold(scores, positive[cases], self.beta)
+            self.threshold_ = 0.5  # the paper takes the answerer's call as it is
         else:
-            self.combiner_ = await self._fit_rules(texts, positive, session)
-            self.threshold_ = self.combiner_.threshold
+            await self._fit_rules(texts, positive, cases, session)
 
     async def _induce(
         self,
@@ -153,7 +152,11 @@ class PolicyInduction(BinaryTRLClassifier):
         session: LLMSession,
         rng: np.random.Generator,
     ) -> tuple[tuple[str, ...], npt.NDArray[np.float64]]:
-        """Refine the policy over the rounds, keeping only refinements that help."""
+        """Refine the policy over the rounds, keeping only refinements that help.
+
+        Each round asks for fresh refinements (a new draw), so a case seen again
+        under an unchanged policy is not answered from the cache.
+        """
         judged = [texts[i] for i in cases]
         policy = self.initial_policy or await self._first(
             texts, y, cases, writer, session, rng
@@ -166,8 +169,14 @@ class PolicyInduction(BinaryTRLClassifier):
                 order[i : i + self.batch_size]
                 for i in range(0, len(order), self.batch_size)
             ):
-                refined = await self._refine(policy, texts, y, batch, writer, session)
-                refined_scores = await self._judge(refined, judged, session)
+                refined = await self._refine(
+                    policy, texts, y, batch, writer, session, draw=round_
+                )
+                refined_scores = (
+                    scores
+                    if refined == tuple(policy)
+                    else await self._judge(refined, judged, session)
+                )
                 before = _precision(scores, positive[cases])
                 after = _precision(refined_scores, positive[cases])
                 history.append((round_, len(batch), before, after, after > before))
@@ -182,9 +191,8 @@ class PolicyInduction(BinaryTRLClassifier):
     async def _apredict_proba(self, texts: list[str], session: LLMSession) -> Proba:
         if self.combiner_ is None:
             return self._binary_proba(await self._judge(self.policy_, texts, session))
-        return self._binary_proba(
-            self.combiner_.scores(await self._rule_answers(texts, session))
-        )
+        answers = await self._rule_answers(texts, self.weighted_rules_, session)
+        return self._binary_proba(self.combiner_.scores(answers))
 
     async def _first(
         self,
@@ -218,6 +226,8 @@ class PolicyInduction(BinaryTRLClassifier):
         batch: npt.NDArray[np.intp],
         writer: tuple[Endpoint, ...],
         session: LLMSession,
+        *,
+        draw: int,
     ) -> tuple[str, ...]:
         prompt = update_prompt(
             self._task(),
@@ -225,7 +235,7 @@ class PolicyInduction(BinaryTRLClassifier):
             _numbered(policy),
             examples_block(texts, y, self.classes_, batch),
         )
-        refined = await self._write(prompt, UPDATE_INSTRUCTIONS, writer, session)
+        refined = await self._write(prompt, UPDATE_INSTRUCTIONS, writer, session, draw)
         return refined or tuple(policy)
 
     async def _write(
@@ -234,6 +244,7 @@ class PolicyInduction(BinaryTRLClassifier):
         instructions: str,
         writer: tuple[Endpoint, ...],
         session: LLMSession,
+        draw: int = 0,
     ) -> tuple[str, ...]:
         written = await session.generate(
             writer,
@@ -243,6 +254,7 @@ class PolicyInduction(BinaryTRLClassifier):
             instructions=instructions.format(
                 max_rules=self.max_rules, positive=self._positive_label()
             ),
+            draw=draw,
         )
         return tuple(r.strip() for r in written.rules if r.strip())[: self.max_rules]
 
@@ -250,50 +262,43 @@ class PolicyInduction(BinaryTRLClassifier):
         self, policy: Sequence[str], texts: Sequence[str], session: LLMSession
     ) -> npt.NDArray[np.float64]:
         """Probability that each sample is positive under the whole policy."""
-        question = YesNoQuestion(
-            policy_question(_numbered(policy), self._positive_label())
+        question = policy_question(_numbered(policy), self._positive_label())
+        answerer = self._models("answerer", "answer")
+        scores = await yes_probabilities(
+            session, answerer, texts, [question], missing=0.0
         )
-        answers = await session.answer(
-            self._models("answerer", "answer"),
-            texts,
-            {"policy": question},
-            role="answerer",
-        )
-        return np.array(
-            [
-                a.probability() if (a := row["policy"]) is not None else 0.0
-                for row in answers
-            ]
-        )
+        return scores[:, 0]
 
     async def _rule_answers(
-        self, texts: Sequence[str], session: LLMSession
+        self, texts: Sequence[str], rules: Sequence[str], session: LLMSession
     ) -> npt.NDArray[np.float64]:
-        asked = {
-            f"r{j}": YesNoQuestion(rule_question(rule))
-            for j, rule in enumerate(self.policy_)
-        }
-        with self._progress(len(texts) * len(asked), "rule answers") as progress:
-            answers = await session.answer(
+        """Probability that each rule (columns) holds for each sample (rows)."""
+        with self._progress(len(texts) * len(rules), "rule answers") as progress:
+            return await yes_probabilities(
+                session,
                 self._models("answerer", "answer"),
                 texts,
-                asked,
-                role="answerer",
+                [rule_question(rule) for rule in rules],
+                missing=0.0,
                 progress=progress,
             )
-        return np.array(
-            [
-                [a.probability() if (a := row[q]) is not None else 0.0 for q in asked]
-                for row in answers
-            ]
-        )
 
     async def _fit_rules(
-        self, texts: list[str], positive: npt.NDArray[np.bool_], session: LLMSession
-    ) -> LinearCombiner:
-        return fit_logistic(
-            await self._rule_answers(texts, session),
-            positive,
+        self,
+        texts: list[str],
+        positive: npt.NDArray[np.bool_],
+        cases: npt.NDArray[np.intp],
+        session: LLMSession,
+    ) -> None:
+        """Weigh the rules on samples the policy was not written from, if enough."""
+        rest = np.setdiff1d(np.arange(len(texts)), cases)
+        rows = rest if n_folds(self.cv, positive[rest]) >= 2 else np.arange(len(texts))
+        answers = await self._rule_answers(
+            [texts[i] for i in rows], self.policy_, session
+        )
+        fitted = fit_logistic(
+            answers,
+            positive[rows],
             l1_ratios=(1.0,),
             cs=10,
             cv=self.cv,
@@ -301,9 +306,12 @@ class PolicyInduction(BinaryTRLClassifier):
             class_weight="balanced",
             random_state=self.random_state,
         )
-
-    def _positive_label(self) -> str:
-        return str(self.classes_[self._pos_index()])
+        used = np.flatnonzero(fitted.coef)
+        self.weighted_rules_ = tuple(self.policy_[j] for j in used)
+        self.combiner_ = LinearCombiner(
+            fitted.coef[used], fitted.intercept, fitted.threshold
+        )
+        self.threshold_ = fitted.threshold
 
     def _summary(self) -> Mapping[str, object]:
         return {

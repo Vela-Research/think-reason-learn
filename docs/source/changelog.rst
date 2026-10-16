@@ -34,8 +34,9 @@ checked against its paper. See :doc:`getting_started/migration` for every rename
   vanishing, an empty branch no longer disqualifies a question, and a split must decrease impurity. Faster: the
   nodes of a level grow at once and answers are reused across nodes and between fit and predict. New
   ``min_samples_split``, ``min_impurity_decrease``, ``max_leaf_nodes`` and ``criterion="entropy"``; the critic is
-  ``critic=True`` or a model. Removed: ``qgen_instr_llmc`` (unused), ``fit_iter``, ``resume_fit``, ``stop``,
-  ``decision_threshold`` (use scikit-learn's ``TunedThresholdClassifierCV``) and the code question type.
+  ``critic=True`` or a model. For two classes, leaves are called positive above a share tuned for F-beta (``beta``,
+  F0.5 as in the paper; ``threshold_``), replacing ``decision_threshold``. Removed: ``qgen_instr_llmc`` (unused),
+  ``fit_iter``, ``resume_fit``, ``stop`` and the code question type.
 - **RRF, rebuilt** on ``TRLClassifier``, following the paper by default: questions are written from a held-out,
   class-balanced generation set (``generation_size=500``; 25 prompts of 20 examples and 10 questions), so they are
   never scored on samples the generator saw; questions are ranked by F0.5, those at or below the positive rate and
@@ -65,9 +66,11 @@ checked against its paper. See :doc:`getting_started/migration` for every rename
   2-D array (or one array per slot) and any two labels. Fixes from the audit: prediction never re-asks a slot it has
   seen (paths repeated one slot before), the policy has the paper's two-part head (softmax over slots, sigmoid for
   STOP), the supervisor sees only revealed slots' text and boosts its pick multiplicatively, training no longer
-  touches torch's global random state, and the decision threshold is tuned for F0.5 instead of fixed at 0.3. New
-  ``slot_costs`` make the reward cost-aware per slot. Rollouts run batched: fitting is about 11 times faster (7.5 ms
-  per sample at 6 slots of 384 features, from 81). Classifier pretraining is part of ``fit``
+  touches torch's global random state, ``min_queries`` holds in training as well as prediction, and the decision
+  threshold is tuned for F0.5 instead of fixed at 0.3. The supervisor is asked only when its pick could change the
+  action, and a step's questions go out together. New ``slot_costs`` make the reward cost-aware per slot. Rollouts
+  run batched: fitting is about 5 times faster (15 ms per sample at 6 slots of 384 features, from 81), and runs on
+  CUDA and MPS devices. Classifier pretraining is part of ``fit``
   (``pretrain_epochs``). PyTorch is now an extra: ``pip install 'think-reason-learn[rl]'``. Removed:
   ``VerifiableRLConfig`` (plain parameters), ``pretrain_classifier``, ``from_state_dicts``, ``predict_paths``
   (``decision_paths``) and non-greedy prediction.
@@ -75,14 +78,18 @@ checked against its paper. See :doc:`getting_started/migration` for every rename
   log loss (average precision ties on separable data and picked an over-regularised model), and thresholds are tuned
   on out-of-fold scores of the final model's settings, midway between scores so they are not knife-edged.
 - **Removed the old provider layer** (``think_reason_learn.core.llms``, the ``*Choice`` classes, ``TRLModel``,
-  ``core.exceptions``; exceptions live in ``think_reason_learn.exceptions``). The library no longer reads ``.env``.
+  ``core.exceptions``; exceptions live in ``think_reason_learn.exceptions``). ``JevAuthError`` and
+  ``JevCostCapError`` are now ``ProviderAuthError`` and ``BudgetExceededError`` for every provider;
+  ``CorruptionError`` is removed. The library no longer reads ``.env``.
 - **Lighter install**: the Google and xAI SDKs, ``pydantic-settings``, ``orjson``, ``pyarrow`` and ``httpx`` are no
-  longer needed; Anthropic (``[anthropic]``), PyTorch (``[rl]``) and a price table (``[prices]``) are extras, and
-  ``[all]`` installs them all. License metadata uses an SPDX expression.
+  longer needed; Anthropic (``[anthropic]``) and PyTorch (``[rl]``) are extras, and ``[all]`` installs both. The
+  ``genai-prices`` table is included, so costs and ``max_cost_usd`` work for every listed model; a capped run warns
+  about a model with no known price. pandas 3 is supported. License metadata uses an SPDX expression.
 - **Lambda features**: ``FeatureGenerator(schema, helpers, generator="openai:gpt-5-mini")`` with ``generate`` and
   ``agenerate``, on the new layer.
 - Docs: new quick start, installation guide and a migration guide; the API reference covers the new modules and
-  builds without warnings. Examples: one notebook per model, all runnable offline in tests' style.
+  builds without warnings (enforced in CI). Examples: one notebook per model, run by the test suite with fake
+  models so they keep working.
 - Requires ``openai`` 3.x (and ``anthropic`` 1.x for Claude).
 
 0.2.0

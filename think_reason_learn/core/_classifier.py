@@ -186,12 +186,29 @@ class TRLClassifier(Persistable, ClassifierMixin, BaseEstimator, ABC):
             raise DataError(
                 f"X has {len(texts)} samples and y has {len(codes)} labels."
             )
+        self._task()
+        self._check_classes(classes)
+        self._forget_fitted()
         self.classes_, self.usage_ = classes, session.usage
         self.n_features_in_ = len(names) if names is not None else 1
         if names is not None:
             self.feature_names_in_ = np.asarray(names, dtype=object)
-        await self._afit(texts, codes, session)
+        try:
+            await self._afit(texts, codes, session)
+        except BaseException:
+            self._forget_fitted()
+            raise
         return self
+
+    def _check_classes(self, classes: npt.NDArray[np.object_]) -> None:
+        """Raise before any call if the model cannot learn ``classes``."""
+
+    def _forget_fitted(self) -> None:
+        """Drop what an earlier or failed fit learned, so nothing stale remains."""
+        for name in [
+            n for n in vars(self) if n.endswith("_") and not n.startswith("_")
+        ]:
+            delattr(self, name)
 
     async def _proba(self, X: TextInput, session: LLMSession) -> Proba:
         texts, names = to_texts(X)
@@ -216,25 +233,33 @@ class BinaryTRLClassifier(TRLClassifier):
     probability reaches ``threshold_``.
     """
 
-    pos_label: str | None
+    pos_label: str | int | None
     threshold_: float
+
+    def __sklearn_tags__(self) -> Tags:
+        """Two classes only."""
+        tags = super().__sklearn_tags__()
+        if tags.classifier_tags is not None:
+            tags.classifier_tags.multi_class = False
+        return tags
+
+    def _check_classes(self, classes: npt.NDArray[np.object_]) -> None:
+        if len(classes) != 2:
+            raise DataError(
+                f"{type(self).__name__} predicts two classes; y has {len(classes)}."
+            )
+        positive_index(classes, self.pos_label)
 
     def _positive(self, y: Labels) -> npt.NDArray[np.bool_]:
         """Which labels are the positive class."""
-        if len(self.classes_) != 2:
-            raise DataError(
-                f"{type(self).__name__} predicts two classes; "
-                f"y has {len(self.classes_)}."
-            )
         return y == self._pos_index()
 
     def _pos_index(self) -> int:
-        if self.pos_label is None:
-            return 1
-        labels = [str(c) for c in self.classes_]
-        if self.pos_label not in labels:
-            raise ValueError(f"pos_label={self.pos_label!r} is not one of {labels}.")
-        return labels.index(self.pos_label)
+        return positive_index(self.classes_, self.pos_label)
+
+    def _positive_label(self) -> str:
+        """The positive class, as text for prompts."""
+        return str(self.classes_[self._pos_index()])
 
     def _binary_proba(self, positive: npt.NDArray[np.float64]) -> Proba:
         """Class probabilities from the positive class's."""
@@ -244,6 +269,22 @@ class BinaryTRLClassifier(TRLClassifier):
         return proba
 
     def _decide(self, proba: Proba) -> Labels:
-        pos = self._pos_index()
-        positive = proba[:, pos] >= self.threshold_ - 1e-9
-        return np.where(positive, pos, 1 - pos).astype(np.intp)
+        return binary_decision(proba, self._pos_index(), self.threshold_)
+
+
+def positive_index(
+    classes: npt.NDArray[np.object_], pos_label: str | int | None
+) -> int:
+    """Index of the positive class: ``pos_label``, or the second class."""
+    if pos_label is None:
+        return 1
+    labels = [str(c) for c in classes]
+    if str(pos_label) not in labels:
+        raise ValueError(f"pos_label={pos_label!r} is not one of {labels}.")
+    return labels.index(str(pos_label))
+
+
+def binary_decision(proba: Proba, pos: int, threshold: float) -> Labels:
+    """Label codes: positive where its probability reaches ``threshold``."""
+    positive = proba[:, pos] >= threshold - 1e-9
+    return np.where(positive, pos, 1 - pos).astype(np.intp)

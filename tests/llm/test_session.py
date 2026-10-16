@@ -25,6 +25,7 @@ from think_reason_learn.llm import (
 )
 from think_reason_learn.llm import Endpoint, get_config
 from think_reason_learn.llm._cache import open_cache
+from think_reason_learn.llm._session import _tokens
 from think_reason_learn.testing import (
     Failure,
     FakeLLM,
@@ -212,6 +213,51 @@ def test_a_rejected_key_stops_the_run(failure: Failure) -> None:
             run_sync(
                 LLMSession().answer(_resolved("judge"), ["x"], QUESTIONS, role="a")
             )
+
+
+def test_a_missing_model_is_abandoned_for_the_next() -> None:
+    gone = FakeLLM(answer=_answer, failures=["unavailable"] * 50)
+    good = FakeLLM(answer=_answer)
+    samples = [f"engineer {i}" for i in range(50)]
+    with fake_llms(gone=gone, good=good):
+        results = run_sync(
+            LLMSession().answer(
+                _resolved("gone", "good"),
+                samples,
+                {"tech": QUESTIONS["tech"]},
+                role="a",
+            )
+        )
+    assert all(r["tech"] is not None for r in results)
+    assert gone.n_calls <= 8 and good.n_calls == 50
+
+
+def test_a_fatal_error_sends_nothing_more() -> None:
+    judge = FakeLLM(answer=_answer, failures=["auth"])
+    with fake_llms(judge=judge):
+        with pytest.raises(ProviderAuthError):
+            run_sync(
+                LLMSession().answer(
+                    _resolved("judge"),
+                    [f"s{i}" for i in range(50)],
+                    {"tech": QUESTIONS["tech"]},
+                    role="a",
+                )
+            )
+    assert judge.n_calls <= 8
+
+
+def test_a_switched_served_model_is_reported(caplog: pytest.LogCaptureFixture) -> None:
+    session = LLMSession()
+    endpoint = _resolved("judge")[0]
+    for served in ("m-2025", "m-2025", "m-2026"):
+        session._check_served(endpoint, served)
+    assert "m-2026" in caplog.text
+
+
+def test_token_estimate_counts_non_latin_text() -> None:
+    assert _tokens("abcd" * 100) == 200
+    assert _tokens("创业" * 100) == 300
 
 
 def test_budget_refuses_work_estimated_over_the_cap() -> None:

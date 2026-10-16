@@ -3,34 +3,21 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Final
 
 import openai
 from openai.types import Decision, decision_create_params
 from openai.types.decision import Answer as DecisionAnswer
-from pydantic import BaseModel
 
 from .._questions import Answer, ChoiceQuestion, Question
 from .._spec import Endpoint
 from .._usage import TokenCounts
-from ._base import Answers, GenerateRequest, ProviderError, Reply, classify
+from .._config import get_config
+from ._base import Answers, DecisionAdapter, Reply, classify
 from .openai_compat import openai_client
 
-_MAX_QUESTIONS: Final = 50
 
-
-class OpenAIDecisionsAdapter:
+class OpenAIDecisionsAdapter(DecisionAdapter):
     """``client.decisions.create`` over the OpenAI SDK."""
-
-    def max_questions(self, endpoint: Endpoint) -> int:
-        """Questions per request."""
-        return _MAX_QUESTIONS
-
-    async def generate(
-        self, endpoint: Endpoint, request: GenerateRequest, dropped: frozenset[str]
-    ) -> Reply[str | BaseModel | None]:
-        """Decision models do not write; roles that write reject them earlier."""
-        raise ProviderError("bad_request", f"{endpoint.name} cannot write text.")
 
     async def answer(
         self,
@@ -46,6 +33,7 @@ class OpenAIDecisionsAdapter:
                 model=endpoint.model_id,
                 input=sample,
                 questions=[_wire(qid, q) for qid, q in questions.items()],
+                timeout=get_config().timeout,
             )
         except openai.APIStatusError as exc:
             raise classify(exc.status_code, exc.message, exc.response.headers) from exc
@@ -73,15 +61,20 @@ def _wire(qid: str, question: Question) -> decision_create_params.Question:
 
 
 def _answer(question: Question, answer: DecisionAnswer | None) -> Answer | None:
+    """The answer, if it is of the question's kind and names one of its labels."""
     if answer is None:
         return None
     if answer.type == "predicate":
+        if isinstance(question, ChoiceQuestion):
+            return None
         return Answer.yes_probability(answer.probability)
     if answer.type != "choice" or str(answer.choice) not in question.labels:
         return None
-    return Answer(
-        str(answer.choice), {str(p.value): p.probability for p in answer.probabilities}
-    )
+    label = str(answer.choice)
+    probabilities = {str(p.value): p.probability for p in answer.probabilities}
+    if not probabilities:
+        return Answer.certain(label, question.labels)
+    return Answer(label, probabilities)
 
 
 def _tokens(decision: Decision) -> TokenCounts:

@@ -176,3 +176,19 @@ def test_custom_servers_keep_colons_and_only_nearby_ones_are_local() -> None:
     )
     assert resolve(LLM("m", base_url="http://10.0.0.5:8000/v1")).local
     assert not resolve(LLM("m", base_url="https://gateway.example.com/v1")).local
+
+
+def test_only_openrouter_models_read_its_catalog(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def offline() -> object:
+        raise AssertionError("the catalog was read")  # no internet needed
+
+    monkeypatch.setattr(_catalog, "_download", offline)
+    for model in (
+        LLM("ollama:qwen3:8b"),
+        LLM("qwen2.5:7b", base_url="http://localhost:11434/v1"),
+        LLM("openai:gpt-5-mini"),
+        "jev",
+    ):
+        resolve(model)

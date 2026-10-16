@@ -42,12 +42,14 @@ checked against its paper. See :doc:`getting_started/migration` for every rename
   ``use_critic=True``, with ``critic=`` defaulting to the generator. For two classes, leaves are called positive
   above a share tuned for F-beta (``beta``, F0.5 as in the paper; ``threshold_``), replacing ``decision_threshold``. Removed: ``qgen_instr_llmc`` (unused),
   ``fit_iter``, ``resume_fit``, ``stop`` and the code question type.
-- **RRF, rebuilt** on ``TRLClassifier``, following the paper by default: questions are written from a held-out,
-  class-balanced generation set (``generation_size=500``; 25 prompts of 20 examples and 10 questions), so they are
-  never scored on samples the generator saw; questions are ranked by F0.5, those at or below the positive rate and
-  near-duplicates by Hamming distance (``hamming_threshold=0.15``) are dropped; and the default ``combiner="vote"``
-  predicts positive when at least T of the top N questions say YES, with (N, T) tuned by cross-validation.
-  ``combiner="elasticnet"`` remains. Prediction answers only the questions used. Fixes: large datasets no longer
+- **RRF, rebuilt** on ``TRLClassifier``, keeping 0.2's tuned defaults: 10 prompts of 30 examples and 10 questions,
+  written from the samples that score them, and an elastic net on the answerer's probabilities (C of 1, L1 ratio 0.1
+  or 0.5 by 3-fold cross-validation, F1 threshold on out-of-fold probabilities) that weighs every question. The
+  paper's settings are a parameter away: ``combiner="vote"`` predicts positive when at least T of the top N questions
+  say YES, with (N, T) tuned by cross-validation, after dropping questions at or below the positive rate and
+  near-duplicates by Hamming distance (``hamming_threshold=0.15``); ``beta=0.5`` ranks by F0.5; and
+  ``generation_size=500`` writes questions from a held-out set, never scored, with ``n_prompts=25`` and
+  ``n_examples=20``. Prediction answers only the questions used. Fixes: large datasets no longer
   get zero questions, ranking and tuning use one ``beta``, and fit and predict ask questions the same way.
   ``screening_size`` keeps the cost-saving screening step; ``answers(X)`` shows each rule's answers. Removed:
   ``predict_founder_level`` (use ``predict``/``predict_proba``), ``cross_validate_aggregation`` (refitting reuses

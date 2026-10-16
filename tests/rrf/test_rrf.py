@@ -60,6 +60,18 @@ rrf = partial(
 )
 
 
+_DEFAULTS_0_2 = {
+    "combiner": "elasticnet",
+    "beta": 1.0,
+    "cv": 3,
+    "n_prompts": 10,
+    "questions_per_prompt": 10,
+    "n_examples": 30,
+    "generation_size": None,
+}
+"""RRF's defaults in 0.2, tuned in practice; the paper's differ."""
+
+
 @pytest.fixture
 def scripted() -> tuple[FakeLLM, FakeLLM]:
     return FakeLLM(generate=write), FakeLLM(answer=answer)
@@ -68,7 +80,7 @@ def scripted() -> tuple[FakeLLM, FakeLLM]:
 def test_the_vote_uses_the_question_that_predicts(
     fakes: tuple[FakeLLM, FakeLLM],
 ) -> None:
-    model = rrf().fit(FOUNDERS, LABELS)
+    model = rrf(combiner="vote").fit(FOUNDERS, LABELS)
     assert model.rules_ == ("Is the founder an engineer?",)
     assert (model.min_votes_, model.threshold_) == (1, 1.0)
     assert list(model.predict(["an engineer in Paris", "a chef"])) == ["YES", "NO"]
@@ -93,8 +105,8 @@ def test_questions_are_written_and_scored_on_different_samples(
     assert len(scored) == len(FOUNDERS) - 16
 
 
-def test_weak_questions_are_dropped(fakes: tuple[FakeLLM, FakeLLM]) -> None:
-    model = rrf().fit(FOUNDERS, LABELS)
+def test_the_vote_drops_weak_questions(fakes: tuple[FakeLLM, FakeLLM]) -> None:
+    model = rrf(combiner="vote").fit(FOUNDERS, LABELS)
     [lawyer] = model.questions_[
         model.questions_["question"] == "Is the founder a lawyer?"
     ].to_dict("records")
@@ -109,8 +121,13 @@ def test_predict_asks_only_the_rules(fakes: tuple[FakeLLM, FakeLLM]) -> None:
     assert judge.n_calls - before == 2 * len(model.rules_)
 
 
+def test_the_defaults_are_0_2s() -> None:
+    params = RRF().get_params()
+    assert {k: params[k] for k in _DEFAULTS_0_2} == _DEFAULTS_0_2
+
+
 def test_elasticnet_combiner(fakes: tuple[FakeLLM, FakeLLM]) -> None:
-    model = rrf(combiner="elasticnet").fit(FOUNDERS, LABELS)
+    model = rrf().fit(FOUNDERS, LABELS)
     assert model.combiner_ is not None and "Is the founder an engineer?" in model.rules_
     assert list(model.predict(["an engineer", "a poet"])) == ["YES", "NO"]
 
@@ -145,7 +162,7 @@ def test_bad_data_and_settings_fail_before_any_call(
 ) -> None:
     writer, judge = fakes
     with pytest.raises(DataError, match="No samples to write questions from"):
-        rrf().fit(["an engineer", "a chef"], ["YES", "NO"])
+        rrf(generation_size=500).fit(["an engineer", "a chef"], ["YES", "NO"])
     with pytest.raises(ValueError, match="example_class_ratio names unknown"):
         rrf(example_class_ratio={"yes": 1.0}).fit(FOUNDERS, LABELS)
     assert writer.n_calls == judge.n_calls == 0
@@ -218,8 +235,7 @@ def test_screening_reuses_screened_answers() -> None:
         model = rrf(screening_size=8, screened_questions=1, random_state=1).fit(
             FOUNDERS, LABELS
         )
-    scored = len(FOUNDERS) - 24  # the generation set is not scored
-    assert screening.n_calls == 8 * 4 + (scored - 8) * len(model.questions_)
+    assert screening.n_calls == 8 * 4 + (len(FOUNDERS) - 8) * len(model.questions_)
 
 
 def test_no_questions_is_an_error_not_a_silent_no() -> None:
@@ -242,7 +258,7 @@ def test_one_failed_prompt_is_skipped() -> None:
         return next(replies, None) or write(request)
 
     with fake_llms(writer=FakeLLM(generate=flaky), judge=FakeLLM(answer=answer)):
-        model = rrf().fit(FOUNDERS, LABELS)
+        model = rrf(combiner="vote").fit(FOUNDERS, LABELS)
     assert model.rules_ == ("Is the founder an engineer?",)
 
 

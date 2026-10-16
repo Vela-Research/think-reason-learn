@@ -1,4 +1,4 @@
-"""Random Rule Forest: a tuned vote of YES/NO questions written by a language model."""
+"""Random Rule Forest: YES/NO questions written by a language model, then weighed."""
 
 from ._rrf import RRF, Combiner
 

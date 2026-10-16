@@ -87,15 +87,15 @@ def fit_logistic(
     beta: float,
     class_weight: str | None,
     random_state: int | None,
-    cs: int = 10,
+    cs: int | tuple[float, ...] = 10,
 ) -> LinearCombiner:
     """Fit a regularised logistic regression and tune its F-beta threshold.
 
-    ``C`` (one of ``cs`` values) and ``l1_ratio`` (1 for L1, 0 for L2, between
-    for elastic net) are chosen by inner cross-validation; the threshold
-    maximises F-beta on out-of-fold probabilities. With too few samples of a
-    class for folds, the model is fitted once and the threshold tuned on its
-    own scores.
+    ``C`` (one of ``cs``, or of that many on a log grid) and ``l1_ratio`` (1 for
+    L1, 0 for L2, between for elastic net) are chosen by inner cross-validation;
+    the threshold maximises F-beta on out-of-fold probabilities. With too few
+    samples of a class for folds, the model is fitted once and the threshold
+    tuned on its own scores.
     """
     folds = n_folds(cv, y)
     if folds < 2:
@@ -122,6 +122,7 @@ async def fit_combiner(
     beta: float,
     class_weight: str | None,
     random_state: int | None,
+    cs: int | tuple[float, ...] = 10,
     drop_zero: bool = False,
 ) -> tuple[LinearCombiner, npt.NDArray[np.intp]]:
     """``fit_logistic`` off the event loop: the combiner, and the columns it weighs.
@@ -139,6 +140,7 @@ async def fit_combiner(
             beta=beta,
             class_weight=class_weight,
             random_state=random_state,
+            cs=cs,
         )
     )
     used = np.flatnonzero(fitted.coef) if drop_zero else np.arange(len(fitted.coef))
@@ -178,13 +180,13 @@ def _chosen(
     y: Bools,
     splitter: StratifiedKFold,
     l1_ratios: tuple[float, ...],
-    cs: int,
+    cs: int | tuple[float, ...],
     class_weight: str | None,
     random_state: int | None,
 ) -> LogisticRegression:
     """An unfitted model with the C and l1_ratio inner cross-validation chose."""
     search = LogisticRegressionCV(
-        Cs=cs,
+        Cs=cs if isinstance(cs, int) else list(cs),  # pyright: ignore[reportArgumentType]  # a list of Cs works; pyright reads int from the default
         l1_ratios=list(l1_ratios),
         cv=splitter,
         scoring="neg_log_loss",

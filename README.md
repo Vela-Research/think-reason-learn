@@ -22,7 +22,7 @@ Every model splits the work three ways:
 ## Models
 
 - **GPTree**: a decision tree whose splits are questions written by a language model.
-- **RRF (Random Rule Forest)**: a tuned vote of YES/NO questions.
+- **RRF (Random Rule Forest)**: YES/NO questions, weighed by elastic net (or put to the paper's vote).
 - **Policy Induction**: a short policy refined case by case, kept only when it improves.
 - **Reasoned Rule Mining**: rules mined from reasoning, applied in a cheap-then-strict cascade.
 - **VerifiableRL**: learns which information to reveal, one slot at a time, at a cost.

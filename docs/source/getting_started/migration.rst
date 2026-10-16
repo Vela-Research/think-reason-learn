@@ -68,11 +68,11 @@ Random Rule Forest
 ===================================================================  =====================================================================
 0.2                                                                  0.3
 ===================================================================  =====================================================================
-``max_generated_questions``                                          ``n_prompts`` × ``questions_per_prompt``
-``aggregation_method`` (default ``"elasticnet"``)                    ``combiner`` (default ``"vote"``, as in the paper)
+``max_generated_questions``                                          ``n_prompts`` × ``questions_per_prompt`` (100 by default)
+``aggregation_method`` (default ``"elasticnet"``)                    ``combiner`` (default ``"elasticnet"``; ``"vote"`` is the paper's)
 ``aggregation_max_k``                                                ``max_rules``
-``question_scoring_f_beta``, ``aggregation_metric``                  ``beta`` (default 0.5)
-``elasticnet_cs``, ``elasticnet_l1_ratios``, ``elasticnet_cv``       ``cv`` (the strength and mix are cross-validated)
+``question_scoring_f_beta``, ``aggregation_metric``                  ``beta`` (default 1, so F1 as in 0.2)
+``elasticnet_cs``, ``elasticnet_l1_ratios``, ``elasticnet_cv``       0.2's defaults (C of 1, L1 ratio 0.1 or 0.5); ``cv`` (default 3)
 ``answer_features``                                                  removed; probabilities are used when the answerer gives them
 ``answer_similarity_func``, ``filter_questions_on_pred_similarity``  ``hamming_threshold``
 ``add_question``                                                     ``expert_questions=``

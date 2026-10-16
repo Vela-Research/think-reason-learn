@@ -57,10 +57,12 @@ type Combiner = Literal["vote", "elasticnet"]
 
 
 class RRF(BinaryTRLClassifier):
-    """Random Rule Forest: a tuned vote of YES/NO questions.
+    """Random Rule Forest: YES/NO questions, weighed by elastic net or put to a vote.
 
     For two classes. The positive class is ``pos_label``, by default the second
-    of the sorted labels (``"YES"`` of ``"NO"``/``"YES"``).
+    of the sorted labels (``"YES"`` of ``"NO"``/``"YES"``). The defaults are
+    those tuned in practice in 0.2; each setting names the paper's value where
+    it differs.
 
     Args:
         task: What to predict, in plain words.
@@ -73,18 +75,23 @@ class RRF(BinaryTRLClassifier):
         questions_per_prompt: Questions per prompt; the paper uses 10.
         n_examples: Labelled samples shown per prompt; the paper uses 20.
         example_class_ratio: Class shares among them; the paper balances them.
-        generation_size: Samples set aside for writing questions (int), or that
-            fraction of the training samples (float). They are not used to score
-            questions, so selection is not tuned on samples the generator saw.
-            Each class keeps at least half its samples for scoring.
-        beta: F-beta used to rank questions and tune the vote; the paper uses 0.5.
-        drop_below_base_rate: Drop questions whose precision is at most the
-            positive rate.
-        hamming_threshold: Drop a question whose answers differ from a better
-            question's on fewer than this share of samples.
-        combiner: ``"vote"`` (the paper's) or ``"elasticnet"``.
-        max_rules: Most questions the combiner may use.
-        cv: Folds for tuning the vote or the elastic net.
+        generation_size: ``None`` writes questions from the samples that score
+            them. Otherwise, as the paper does, that many samples (int) or that
+            fraction of the training samples (float) are set aside for writing
+            and not used to score, so selection is not tuned on samples the
+            generator saw; each class keeps at least half its samples for
+            scoring.
+        beta: F-beta used to rank questions and tune the threshold; the paper
+            uses 0.5.
+        drop_below_base_rate: The vote drops questions whose precision is at
+            most the positive rate.
+        hamming_threshold: The vote drops a question whose answers differ from a
+            better question's on fewer than this share of samples.
+        combiner: ``"elasticnet"``, a logistic regression on the answers'
+            probabilities that weighs every question (C of 1, L1 ratio of 0.1
+            or 0.5 by inner cross-validation), or ``"vote"``, the paper's.
+        max_rules: Most questions the combiner may use, the best by F-beta.
+        cv: Folds for tuning the elastic net or the vote.
         screening_size: Score every question on this many samples (int) or
             share of samples (float) first, and answer only the best
             ``screened_questions`` for the rest. ``None`` answers all.
@@ -104,17 +111,17 @@ class RRF(BinaryTRLClassifier):
         *,
         instructions: str | None = None,
         expert_questions: tuple[str, ...] = (),
-        n_prompts: int = 25,
+        n_prompts: int = 10,
         questions_per_prompt: int = 10,
-        n_examples: int = 20,
+        n_examples: int = 30,
         example_class_ratio: ClassRatio = "balanced",
-        generation_size: int | float = 500,
-        beta: float = 0.5,
+        generation_size: int | float | None = None,
+        beta: float = 1.0,
         drop_below_base_rate: bool = True,
         hamming_threshold: float = 0.15,
-        combiner: Combiner = "vote",
+        combiner: Combiner = "elasticnet",
         max_rules: int | None = None,
-        cv: int = 5,
+        cv: int = 3,
         screening_size: int | float | None = None,
         screened_questions: int = 20,
         pos_label: str | int | None = None,
@@ -229,7 +236,10 @@ class RRF(BinaryTRLClassifier):
     def _split_generation(
         self, y: Labels, n_classes: int, rng: np.random.Generator
     ) -> tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]]:
-        """Samples for writing questions, and the rest for scoring them."""
+        """Samples for writing questions, and those for scoring them."""
+        if self.generation_size is None:
+            every = np.arange(len(y), dtype=np.intp)
+            return every, every
         size = count(self.generation_size, len(y))
         generation = balanced_subset(y, n_classes, size, rng, max_share=0.5)
         if not len(generation):
@@ -382,15 +392,15 @@ class RRF(BinaryTRLClassifier):
     ) -> list[int]:
         """Rules weighted by elastic net; sets the combiner and its threshold.
 
-        Questions are ranked on every scoring row before the combiner tunes its
-        out-of-fold threshold, so the threshold is slightly optimistic.
+        Every question goes in (the best ``max_rules`` if set): the L1 penalty
+        drops the weak and redundant ones itself.
         """
         ranked = rank(
             yes,
             positive,
             beta=self.beta,
-            drop_below_base_rate=self.drop_below_base_rate,
-            hamming_threshold=self.hamming_threshold,
+            drop_below_base_rate=False,
+            hamming_threshold=0,
         )[: self.max_rules]
         if not ranked:
             self.threshold_ = math.inf
@@ -398,11 +408,12 @@ class RRF(BinaryTRLClassifier):
         self.combiner_, kept = await fit_combiner(
             np.nan_to_num(answers[:, ranked], nan=0.0),
             positive,
-            l1_ratios=(0.1, 0.5, 0.9),
+            l1_ratios=(0.1, 0.5),
             cv=self.cv,
             beta=self.beta,
-            class_weight="balanced",
+            class_weight=None,
             random_state=self.random_state,
+            cs=(1.0,),
             drop_zero=True,
         )
         self.threshold_ = self.combiner_.threshold

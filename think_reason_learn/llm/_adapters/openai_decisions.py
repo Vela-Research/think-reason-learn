@@ -8,10 +8,10 @@ import openai
 from openai.types import Decision, decision_create_params
 from openai.types.decision import Answer as DecisionAnswer
 
+from .._config import get_config
 from .._questions import Answer, ChoiceQuestion, Question
 from .._spec import Endpoint
 from .._usage import TokenCounts
-from .._config import get_config
 from ._base import Answers, DecisionAdapter, Reply, classify
 from .openai_compat import openai_client
 

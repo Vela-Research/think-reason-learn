@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
-import fnmatch
 import hashlib
+import ipaddress
 import os
-from dataclasses import dataclass, field
+from collections.abc import Callable
+from dataclasses import dataclass, field, replace
 from typing import Final, Literal
+from urllib.parse import urlparse
 
 from think_reason_learn.exceptions import MissingAPIKeyError
 
+from ._catalog import Catalog, openrouter_decisions
 from ._usage import Price
 
 type ModelName = str
@@ -20,7 +23,9 @@ type ModelKind = Literal["reasoning", "decision"]
 
 type ReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh"]
 
-type Protocol = Literal["openai", "anthropic", "systemone", "openai-decisions", "fake"]
+type WireProtocol = Literal[
+    "openai", "anthropic", "systemone", "openai-decisions", "fake"
+]
 
 type Task = Literal["generate", "answer"]
 """What a role asks of its models: writing text, or answering about samples."""
@@ -43,7 +48,11 @@ class LLM:
             one sample. Decision models take every question in one call.
         base_url: Endpoint to call instead of the provider's.
         api_key: Key to use instead of the provider's environment variable.
-        kind: ``"decision"`` for a decision model the library does not know yet.
+        kind: ``"decision"`` to call the model's decision API, e.g. OpenAI's
+            ``gpt-6-luna`` (also a chat model) or an Azure deployment of
+            Microsoft-Decision-1. By default Typesafe's models and those
+            OpenRouter lists as decision models are decision models; the rest
+            are reasoning models.
         price: Price to use for cost reports and budgets.
     """
 
@@ -69,8 +78,20 @@ class LLM:
                 f"questions_per_call must be >= 1, got {self.questions_per_call}."
             )
 
+    def __copy__(self) -> LLM:
+        """Itself: it cannot change, and a copy keeps its key (``clone``)."""
+        return self
+
+    def __deepcopy__(self, memo: dict[int, object]) -> LLM:
+        """Itself, so ``sklearn.clone`` and grid search keep the API key."""
+        return self
+
     def __getstate__(self) -> tuple[object, ...]:
-        """Pickle without the API key: saved models never hold secrets."""
+        """Pickle without the API key: saved models never hold secrets.
+
+        Workers that receive a model by pickle (``n_jobs`` in scikit-learn) read
+        keys from their environment.
+        """
         return tuple(
             None if name == "api_key" else getattr(self, name)
             for name in self.__dataclass_fields__
@@ -91,7 +112,7 @@ class Endpoint:
     name: str
     provider: str
     model_id: str
-    protocol: Protocol
+    protocol: WireProtocol
     kind: ModelKind
     base_url: str | None
     api_key: str | None = field(repr=False)
@@ -122,16 +143,16 @@ def resolve(model: Model) -> Endpoint:
     spec = model if isinstance(model, LLM) else LLM(model)
     name = _ALIASES.get(spec.model, spec.model)
     provider_name, has_provider, model_id = name.partition(":")
-    if not has_provider:
-        return _custom_endpoint(spec, name)
     provider = _PROVIDERS.get(provider_name)
+    if not has_provider or (provider is None and spec.base_url is not None):
+        return _custom_endpoint(spec, name)
     if provider is None or not model_id:
         raise ValueError(
             f'Unknown model "{name}". Write it as "provider:model" with a provider '
             f"in {sorted(_PROVIDERS)}, or pass base_url= for an OpenAI-compatible "
             "server."
         )
-    kind = spec.kind or ("decision" if _is_decision(name) else "reasoning")
+    kind, price = _kind(spec, provider, model_id)
     protocol, base_url = _route(provider, provider_name, kind)
     return Endpoint(
         name=name,
@@ -141,7 +162,7 @@ def resolve(model: Model) -> Endpoint:
         kind=kind,
         base_url=_base_url(spec, provider, base_url, name),
         api_key=_api_key(spec, provider, name),
-        settings=spec,
+        settings=spec if spec.price or price is None else replace(spec, price=price),
         local=provider.local,
         json_object_only=provider.json_object_only,
         api_key_header=provider.api_key_header,
@@ -179,16 +200,18 @@ def resolve_models(
 
 @dataclass(frozen=True, slots=True)
 class _Provider:
-    protocol: Protocol
+    protocol: WireProtocol
     base_url: str | None
     key_env: tuple[str, ...] = ()
     base_url_env: str | None = None
     local: bool = False
     json_object_only: bool = False
-    decision: Protocol | None = None
+    decision: WireProtocol | None = None
     decision_base_url: str | None = None
     api_key_header: bool = False
     needs_base_url: bool = False
+    catalog: Callable[[], Catalog] | None = None
+    """The provider's decision models, read from where it lists them."""
 
 
 _PROVIDERS: Final[dict[str, _Provider]] = {
@@ -210,7 +233,8 @@ _PROVIDERS: Final[dict[str, _Provider]] = {
         "https://openrouter.ai/api/v1",
         ("OPENROUTER_API_KEY",),
         decision="systemone",
-        decision_base_url="https://openrouter.ai/api/v1/systemone",
+        decision_base_url="https://openrouter.ai/api/alpha/decisions",
+        catalog=openrouter_decisions,
     ),
     "groq": _Provider("openai", "https://api.groq.com/openai/v1", ("GROQ_API_KEY",)),
     "together": _Provider(
@@ -244,27 +268,32 @@ _PROVIDERS: Final[dict[str, _Provider]] = {
         ("TYPESAFE_API_KEY",),
         decision="systemone",
     ),
-    "fake": _Provider("fake", None, local=True, decision="fake"),
 }
 
 _ALIASES: Final[dict[str, str]] = {"jev": "typesafe:jev-latest"}
 
-_DECISION_MODELS: Final[set[str]] = {
-    "typesafe:*",
-    "openai:gpt-6-luna*",
-    "azure:Microsoft-Decision-*",
-    "openrouter:typesafe/*",
-}
-"""Patterns of known decision models. Others need ``LLM(..., kind="decision")``."""
 
+def _kind(
+    spec: LLM, provider: _Provider, model_id: str
+) -> tuple[ModelKind, Price | None]:
+    """Whether a model is a decision model, and the price its provider lists.
 
-def _is_decision(name: str) -> bool:
-    return any(fnmatch.fnmatchcase(name, pattern) for pattern in _DECISION_MODELS)
+    It is one if ``kind="decision"`` says so, if its provider serves only
+    decision models, or if the provider's catalog lists it. Never by its name.
+    """
+    if spec.kind == "reasoning":
+        return "reasoning", None
+    listed = provider.catalog() if provider.catalog is not None else {}
+    if spec.kind == "decision" or provider.protocol == "systemone":
+        return "decision", listed.get(model_id)
+    if model_id in listed:
+        return "decision", listed[model_id]
+    return "reasoning", None
 
 
 def _route(
     provider: _Provider, provider_name: str, kind: ModelKind
-) -> tuple[Protocol, str | None]:
+) -> tuple[WireProtocol, str | None]:
     if kind == "reasoning":
         if provider.protocol == "systemone":
             raise ValueError(f"{provider_name} serves decision models only.")
@@ -290,8 +319,17 @@ def _custom_endpoint(spec: LLM, name: str) -> Endpoint:
         base_url=spec.base_url,
         api_key=spec.api_key,
         settings=spec,
-        local=True,
+        local=_is_local(spec.base_url),
     )
+
+
+def _is_local(url: str) -> bool:
+    """Whether ``url`` is on this machine or network (fewer calls at once there)."""
+    host = urlparse(url).hostname or ""
+    try:
+        return ipaddress.ip_address(host).is_private  # loopback and LAN included
+    except ValueError:
+        return "." not in host or host.endswith(".local")  # localhost, gpu-box
 
 
 def _base_url(

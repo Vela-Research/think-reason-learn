@@ -24,18 +24,19 @@ import numpy.typing as npt
 import pandas as pd
 from pydantic import BaseModel
 
-from think_reason_learn.core._classifier import BinaryTRLClassifier, Labels, Proba
 from think_reason_learn.core._answers import yes_probabilities
+from think_reason_learn.core._classifier import BinaryTRLClassifier, Labels, Proba
 from think_reason_learn.core._combine import LinearCombiner, fit_logistic
 from think_reason_learn.core._data import (
+    Classes,
     ClassRatio,
     TextInput,
     balanced_subset,
     count,
     example_batches,
-    to_texts,
 )
-from think_reason_learn.core._prompts import examples_block
+from think_reason_learn.core._prompts import examples_block, most_written
+from think_reason_learn.exceptions import NoOutputError
 from think_reason_learn.llm import (
     Endpoint,
     LLMSession,
@@ -43,7 +44,6 @@ from think_reason_learn.llm import (
     UsageRecord,
     estimate_answers,
     estimate_generations,
-    run_sync,
 )
 from think_reason_learn.llm._estimate import QUESTION_TOKENS, mean_tokens
 
@@ -51,10 +51,6 @@ from ._prompts import INSTRUCTIONS_PURPOSE, QUESTION_INSTRUCTIONS, question_prom
 from ._selection import as_yes, question_stats, rank, tune_vote
 
 type Combiner = Literal["vote", "elasticnet"]
-
-
-class _Questions(BaseModel):
-    questions: list[str]
 
 
 class RRF(BinaryTRLClassifier):
@@ -155,22 +151,28 @@ class RRF(BinaryTRLClassifier):
 
     def answers(self, X: TextInput) -> pd.DataFrame:
         """Probability of YES for each rule (columns) and sample (rows)."""
-        texts = to_texts(X)[0]
-        matrix = run_sync(self._answer(texts, self.rules_, self._session()))
+        matrix = self._run(
+            X,
+            "answering",
+            lambda texts, session: self._answer(texts, self.rules_, session),
+        )
         return pd.DataFrame(matrix, columns=pd.Index(self.rules_))
 
     async def _afit(self, texts: list[str], y: Labels, session: LLMSession) -> None:
-        self._task()
         positive = self._positive(y)
         writer = self._models("generator", "generate")
+        self._models("answerer", "answer")  # fail before paying for questions
         rng = np.random.default_rng(self.random_state)
         self.instructions_ = await self._instructions(session, writer)
         generation, scoring = self._split_generation(y, len(self.classes_), rng)
         questions = await self._write(texts, y, generation, writer, session, rng)
+        if not questions:
+            raise NoOutputError("The generator wrote no usable questions.")
         questions, answers = await self._score(
             texts, scoring, positive[scoring], questions, session, rng
         )
-        self._select(questions, answers, positive[scoring])
+        # Ranking and cross-validation are CPU work: off the shared event loop.
+        await asyncio.to_thread(self._select, questions, answers, positive[scoring])
 
     async def _apredict_proba(self, texts: list[str], session: LLMSession) -> Proba:
         answers = await self._answer(texts, self.rules_, session)
@@ -186,7 +188,7 @@ class RRF(BinaryTRLClassifier):
         return as_yes(answers).mean(axis=1)
 
     def _fit_plan(
-        self, texts: list[str], y: Labels, classes: npt.NDArray[np.object_]
+        self, texts: list[str], y: Labels, classes: Classes
     ) -> list[UsageRecord]:
         writer = self._models("generator", "generate")
         answerer = self._models("answerer", "answer")
@@ -238,25 +240,9 @@ class RRF(BinaryTRLClassifier):
         rng: np.random.Generator,
     ) -> list[str]:
         """Questions from every prompt, deduplicated, then the expert's."""
-        batches = example_batches(
-            y[generation],
-            self.classes_,
-            n_batches=self.n_prompts,
-            batch_size=min(self.n_examples, len(generation)),
-            class_ratio=self.example_class_ratio,
-            rng=rng,
-        )
-        prompts = [
-            question_prompt(
-                self._task(),
-                self.instructions_,
-                self.questions_per_prompt,
-                examples_block(texts, y, self.classes_, generation[batch]),
-            )
-            for batch in batches
-        ]
-        written = await asyncio.gather(
-            *(
+        prompts = self._prompts(texts, y, generation, rng)
+        written = await most_written(
+            [
                 session.generate(
                     writer,
                     p,
@@ -265,12 +251,39 @@ class RRF(BinaryTRLClassifier):
                     instructions=QUESTION_INSTRUCTIONS,
                 )
                 for p in prompts
-            )
+            ],
+            "prompts",
         )
         candidates = [
             q for batch in written for q in batch.questions[: self.questions_per_prompt]
         ]
         return _unique([*candidates, *self.expert_questions])
+
+    def _prompts(
+        self,
+        texts: list[str],
+        y: Labels,
+        generation: npt.NDArray[np.intp],
+        rng: np.random.Generator,
+    ) -> list[str]:
+        """One prompt per batch of class-balanced examples from ``generation``."""
+        batches = example_batches(
+            y[generation],
+            self.classes_,
+            n_batches=self.n_prompts,
+            batch_size=min(self.n_examples, len(generation)),
+            class_ratio=self.example_class_ratio,
+            rng=rng,
+        )
+        return [
+            question_prompt(
+                self._task(),
+                self.instructions_,
+                self.questions_per_prompt,
+                examples_block(texts, y, self.classes_, generation[batch]),
+            )
+            for batch in batches
+        ]
 
     async def _score(
         self,
@@ -300,15 +313,13 @@ class RRF(BinaryTRLClassifier):
         self, texts: Sequence[str], questions: Sequence[str], session: LLMSession
     ) -> npt.NDArray[np.float64]:
         """P(YES) per sample (rows) and question (columns); NaN where unanswered."""
-        with self._progress(len(texts) * len(questions), "RRF answers") as progress:
-            return await yes_probabilities(
-                session,
-                self._models("answerer", "answer"),
-                texts,
-                questions,
-                missing=np.nan,
-                progress=progress,
-            )
+        return await yes_probabilities(
+            session,
+            self._models("answerer", "answer"),
+            texts,
+            questions,
+            missing=np.nan,
+        )
 
     def _select(
         self,
@@ -352,6 +363,11 @@ class RRF(BinaryTRLClassifier):
         answers: npt.NDArray[np.float64],
         positive: npt.NDArray[np.bool_],
     ) -> tuple[list[int], float]:
+        """Rules weighted by elastic net, and its threshold.
+
+        Questions are ranked on every scoring row before the combiner tunes its
+        out-of-fold threshold, so the threshold is slightly optimistic.
+        """
         ranked = rank(
             yes,
             positive,
@@ -365,7 +381,6 @@ class RRF(BinaryTRLClassifier):
             np.nan_to_num(answers[:, ranked], nan=0.0),
             positive,
             l1_ratios=(0.1, 0.5, 0.9),
-            cs=10,
             cv=self.cv,
             beta=self.beta,
             class_weight="balanced",
@@ -396,3 +411,7 @@ def _unique(questions: Sequence[str]) -> list[str]:
             seen.add(question.lower())
             unique.append(question)
     return unique
+
+
+class _Questions(BaseModel):
+    questions: list[str]

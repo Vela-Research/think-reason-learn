@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import copy
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import Self
 
 import numpy as np
@@ -24,9 +24,14 @@ import torch.nn as nn
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.utils.validation import check_is_fitted
 
-from think_reason_learn.core._classifier import positive_index
+from think_reason_learn.core._classifier import (
+    binary_decision,
+    binary_proba,
+    forget_fitted,
+    positive_index,
+)
 from think_reason_learn.core._combine import best_threshold
-from think_reason_learn.core._data import LabelInput, encode_labels
+from think_reason_learn.core._data import Classes, LabelInput, encode_labels
 from think_reason_learn.core._persistence import Persistable
 from think_reason_learn.exceptions import DataError
 from think_reason_learn.llm import LLMSession, Models, Usage, resolve_models
@@ -184,7 +189,7 @@ class VerifiableRL(Persistable, ClassifierMixin, BaseEstimator):
         self.device = device
         self.random_state = random_state
 
-    classes_: npt.NDArray[np.object_]
+    classes_: Classes
     slot_names_: list[str]
     columns_: npt.NDArray[np.intp]
     costs_: npt.NDArray[np.float64]
@@ -204,10 +209,30 @@ class VerifiableRL(Persistable, ClassifierMixin, BaseEstimator):
             y: One of two labels per sample.
             slot_texts: Text of each slot per sample, for the supervisor.
         """
-        features = self._layout(X, fitting=True)
-        self.classes_, codes = encode_labels(y)
-        if len(self.classes_) != 2 or len(codes) != len(features):
-            raise DataError("y needs two classes and one label per row of X.")
+        forget_fitted(self)
+        try:
+            features = self._layout(X, fitting=True)
+            classes, codes = encode_labels(y)
+            if len(classes) != 2 or len(codes) != len(features):
+                raise DataError("y needs two classes and one label per row of X.")
+            positive_index(classes, self.pos_label)  # a bad pos_label fails now
+            self.classes_ = classes
+            self._train(features, codes, slot_texts)
+        except BaseException:
+            forget_fitted(self)  # a failed refit leaves no half-built model
+            raise
+        return self
+
+    def __sklearn_is_fitted__(self) -> bool:
+        """Fitted once ``fit`` has finished: the threshold is set last."""
+        return hasattr(self, "threshold_")
+
+    def _train(
+        self,
+        features: npt.NDArray[np.float32],
+        codes: npt.NDArray[np.intp],
+        slot_texts: SlotTexts | None,
+    ) -> None:
         positive = (codes == self._pos_index()).astype(np.float32)
         rng = np.random.default_rng(self.random_state)
         self._build_networks(rng)
@@ -224,7 +249,6 @@ class VerifiableRL(Persistable, ClassifierMixin, BaseEstimator):
             if self.threshold is not None
             else best_threshold(proba, positive == 1, self.beta)[0]
         )
-        return self
 
     def predict_proba(
         self, X: SlotFeatures, *, slot_texts: SlotTexts | None = None
@@ -232,24 +256,14 @@ class VerifiableRL(Persistable, ClassifierMixin, BaseEstimator):
         """Class probabilities, columns in ``classes_`` order."""
         check_is_fitted(self)
         positive = self._final_proba(self._layout(X), slot_texts)
-        proba = np.empty((len(positive), 2))
-        proba[:, self._pos_index()], proba[:, 1 - self._pos_index()] = (
-            positive,
-            1 - positive,
-        )
-        return proba
+        return binary_proba(positive, self._pos_index())
 
     def predict(
         self, X: SlotFeatures, *, slot_texts: SlotTexts | None = None
-    ) -> npt.NDArray[np.object_]:
+    ) -> Classes:
         """The predicted label of each sample."""
-        positive = (
-            self.predict_proba(X, slot_texts=slot_texts)[:, self._pos_index()]
-            >= self.threshold_
-        )
-        return self.classes_[
-            np.where(positive, self._pos_index(), 1 - self._pos_index())
-        ]
+        proba = self.predict_proba(X, slot_texts=slot_texts)
+        return self.classes_[binary_decision(proba, self._pos_index(), self.threshold_)]
 
     def decision_paths(
         self, X: SlotFeatures, *, slot_texts: SlotTexts | None = None
@@ -285,7 +299,7 @@ class VerifiableRL(Persistable, ClassifierMixin, BaseEstimator):
             )
             if supervisor is not None:
                 probs = supervisor.nudge(probs, allowed, masks[rows], rows)
-            for row, action in zip(rows, greedy(probs, allowed)):
+            for row, action in zip(rows, greedy(probs, allowed), strict=True):
                 if action == n_slots:
                     active[row] = False
                 else:
@@ -384,20 +398,8 @@ class VerifiableRL(Persistable, ClassifierMixin, BaseEstimator):
                 )
 
     def _search(self) -> Search:
-        return Search(
-            self.n_rollouts,
-            self.max_depth,
-            self.min_queries,
-            self.tau_info,
-            self.tau_stop,
-            self.reward_tp,
-            self.reward_fp,
-            self.reward_tn,
-            self.reward_fn,
-            self.step_penalty,
-            self.repeat_penalty,
-            self.reward_threshold,
-        )
+        """The rollout and reward settings, which share their names with ours."""
+        return Search(**{f.name: getattr(self, f.name) for f in fields(Search)})
 
 
 @dataclass(slots=True)
@@ -415,6 +417,10 @@ class _Trainer:
     )
     clf_examples: list[tuple[torch.Tensor, float]] = field(default_factory=list)
     updates: int = 0
+    search: Search = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.search = self.model._search()
 
     def run(self) -> None:
         model = self.model
@@ -447,7 +453,7 @@ class _Trainer:
                 mask,
                 (model.policy_, rollout_classifier),
                 label,
-                model._search(),
+                self.search,
                 self.rng,
             )
             state = sample.states(mask[None, :])[0]
@@ -527,7 +533,11 @@ class _Trainer:
 
     def _frozen_copy(self) -> Classifier:
         """A frozen copy for the rollouts (a deep copy draws no random numbers)."""
-        return copy.deepcopy(self.model.classifier_).requires_grad_(False).eval()
+        return (
+            copy.deepcopy(self.model.classifier_)
+            .requires_grad_(requires_grad=False)
+            .eval()
+        )
 
 
 def _sample[E](examples: list[E], size: int, rng: np.random.Generator) -> list[E]:

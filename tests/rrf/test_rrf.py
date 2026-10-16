@@ -9,8 +9,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from think_reason_learn.core._combine import best_threshold, fit_logistic
-from think_reason_learn.exceptions import DataError
+from think_reason_learn.exceptions import DataError, LLMError
 from think_reason_learn.llm import Question, config_context
 from think_reason_learn.rrf import RRF
 from think_reason_learn.rrf._selection import question_stats, rank, tune_vote, vote_grid
@@ -184,30 +183,6 @@ class TestSelection:
         assert (ranked, n, t) == ([0], 1, 1)
 
 
-class TestCombine:
-    def test_best_threshold(self) -> None:
-        scores = np.array([0.1, 0.4, 0.6, 0.9])
-        threshold, f = best_threshold(scores, np.array([False, False, True, True]), 1.0)
-        assert threshold == 0.5 and f == 1.0  # midway between 0.4 and 0.6
-
-    def test_logistic_learns_a_separable_feature(self) -> None:
-        rng = np.random.default_rng(0)
-        y = rng.random(80) > 0.5
-        features = np.column_stack([y.astype(float), rng.random(80)])
-        fitted = fit_logistic(
-            features,
-            y,
-            l1_ratios=(0.5,),
-            cs=4,
-            cv=3,
-            beta=1.0,
-            class_weight=None,
-            random_state=0,
-        )
-        assert fitted.coef[0] > abs(fitted.coef[1])
-        assert ((fitted.scores(features) >= fitted.threshold) == y).mean() == 1.0
-
-
 def test_integer_labels_and_pos_label(judge: FakeLLM) -> None:
     labels = [1 if label == "YES" else 0 for label in LABELS]
     model = rrf(pos_label=1).fit(FOUNDERS, labels)
@@ -225,3 +200,36 @@ def test_screening_reuses_screened_answers() -> None:
         )
     scored = len(FOUNDERS) - 24  # the generation set is not scored
     assert screening.n_calls == 8 * 4 + (scored - 8) * len(model.questions_)
+
+
+def test_no_questions_is_an_error_not_a_silent_no() -> None:
+    with (
+        fake_llms(
+            writer=FakeLLM(generate=lambda r: {"questions": []} if r.schema else "x"),
+            judge=FakeLLM(answer=answer),
+        ),
+        pytest.raises(LLMError, match="no usable questions"),
+    ):
+        rrf().fit(FOUNDERS, LABELS)
+
+
+def test_one_failed_prompt_is_skipped() -> None:
+    replies = iter([None])  # the first question prompt writes nothing usable
+
+    def flaky(request: GenerateRequest) -> str | dict[str, object] | None:
+        if request.schema is None:
+            return "x"
+        return next(replies, None) or write(request)
+
+    with fake_llms(writer=FakeLLM(generate=flaky), judge=FakeLLM(answer=answer)):
+        model = rrf().fit(FOUNDERS, LABELS)
+    assert model.rules_ == ("Is the founder an engineer?",)
+
+
+def test_integer_labels_work_with_scikit_learn_metrics(judge: FakeLLM) -> None:
+    from sklearn.metrics import accuracy_score
+
+    y = [int(label == "YES") for label in LABELS]
+    model = rrf().fit(FOUNDERS, y)
+    assert model.classes_.dtype.kind == "i"
+    assert accuracy_score(y, model.predict(FOUNDERS)) == 1.0

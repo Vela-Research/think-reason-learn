@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import httpx2
 import pytest
 
 from think_reason_learn.exceptions import MissingAPIKeyError
-from think_reason_learn.llm import LLM, resolve, resolve_models
+from think_reason_learn.llm import LLM, Price, _catalog, resolve, resolve_models
 
 
 @pytest.fixture(autouse=True)
@@ -70,20 +71,64 @@ def test_missing_key_names_the_variable() -> None:
 
 
 def test_decision_models_route_to_their_protocol() -> None:
-    assert resolve("openai:gpt-6-luna").protocol == "openai-decisions"
-    routed = resolve(LLM("openrouter:vendor/new-decider", kind="decision"))
-    assert (routed.protocol, routed.base_url) == (
-        "systemone",
-        "https://openrouter.ai/api/v1/systemone",
+    luna = LLM("openai:gpt-6-luna", api_key="k")
+    assert resolve(luna).kind == "reasoning"  # the chat model, unless asked
+    decisions = resolve(LLM("openai:gpt-6-luna", api_key="k", kind="decision"))
+    assert (decisions.protocol, decisions.model_id) == (
+        "openai-decisions",
+        "gpt-6-luna",
     )
     azure = resolve(
         LLM(
-            "azure:Microsoft-Decision-1",
+            "azure:my-decision-deployment",
             base_url="https://r.example/systemone",
             api_key="k",
+            kind="decision",
         )
     )
     assert (azure.protocol, azure.api_key_header) == ("systemone", True)
+
+
+def test_openrouter_decision_models_come_from_its_catalog() -> None:
+    listed = resolve(LLM("openrouter:openai/gpt-6-luna-decisions", api_key="k"))
+    assert (listed.kind, listed.protocol, listed.base_url) == (
+        "decision",
+        "systemone",
+        "https://openrouter.ai/api/alpha/decisions",
+    )
+    assert listed.settings.price == Price(input=0.1, output=0.0)
+    chat = resolve(LLM("openrouter:openai/gpt-6-luna", api_key="k"))
+    assert chat.kind == "reasoning" and chat.settings.price is None
+    unlisted = resolve(LLM("openrouter:vendor/brand-new", api_key="k", kind="decision"))
+    assert unlisted.protocol == "systemone"
+
+
+def test_the_catalog_is_read_once_a_day_and_kept_on_disk(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    downloads: list[int] = []
+    served = _catalog._download  # the offline catalog from conftest
+
+    def download() -> object:
+        downloads.append(1)
+        return served()
+
+    monkeypatch.setattr(_catalog, "_download", download)
+    for _ in range(3):
+        resolve(LLM("openrouter:typesafe/jev-1.14", api_key="k"))
+    _catalog._loaded = None  # a new process reads the disk copy
+    resolve(LLM("openrouter:typesafe/jev-1.14", api_key="k"))
+    assert len(downloads) == 1
+
+
+def test_an_unreachable_catalog_falls_back(monkeypatch: pytest.MonkeyPatch) -> None:
+    def offline() -> object:
+        raise httpx2.ConnectError("offline")
+
+    monkeypatch.setattr(_catalog, "_download", offline)
+    assert resolve(LLM("openrouter:typesafe/jev-1.14", api_key="k")).kind == "reasoning"
+    kept = resolve(LLM("openrouter:typesafe/jev-1.14", api_key="k", kind="decision"))
+    assert kept.protocol == "systemone"
 
 
 def test_decision_model_cannot_write() -> None:
@@ -111,3 +156,39 @@ def test_llm_checks_settings() -> None:
 
 def test_api_key_is_hidden_from_repr() -> None:
     assert "secret" not in repr(LLM("openai:gpt-5-mini", api_key="secret"))
+
+
+def test_copies_keep_the_key_and_pickles_drop_it() -> None:
+    import copy
+    import pickle
+
+    model = LLM("openai:gpt-5-mini", api_key="secret")
+    assert copy.deepcopy(model).api_key == copy.copy(model).api_key == "secret"
+    assert pickle.loads(pickle.dumps(model)).api_key is None
+
+
+def test_custom_servers_keep_colons_and_only_nearby_ones_are_local() -> None:
+    nearby = resolve(LLM("qwen2.5:7b", base_url="http://localhost:11434/v1"))
+    assert (nearby.provider, nearby.model_id, nearby.local) == (
+        "custom",
+        "qwen2.5:7b",
+        True,
+    )
+    assert resolve(LLM("m", base_url="http://10.0.0.5:8000/v1")).local
+    assert not resolve(LLM("m", base_url="https://gateway.example.com/v1")).local
+
+
+def test_only_openrouter_models_read_its_catalog(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def offline() -> object:
+        raise AssertionError("the catalog was read")  # no internet needed
+
+    monkeypatch.setattr(_catalog, "_download", offline)
+    for model in (
+        LLM("ollama:qwen3:8b"),
+        LLM("qwen2.5:7b", base_url="http://localhost:11434/v1"),
+        LLM("openai:gpt-5-mini"),
+        "jev",
+    ):
+        resolve(model)

@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-
 from typing import Any
 
 import pandas as pd
 import pytest
 
-from think_reason_learn.testing import FakeLLM, fake_llms
-
+from think_reason_learn.exceptions import DataError
 from think_reason_learn.features import (
     CognitiveMode,
     DataSchema,
@@ -27,6 +25,7 @@ from think_reason_learn.features._prompts import (
     build_user_prompt,
     format_samples,
 )
+from think_reason_learn.testing import FakeLLM, fake_llms
 
 # ---------------------------------------------------------------------------
 # Fixtures & helpers
@@ -618,3 +617,44 @@ class TestCognitiveMode:
         )
         assert len(rules) == 2
         assert "BACKWARD" in (writer.calls[0].instructions or "")
+
+
+class TestReviewedSandbox:
+    """Escapes found in review are refused before a rule runs."""
+
+    @pytest.mark.parametrize(
+        "expression",
+        [
+            "lambda r: [c for c in ().__class__.__base__.__subclasses__()][0]",
+            "lambda r: r.get.__self__",
+            "lambda r: '{0.__class__}'.format(r)",
+            "lambda r: __builtins__",
+            "lambda a, b: a",
+            "(lambda r: r)(1)",
+        ],
+    )
+    def test_refused_at_compile_time(self, expression: str) -> None:
+        evaluator = FeatureEvaluator(rules=[Rule("bad", "", expression)])
+        assert "bad" in evaluator.compilation_errors
+        assert evaluator.evaluate({}) == {"bad": 0}
+
+    def test_rule_names_must_differ(self) -> None:
+        with pytest.raises(ValueError, match="distinct names"):
+            FeatureEvaluator(
+                rules=[Rule("a", "", "lambda r: 1"), Rule("a", "", "lambda r: 0")]
+            )
+
+
+def test_the_positive_label_is_chosen(writer: FakeLLM) -> None:
+    labels = ["YES" if label else "NO" for label in SAMPLE_LABELS]
+    _generator().generate(samples=_sample_founders(), labels=labels, positive="YES")
+    assert "[SUCCESS]" in (writer.calls[0].prompt or "")
+    with pytest.raises(DataError, match="positive="):
+        _generator().generate(samples=_sample_founders(), labels=labels)
+
+
+def test_each_call_draws_afresh(writer: FakeLLM) -> None:
+    generator = _generator()
+    for _ in range(2):
+        generator.generate(samples=_sample_founders(), labels=SAMPLE_LABELS)
+    assert writer.n_calls == 2  # the second call is not the first's cached reply

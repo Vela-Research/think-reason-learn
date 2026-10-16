@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping
 from typing import Final, TypedDict
 
 import openai
@@ -23,24 +22,20 @@ from openai.types.shared import ReasoningEffort
 from pydantic import BaseModel, ValidationError
 
 from .._config import get_config
-from .._questions import Question
 from .._spec import Endpoint
 from .._usage import TokenCounts
-from ._base import Answers, GenerateRequest, Reply, classify
+from ._base import GenerateRequest, Reply, classify, read_reply
 from ._http import cached, http_client
-from ._prompted import prompted_answer
+from ._prompted import ReasoningAdapter
 
+_FLEX_TIMEOUT: Final = 900.0
 _JSON_ONLY: Final = (
     "Reply with only a JSON object (no other text) matching this JSON schema:\n"
 )
 
 
-class OpenAICompatAdapter:
+class OpenAICompatAdapter(ReasoningAdapter):
     """Chat Completions over the OpenAI SDK, for any ``base_url``."""
-
-    def max_questions(self, endpoint: Endpoint) -> int:
-        """Questions per call, as the model's settings ask."""
-        return endpoint.settings.questions_per_call
 
     async def generate(
         self, endpoint: Endpoint, request: GenerateRequest, dropped: frozenset[str]
@@ -50,32 +45,20 @@ class OpenAICompatAdapter:
         try:
             raw = await client.chat.completions.with_raw_response.create(
                 response_format=_response_format(endpoint, request),
-                timeout=get_config().timeout,
+                timeout=_timeout(endpoint),
                 **_params(endpoint, request, dropped),
             )
         except openai.APIStatusError as exc:
             raise classify(exc.status_code, exc.message, exc.response.headers) from exc
         except openai.APIConnectionError as exc:
             raise classify(None, str(exc), {}) from exc
-        completion = raw.parse()
+        completion = await read_reply(raw.parse, ChatCompletion)
         return Reply(
             _output(completion, request.schema),
             _tokens(completion.usage),
             completion.model,
             _provider_cost(completion.usage),
             dict(raw.headers),
-        )
-
-    async def answer(
-        self,
-        endpoint: Endpoint,
-        sample: str,
-        questions: Mapping[str, Question],
-        dropped: frozenset[str],
-    ) -> Reply[Answers]:
-        """Answers by prompting for a label."""
-        return await prompted_answer(
-            self.generate, endpoint, sample, questions, dropped
         )
 
 
@@ -173,10 +156,21 @@ def _tokens(usage: CompletionUsage | None) -> TokenCounts:
     prompt, completion = usage.prompt_tokens_details, usage.completion_tokens_details
     return TokenCounts(
         input=usage.prompt_tokens,
-        output=usage.completion_tokens,
+        # xAI leaves reasoning out of completion_tokens; the total has it.
+        output=max(usage.completion_tokens, usage.total_tokens - usage.prompt_tokens),
         cache_read=(prompt.cached_tokens or 0) if prompt else 0,
         cache_write=(prompt.cache_write_tokens or 0) if prompt else 0,
         reasoning=(completion.reasoning_tokens or 0) if completion else 0,
+    )
+
+
+def _timeout(endpoint: Endpoint) -> float:
+    """The call timeout; the flex tier queues calls, so it gets 15 minutes."""
+    timeout = get_config().timeout
+    return (
+        max(timeout, _FLEX_TIMEOUT)
+        if endpoint.settings.service_tier == "flex"
+        else timeout
     )
 
 

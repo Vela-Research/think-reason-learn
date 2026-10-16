@@ -1,30 +1,32 @@
-"""Safe evaluation of LLM-generated lambda expressions.
+"""Safe evaluation of model-written lambda rules on structured records.
 
-Lambda expression strings are compiled via :func:`eval` with a **restricted**
-``__builtins__`` dict so that only safe built-in names are available.  This
-blocks ``__import__``, ``exec``, ``open``, ``getattr``, and every other
-dangerous built-in.
+Each rule is checked before it runs: it must be one lambda of one argument, and
+it may not use an attribute that starts with an underscore (``__class__``,
+``_module``...), a name that starts with two (``__import__``), or ``format``,
+which can reach attributes from inside a string. It then runs with only the
+built-ins in ``SAFE_BUILTINS`` and the helpers given, so ``import``, ``open``,
+``eval``, ``getattr`` and the like are out of reach. Rules come from a model
+that read your data: treat them as untrusted code, and keep these checks.
 """
 
 from __future__ import annotations
 
+import ast
 import logging
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Callable, Sequence
+from typing import Final
 
 import pandas as pd
 
-from ._types import HelperFunction, Rule
+from ._types import HelperFunction, Record, Rule
 
 logger = logging.getLogger(__name__)
 
+type RuleFunction = Callable[[Record], object]
 
-# ---------------------------------------------------------------------------
-# Restricted builtins whitelist
-# ---------------------------------------------------------------------------
-
-SAFE_BUILTINS: dict[str, Any] = {
-    # Aggregation / iteration
+SAFE_BUILTINS: Final[Mapping[str, object]] = {
+    # Aggregation and iteration
     "len": len,
     "any": any,
     "all": all,
@@ -39,7 +41,7 @@ SAFE_BUILTINS: dict[str, Any] = {
     "zip": zip,
     "map": map,
     "filter": filter,
-    # Type constructors / checks
+    # Type constructors and checks
     "int": int,
     "float": float,
     "str": str,
@@ -54,42 +56,31 @@ SAFE_BUILTINS: dict[str, Any] = {
     "False": False,
     "None": None,
 }
-"""Built-ins available inside evaluated lambda expressions.
+"""Built-ins available inside rules; everything else is absent."""
 
-Explicitly **excluded**: ``__import__``, ``eval``, ``exec``, ``compile``,
-``open``, ``getattr``, ``setattr``, ``delattr``, ``globals``, ``locals``,
-``vars``, ``dir``, ``type``, ``super``, ``property``, ``breakpoint``, etc.
-"""
+_BLOCKED_NAMES: Final = frozenset({"format", "format_map"})
+"""Names that reach attributes from inside a string, e.g. ``"{0.__class__}"``."""
 
-
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class _CompiledRule:
-    rule: Rule
-    func: Callable[..., Any] | None
-    error: str | None
-
-
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
+_RULE_ERRORS: Final = (
+    ArithmeticError,
+    LookupError,
+    TypeError,
+    ValueError,
+    AttributeError,
+    NameError,
+)
+"""What a rule may raise on a record it does not fit; the rule then gives 0."""
 
 
 class FeatureEvaluator:
-    """Compile and evaluate LLM-generated lambda rules on structured records.
+    """Compile and evaluate model-written lambda rules on structured records.
 
-    Parameters
-    ----------
-    rules:
-        Rules whose ``expression`` fields are Python lambda strings.
-    helpers:
-        Optional helper functions to make available inside the lambdas (e.g.
-        ``parse_qs``, ``parse_duration``).  Each helper's ``.func`` is placed
-        into the eval context under its ``.name``.
+    Args:
+        rules: Rules whose ``expression`` is a Python lambda of one argument.
+        helpers: Helper functions the lambdas may call, by their ``name``.
+
+    Raises:
+        ValueError: Two rules share a name.
     """
 
     def __init__(
@@ -97,68 +88,85 @@ class FeatureEvaluator:
         rules: Sequence[Rule],
         helpers: Sequence[HelperFunction] | None = None,
     ) -> None:
+        """Check and compile every rule; a rule that fails is kept, giving 0."""
+        names = [rule.name for rule in rules]
+        if duplicates := sorted({n for n in names if names.count(n) > 1}):
+            raise ValueError(f"Rules need distinct names; repeated: {duplicates}.")
         self._rules = list(rules)
-        self._helper_map: dict[str, Callable[..., Any]] = {
-            h.name: h.func for h in (helpers or [])
-        }
-        self._compiled: list[_CompiledRule] = self._compile_all()
-
-    # -- compilation --------------------------------------------------------
-
-    def _compile_all(self) -> list[_CompiledRule]:
-        eval_globals: dict[str, Any] = {
+        scope: dict[str, object] = {
             "__builtins__": SAFE_BUILTINS,
-            **self._helper_map,
+            **{h.name: h.func for h in helpers or ()},
         }
-        compiled: list[_CompiledRule] = []
-        for rule in self._rules:
-            try:
-                func = eval(rule.expression, eval_globals)  # noqa: S307
-                compiled.append(_CompiledRule(rule=rule, func=func, error=None))
-            except Exception as exc:
-                logger.warning("Compile error for rule %s: %s", rule.name, exc)
-                compiled.append(_CompiledRule(rule=rule, func=None, error=str(exc)))
-        return compiled
+        self._compiled = [_compile(rule, scope) for rule in self._rules]
 
-    # -- single-record evaluation -------------------------------------------
+    def evaluate(self, record: Record) -> dict[str, int]:
+        """Each rule's result on ``record``: 1 or 0.
 
-    def evaluate(self, record: dict[str, Any]) -> dict[str, int]:
-        """Evaluate all rules on a single record.
-
-        Returns a dict mapping ``rule_name → 0 | 1``.  Rules that fail to
-        compile or that raise at runtime silently return ``0``.
+        A rule that failed to compile, or raises on this record, gives 0.
         """
-        results: dict[str, int] = {}
-        for entry in self._compiled:
-            name = entry.rule.name
-            if entry.func is None:
-                results[name] = 0
-                continue
-            try:
-                results[name] = 1 if entry.func(record) else 0
-            except Exception:
-                results[name] = 0
-        return results
+        return {entry.rule.name: entry.run(record) for entry in self._compiled}
 
-    # -- batch evaluation ---------------------------------------------------
-
-    def evaluate_df(self, records: Sequence[dict[str, Any]]) -> pd.DataFrame:
-        """Evaluate all rules on multiple records.
-
-        Returns a :class:`~pandas.DataFrame` with one column per rule (values
-        ``0`` or ``1``) and one row per record.
-        """
-        rows = [self.evaluate(r) for r in records]
-        return pd.DataFrame(rows)
-
-    # -- introspection ------------------------------------------------------
+    def evaluate_df(self, records: Sequence[Record]) -> pd.DataFrame:
+        """One column per rule (0 or 1) and one row per record."""
+        columns = pd.Index([rule.name for rule in self._rules])
+        return pd.DataFrame([self.evaluate(r) for r in records], columns=columns)
 
     @property
     def rules(self) -> list[Rule]:
-        """The rules this evaluator was initialised with."""
+        """The rules, in order."""
         return list(self._rules)
 
     @property
     def compilation_errors(self) -> dict[str, str]:
-        """Rules that failed to compile, keyed by rule name."""
+        """Why each rule that failed to compile failed, by rule name."""
         return {e.rule.name: e.error for e in self._compiled if e.error is not None}
+
+
+@dataclass(frozen=True, slots=True)
+class _Compiled:
+    rule: Rule
+    function: RuleFunction | None
+    error: str | None
+
+    def run(self, record: Record) -> int:
+        if self.function is None:
+            return 0
+        try:
+            return 1 if self.function(record) else 0
+        except _RULE_ERRORS as error:
+            logger.debug(f"Rule {self.rule.name} raised on a record: {error!r}")
+            return 0
+
+
+def _compile(rule: Rule, scope: dict[str, object]) -> _Compiled:
+    try:
+        tree = _checked(rule.expression)
+        function = eval(compile(tree, f"<rule {rule.name}>", "eval"), scope)  # noqa: S307  # checked, restricted builtins
+    except (SyntaxError, ValueError) as error:
+        logger.warning(f"Rule {rule.name} does not compile: {error}")
+        return _Compiled(rule, None, str(error))
+    return _Compiled(rule, function, None)
+
+
+def _checked(expression: str) -> ast.Expression:
+    """The parsed rule, if it is one lambda of one argument using no hidden names.
+
+    Raises:
+        SyntaxError: The rule is not valid Python.
+        ValueError: The rule is not one lambda, or names something blocked.
+    """
+    tree = ast.parse(expression.strip(), mode="eval")
+    body = tree.body
+    if not isinstance(body, ast.Lambda) or len(body.args.args) != 1:
+        raise ValueError("a rule must be a lambda of one argument")
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and _hidden(node.attr, "_"):
+            raise ValueError(f"a rule may not use .{node.attr}")
+        if isinstance(node, ast.Name) and _hidden(node.id, "__"):
+            raise ValueError(f"a rule may not use {node.id}")
+    return tree
+
+
+def _hidden(name: str, prefix: str) -> bool:
+    """Private and special names, which lead out of the sandbox."""
+    return name.startswith(prefix) or name in _BLOCKED_NAMES

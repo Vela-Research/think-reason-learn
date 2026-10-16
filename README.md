@@ -52,9 +52,10 @@ X = [
     "Casey started a company out of high school and failed twice.",
 ]
 y = ["successful", "failed", "successful", "failed"]
+task = "Predict whether a startup founder will succeed."
 
 tree = GPTree(
-    task="Predict whether a startup founder will succeed.",
+    task=task,
     generator="openai:gpt-5-mini",   # writes the questions
     answerer="jev",                  # answers them (Typesafe's Jev, the default)
 )
@@ -80,7 +81,7 @@ A model is `"provider:model"`, or an `LLM` with settings. A tuple is a fallback 
 "openrouter:meta-llama/llama-3.3-70b-instruct"   # OPENROUTER_API_KEY
 "ollama:qwen3:8b"                                # local, no key
 "jev"                                            # TYPESAFE_API_KEY
-"openai:gpt-6-luna"                              # OpenAI Decisions
+"openrouter:openai/gpt-6-luna-decisions"         # any decision model OpenRouter lists
 ```
 
 Groq, Together, DeepSeek, Mistral, Azure and any OpenAI-compatible server (vLLM, LM Studio, llama.cpp) work too:
@@ -92,9 +93,11 @@ LLM("openai:gpt-5-mini", temperature=0.2, reasoning_effort="low", service_tier="
 LLM("Qwen3-32B", base_url="http://gpu-box:8000/v1")
 ```
 
-Reasoning models write and answer; decision models (Jev, OpenAI Decisions, Microsoft-Decision-1) only answer,
-with probabilities. Putting a decision model in a writing role fails before anything is sent. Keys are read from the
-environment.
+Reasoning models write and answer; decision models (Jev, GPT-6 Luna Decisions, Microsoft-Decision-1...) only answer,
+with probabilities. Putting a decision model in a writing role fails before anything is sent. Which models are
+decision models is never guessed from their names: Typesafe serves only decision models, and OpenRouter's are read
+from its public catalog (kept for a day, so new ones work at once). Elsewhere, ask for a model's decision API with
+`LLM("openai:gpt-6-luna", kind="decision")`. Keys are read from the environment.
 
 ## Speed, cost and reruns
 
@@ -102,11 +105,11 @@ environment.
 import think_reason_learn as trl
 
 trl.set_limits("openai:gpt-5-mini", max_concurrency=64, rpm=5_000, tpm=4_000_000)
-model.estimate_cost(X, y).cost_usd  # what fit(X, y) would spend; nothing is sent
+tree.estimate_cost(X, y).cost_usd  # what fit(X, y) would spend; nothing is sent
 with trl.config_context(max_cost_usd=5):
-    model.fit(X, y)
+    tree.fit(X, y)
 
-model.usage_.by("role", "model")   # calls, tokens and dollars
+tree.usage_.by("role", "model")    # calls, tokens and dollars
 ```
 
 - Limits are per model and account, shared by every model in the process. Without limits, calls start at 8 in
@@ -124,6 +127,7 @@ from sklearn.metrics import f1_score, make_scorer
 from sklearn.model_selection import cross_val_score
 from think_reason_learn.rrf import RRF
 
+# On a real dataset: five folds need at least five samples of each class.
 f1 = make_scorer(f1_score, pos_label="successful")
 cross_val_score(RRF(task=task, generator="openai:gpt-5-mini"), X, y, cv=5, scoring=f1)
 ```

@@ -1,8 +1,8 @@
-"""The System One decision protocol: Jev and the decision models that share it.
+"""The System One decision protocol: Jev's, and OpenRouter's Decisions API.
 
-Typesafe's Jev, Microsoft-Decision-1, Cloudflare's Clef and Jev on OpenRouter
-take one sample (the state) and typed questions, and return a probability for
-each yes/no question and a label for each choice question.
+Typesafe's Jev, Microsoft-Decision-1 on Azure, and every decision model on
+OpenRouter take one sample (the state) and typed questions, and return a
+probability for each yes/no question and a label for each choice question.
 """
 
 from __future__ import annotations
@@ -11,6 +11,7 @@ import math
 from collections.abc import Mapping
 
 import httpx2
+
 from .._config import get_config
 from .._questions import Answer, ChoiceQuestion, Question, YesNoQuestion
 from .._spec import Endpoint
@@ -58,7 +59,8 @@ class SystemOneAdapter(DecisionAdapter):
             {qid: _answer(q, raw_answers.get(qid)) for qid, q in questions.items()},
             _tokens(payload.get("usage")),
             served if isinstance(served, str) else None,
-            headers=dict(response.headers),
+            _cost(payload.get("usage")),
+            dict(response.headers),
         )
 
 
@@ -118,6 +120,12 @@ def _probabilities(raw: object, labels: tuple[str, ...]) -> dict[str, float] | N
     return {
         label: float(v) for label, v in values.items() if isinstance(v, (int, float))
     }
+
+
+def _cost(usage: object) -> float | None:
+    """The cost some providers (OpenRouter) report with the usage."""
+    cost = usage.get("cost") if isinstance(usage, dict) else None
+    return float(cost) if isinstance(cost, (int, float)) else None
 
 
 def _tokens(usage: object) -> TokenCounts:

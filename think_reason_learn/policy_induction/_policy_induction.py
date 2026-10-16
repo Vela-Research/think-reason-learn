@@ -15,26 +15,32 @@ regression weighs them.
 
 from __future__ import annotations
 
+import asyncio
+import itertools
+import logging
 import math
 from collections.abc import Mapping, Sequence
-from typing import Literal
+from functools import partial
+from typing import Final, Literal
 
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
 from pydantic import BaseModel
 
+from think_reason_learn.core._answers import yes_probabilities
 from think_reason_learn.core._classifier import (
     BinaryTRLClassifier,
     Labels,
     Proba,
     positive_index,
 )
-from think_reason_learn.core._answers import yes_probabilities
-from think_reason_learn.core._combine import LinearCombiner, fit_logistic, n_folds
-from think_reason_learn.core._data import balanced_subset, example_batches
+from think_reason_learn.core._combine import LinearCombiner, fit_logistic, held_out_rows
+from think_reason_learn.core._data import Classes, balanced_subset, example_batches
 from think_reason_learn.core._prompts import examples_block
+from think_reason_learn.exceptions import NoOutputError
 from think_reason_learn.llm import (
+    YES_AT,
     Endpoint,
     LLMSession,
     Models,
@@ -54,11 +60,14 @@ from ._prompts import (
     update_prompt,
 )
 
+logger = logging.getLogger(__name__)
+
+_HISTORY: Final = pd.Index(
+    ["round", "cases", "precision_before", "precision_after", "kept"]
+)
+"""Columns of ``history_``: one row per refinement."""
+
 type Predictor = Literal["policy", "rules"]
-
-
-class _Policy(BaseModel):
-    rules: list[str]
 
 
 class PolicyInduction(BinaryTRLClassifier):
@@ -141,18 +150,16 @@ class PolicyInduction(BinaryTRLClassifier):
     combiner_: LinearCombiner | None
 
     async def _afit(self, texts: list[str], y: Labels, session: LLMSession) -> None:
-        self._task()
         positive = self._positive(y)
         writer = self._models("generator", "generate")
+        self._models("answerer", "answer")  # fail before paying for the policy
         rng = np.random.default_rng(self.random_state)
         self.instructions_ = await self._instructions(session, writer)
         cases = balanced_subset(y, 2, self.n_samples, rng)
-        policy, scores = await self._induce(
-            texts, y, positive, cases, writer, session, rng
-        )
+        policy = await self._induce(texts, y, positive, cases, writer, session, rng)
         self.policy_, self.combiner_, self.weighted_rules_ = policy, None, ()
         if self.predictor == "policy":
-            self.threshold_ = 0.5  # the paper takes the answerer's call as it is
+            self.threshold_ = YES_AT  # the paper takes the answerer's call as is
         else:
             await self._fit_rules(texts, positive, cases, session)
 
@@ -165,45 +172,45 @@ class PolicyInduction(BinaryTRLClassifier):
         writer: tuple[Endpoint, ...],
         session: LLMSession,
         rng: np.random.Generator,
-    ) -> tuple[tuple[str, ...], npt.NDArray[np.float64]]:
+    ) -> tuple[str, ...]:
         """Refine the policy over the rounds, keeping only refinements that help.
 
         Each round asks for fresh refinements (a new draw), so a case seen again
-        under an unchanged policy is not answered from the cache.
+        under an unchanged policy is not answered from the cache. Once the policy
+        is perfectly precise on the cases nothing can beat it, so refining stops.
         """
         judged = [texts[i] for i in cases]
         policy = self.initial_policy or await self._first(
             texts, y, cases, writer, session, rng
         )
+        if not policy:
+            raise NoOutputError("The generator wrote an empty policy.")
         scores = await self._judge(policy, judged, session)
         history: list[tuple[int, int, float, float, bool]] = []
         for round_ in range(self.n_rounds):
-            order = rng.permutation(cases)
-            for batch in (
-                order[i : i + self.batch_size]
-                for i in range(0, len(order), self.batch_size)
+            for batch in itertools.batched(
+                rng.permutation(cases), self.batch_size, strict=False
             ):
+                before = _precision(scores, positive[cases])
+                if before == 1.0:
+                    break
                 refined = await self._refine(
-                    policy, texts, y, batch, writer, session, draw=round_
+                    policy, texts, y, np.array(batch), writer, session, draw=round_
                 )
                 refined_scores = (
                     scores
                     if refined == tuple(policy)
                     else await self._judge(refined, judged, session)
                 )
-                before = _precision(scores, positive[cases])
                 after = _precision(refined_scores, positive[cases])
                 history.append((round_, len(batch), before, after, after > before))
                 if after > before:
                     policy, scores = refined, refined_scores
-        columns = pd.Index(
-            ["round", "cases", "precision_before", "precision_after", "kept"]
-        )
-        self.history_ = pd.DataFrame(history, columns=columns)
-        return tuple(policy), scores
+        self.history_ = pd.DataFrame(history, columns=_HISTORY)
+        return tuple(policy)
 
     def _fit_plan(
-        self, texts: list[str], y: Labels, classes: npt.NDArray[np.object_]
+        self, texts: list[str], y: Labels, classes: Classes
     ) -> list[UsageRecord]:
         writer = self._models("generator", "generate")
         answerer = self._models("answerer", "answer")
@@ -224,7 +231,7 @@ class PolicyInduction(BinaryTRLClassifier):
         ]
         if self.predictor == "rules":
             positive = y == positive_index(classes, self.pos_label)
-            rows = [texts[i] for i in self._rule_rows(positive, cases)]
+            rows = [texts[i] for i in held_out_rows(positive, cases, self.cv)]
             planned.append(
                 estimate_answers(answerer, rows, [QUESTION_TOKENS] * self.max_rules)
             )
@@ -285,7 +292,13 @@ class PolicyInduction(BinaryTRLClassifier):
             _numbered(policy),
             examples_block(texts, y, self.classes_, batch),
         )
-        refined = await self._write(prompt, UPDATE_INSTRUCTIONS, writer, session, draw)
+        try:
+            refined = await self._write(
+                prompt, UPDATE_INSTRUCTIONS, writer, session, draw
+            )
+        except NoOutputError as error:
+            logger.warning(f"A refinement wrote nothing ({error}); the policy stays.")
+            return tuple(policy)
         return refined or tuple(policy)
 
     async def _write(
@@ -306,7 +319,8 @@ class PolicyInduction(BinaryTRLClassifier):
             ),
             draw=draw,
         )
-        return tuple(r.strip() for r in written.rules if r.strip())[: self.max_rules]
+        rules = dict.fromkeys(r.strip() for r in written.rules if r.strip())
+        return tuple(rules)[: self.max_rules]
 
     async def _judge(
         self, policy: Sequence[str], texts: Sequence[str], session: LLMSession
@@ -323,15 +337,13 @@ class PolicyInduction(BinaryTRLClassifier):
         self, texts: Sequence[str], rules: Sequence[str], session: LLMSession
     ) -> npt.NDArray[np.float64]:
         """Probability that each rule (columns) holds for each sample (rows)."""
-        with self._progress(len(texts) * len(rules), "rule answers") as progress:
-            return await yes_probabilities(
-                session,
-                self._models("answerer", "answer"),
-                texts,
-                [rule_question(rule) for rule in rules],
-                missing=0.0,
-                progress=progress,
-            )
+        return await yes_probabilities(
+            session,
+            self._models("answerer", "answer"),
+            texts,
+            [rule_question(rule) for rule in rules],
+            missing=0.0,
+        )
 
     async def _fit_rules(
         self,
@@ -341,19 +353,21 @@ class PolicyInduction(BinaryTRLClassifier):
         session: LLMSession,
     ) -> None:
         """Weigh the rules on samples the policy was not written from, if enough."""
-        rows = self._rule_rows(positive, cases)
+        rows = held_out_rows(positive, cases, self.cv)
         answers = await self._rule_answers(
             [texts[i] for i in rows], self.policy_, session
         )
-        fitted = fit_logistic(
-            answers,
-            positive[rows],
-            l1_ratios=(1.0,),
-            cs=10,
-            cv=self.cv,
-            beta=self.beta,
-            class_weight="balanced",
-            random_state=self.random_state,
+        fitted = await asyncio.to_thread(
+            partial(
+                fit_logistic,
+                answers,
+                positive[rows],
+                l1_ratios=(1.0,),
+                cv=self.cv,
+                beta=self.beta,
+                class_weight="balanced",
+                random_state=self.random_state,
+            )
         )
         used = np.flatnonzero(fitted.coef)
         self.weighted_rules_ = tuple(self.policy_[j] for j in used)
@@ -361,15 +375,6 @@ class PolicyInduction(BinaryTRLClassifier):
             fitted.coef[used], fitted.intercept, fitted.threshold
         )
         self.threshold_ = fitted.threshold
-
-    def _rule_rows(
-        self, positive: npt.NDArray[np.bool_], cases: npt.NDArray[np.intp]
-    ) -> npt.NDArray[np.intp]:
-        """Samples the policy was not written from, or all if too few of a class."""
-        rest = np.setdiff1d(np.arange(len(positive)), cases).astype(np.intp)
-        if n_folds(self.cv, positive[rest]) >= 2:
-            return rest
-        return np.arange(len(positive), dtype=np.intp)
 
     def _summary(self) -> Mapping[str, object]:
         return {
@@ -388,5 +393,9 @@ def _precision(
     scores: npt.NDArray[np.float64], positive: npt.NDArray[np.bool_]
 ) -> float:
     """Precision of calling a sample positive when its probability is at least 0.5."""
-    called = scores >= 0.5
+    called = scores >= YES_AT
     return float((called & positive).sum() / called.sum()) if called.any() else 0.0
+
+
+class _Policy(BaseModel):
+    rules: list[str]

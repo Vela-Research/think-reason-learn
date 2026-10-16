@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 import pytest
 from pydantic import BaseModel
 
@@ -16,18 +15,19 @@ from think_reason_learn.exceptions import (
 from think_reason_learn.llm import (
     LLM,
     ChoiceQuestion,
+    Endpoint,
     LLMSession,
     Price,
     YesNoQuestion,
     config_context,
+    get_config,
     resolve_models,
     run_sync,
 )
-from think_reason_learn.llm import Endpoint, get_config
 from think_reason_learn.llm._cache import open_cache
 from think_reason_learn.llm._estimate import call_tokens
 from think_reason_learn.testing import (
-    Failure,
+    FakeFailure,
     FakeLLM,
     GenerateRequest,
     fake_llms,
@@ -78,9 +78,11 @@ def test_generate_falls_back_when_a_model_gives_nothing() -> None:
 
 
 def test_generate_raises_when_every_model_fails() -> None:
-    with fake_llms(bad=FakeLLM(failures=["bad_request"])):
-        with pytest.raises(LLMError, match="fake bad request"):
-            run_sync(LLMSession().generate(_resolved("bad"), "p", role="generator"))
+    with (
+        fake_llms(bad=FakeLLM(failures=["bad_request"])),
+        pytest.raises(LLMError, match="fake bad request"),
+    ):
+        run_sync(LLMSession().generate(_resolved("bad"), "p", role="generator"))
 
 
 def test_generation_is_cached_per_draw() -> None:
@@ -152,9 +154,11 @@ def test_unanswered_questions_fall_back_to_the_next_model() -> None:
 
 
 def test_nothing_answered_raises() -> None:
-    with fake_llms(mute=FakeLLM(answer=lambda s, q: None)):
-        with pytest.raises(LLMError, match="No answers"):
-            run_sync(LLMSession().answer(_resolved("mute"), ["x"], QUESTIONS, role="a"))
+    with (
+        fake_llms(mute=FakeLLM(answer=lambda s, q: None)),
+        pytest.raises(LLMError, match="No answers"),
+    ):
+        run_sync(LLMSession().answer(_resolved("mute"), ["x"], QUESTIONS, role="a"))
 
 
 def test_answers_are_never_paid_for_twice() -> None:
@@ -176,6 +180,7 @@ def test_unreadable_cache_entries_are_asked_again(tmp_path: Path) -> None:
         models = _resolved("judge")
         run_sync(LLMSession().answer(models, ["x"], QUESTIONS, role="a"))
         cache = open_cache(get_config().cache_path)
+        assert cache is not None
         rows = cache._db.execute("SELECT key FROM replies").fetchall()
         cache.put_many({key: {"label": "corrupt"} for (key,) in rows})
         [result] = run_sync(LLMSession().answer(models, ["x"], QUESTIONS, role="a"))
@@ -194,7 +199,7 @@ def test_no_cache_asks_again() -> None:
 
 
 @pytest.mark.parametrize("failure", ["rate_limit", "server_error", "timeout"])
-def test_temporary_failures_are_retried(failure: Failure) -> None:
+def test_temporary_failures_are_retried(failure: FakeFailure) -> None:
     judge = FakeLLM(answer=_answer, failures=[failure])
     with fake_llms(judge=judge):
         [result] = run_sync(
@@ -206,13 +211,13 @@ def test_temporary_failures_are_retried(failure: Failure) -> None:
 
 
 @pytest.mark.parametrize("failure", ["auth", "quota"])
-def test_a_rejected_key_stops_the_run(failure: Failure) -> None:
+def test_a_rejected_key_stops_the_run(failure: FakeFailure) -> None:
     judge = FakeLLM(answer=_answer, failures=[failure])
-    with fake_llms(judge=judge):
-        with pytest.raises(ProviderAuthError):
-            run_sync(
-                LLMSession().answer(_resolved("judge"), ["x"], QUESTIONS, role="a")
-            )
+    with (
+        fake_llms(judge=judge),
+        pytest.raises(ProviderAuthError),
+    ):
+        run_sync(LLMSession().answer(_resolved("judge"), ["x"], QUESTIONS, role="a"))
 
 
 def test_a_missing_model_is_abandoned_for_the_next() -> None:
@@ -234,16 +239,18 @@ def test_a_missing_model_is_abandoned_for_the_next() -> None:
 
 def test_a_fatal_error_sends_nothing_more() -> None:
     judge = FakeLLM(answer=_answer, failures=["auth"])
-    with fake_llms(judge=judge):
-        with pytest.raises(ProviderAuthError):
-            run_sync(
-                LLMSession().answer(
-                    _resolved("judge"),
-                    [f"s{i}" for i in range(50)],
-                    {"tech": QUESTIONS["tech"]},
-                    role="a",
-                )
+    with (
+        fake_llms(judge=judge),
+        pytest.raises(ProviderAuthError),
+    ):
+        run_sync(
+            LLMSession().answer(
+                _resolved("judge"),
+                [f"s{i}" for i in range(50)],
+                {"tech": QUESTIONS["tech"]},
+                role="a",
             )
+        )
     assert judge.n_calls <= 8
 
 
@@ -308,12 +315,8 @@ def test_progress_counts_answers() -> None:
     seen: list[int] = []
     with fake_llms(judge=FakeLLM(answer=_answer)):
         run_sync(
-            LLMSession().answer(
-                _resolved("judge"),
-                ["x", "y"],
-                QUESTIONS,
-                role="a",
-                progress=seen.append,
+            LLMSession(progress=seen.append).answer(
+                _resolved("judge"), ["x", "y"], QUESTIONS, role="a"
             )
         )
     assert sum(seen) == 4
@@ -352,3 +355,44 @@ def test_generate_request_reaches_the_model() -> None:
 
 def _resolved(*names: str) -> tuple[Endpoint, ...]:
     return resolve_models(_writers(*names), param="models", task="answer")
+
+
+def test_a_broken_cache_folder_runs_without_the_cache(tmp_path: Path) -> None:
+    blocker = tmp_path / "file"
+    blocker.write_text("not a folder")
+    judge = FakeLLM(answer=_answer)
+    with fake_llms(judge=judge), config_context(cache_dir=blocker / "cache"):
+        [result] = run_sync(
+            LLMSession().answer(_resolved("judge"), ["x"], QUESTIONS, role="a")
+        )
+    assert all(answer is not None for answer in result.values())
+
+
+def test_a_dead_model_is_skipped_after_a_few_failures() -> None:
+    dead = FakeLLM(answer=_answer, failures=["server_error"] * 1000)
+    good = FakeLLM(answer=_answer)
+    samples = [f"engineer {i}" for i in range(40)]
+    with fake_llms(dead=dead, good=good):
+        results = run_sync(
+            LLMSession().answer(
+                _resolved("dead", "good"),
+                samples,
+                {"tech": QUESTIONS["tech"]},
+                role="a",
+            )
+        )
+    assert all(r["tech"] is not None for r in results)
+    assert dead.n_calls < 3 * 40  # retries stop once the model looks dead
+
+
+def test_fakes_never_answer_from_an_earlier_block() -> None:
+    for expected in ("YES", "NO"):
+        judge = FakeLLM(answer=lambda sample, question, label=expected: label)
+        with fake_llms(judge=judge):
+            [result] = run_sync(
+                LLMSession().answer(
+                    _resolved("judge"), ["x"], {"tech": QUESTIONS["tech"]}, role="a"
+                )
+            )
+        answer = result["tech"]
+        assert answer is not None and answer.label == expected

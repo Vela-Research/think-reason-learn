@@ -17,9 +17,10 @@ founder, and the tree learns which answers predict success.
        "Riley left a consulting job last month and has no product yet.",
    ]
    y = ["successful", "failed", "successful", "failed", "successful", "failed"]
+   task = "Predict whether a startup founder will succeed."
 
    tree = GPTree(
-       task="Predict whether a startup founder will succeed.",
+       task=task,
        generator="openai:gpt-5-mini",
        answerer="jev",
        min_samples_leaf=1,
@@ -33,7 +34,8 @@ founder, and the tree learns which answers predict success.
    tree.plot()                    # needs Graphviz
    tree.usage_.by("role", "model")
 
-The other models are called the same way:
+The other models are called the same way (each answers with Jev unless told otherwise, so set
+``TYPESAFE_API_KEY`` or pass ``answerer=``):
 
 .. code-block:: python
 

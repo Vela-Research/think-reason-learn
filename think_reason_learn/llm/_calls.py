@@ -9,7 +9,7 @@ from collections.abc import Awaitable, Callable
 from typing import Final
 
 from ._adapters._base import ProviderError, Reply
-from ._limiter import limiter_for
+from ._limiter import Limiter, Outcome, limiter_for
 from ._loop import on_fork
 from ._spec import Endpoint
 
@@ -19,12 +19,21 @@ _MAX_WAIT: Final = 120.0
 _RETRIED: Final = frozenset({"rate_limit", "transient"})
 
 
+class Skipped(ProviderError):
+    """A call not sent, because its pass stopped while it waited for a slot."""
+
+    def __init__(self) -> None:
+        """A skipped call; nothing was sent or spent."""
+        super().__init__("unavailable", "Skipped: this model's pass stopped.")
+
+
 async def send[T](
     endpoint: Endpoint,
     call: Callable[[frozenset[str]], Awaitable[Reply[T]]],
     *,
     estimated_tokens: int,
     max_retries: int,
+    stopped: Callable[[], bool] = lambda: False,
 ) -> Reply[T]:
     """Run ``call`` under the endpoint's limiter.
 
@@ -34,41 +43,21 @@ async def send[T](
 
     Raises:
         ProviderError: The call failed and retrying cannot help.
+        Skipped: ``stopped()`` turned true before the call was sent.
     """
     limiter = limiter_for(endpoint)
     retries = 0
     while True:
         dropped = _dropped.get(endpoint.key, frozenset())
-        await limiter.acquire(estimated_tokens)
         try:
-            reply = await call(dropped)
+            return await _attempt(limiter, call, dropped, estimated_tokens, stopped)
         except ProviderError as error:
-            await limiter.release(
-                estimated=estimated_tokens,
-                used=None,
-                headers={},
-                outcome="rate_limited" if error.failure == "rate_limit" else "failed",
-                retry_after=error.retry_after,
-            )
             if _drop(endpoint, error, dropped):
                 continue
             if error.failure not in _RETRIED or retries >= max_retries:
                 raise
             retries += 1
             await asyncio.sleep(_backoff(retries, error.retry_after))
-            continue
-        except BaseException:
-            await limiter.release(
-                estimated=estimated_tokens, used=None, headers={}, outcome="failed"
-            )
-            raise
-        await limiter.release(
-            estimated=estimated_tokens,
-            used=reply.tokens.input + reply.tokens.output,
-            headers=reply.headers,
-            outcome="ok",
-        )
-        return reply
 
 
 _dropped: Final[dict[str, frozenset[str]]] = {}
@@ -94,3 +83,37 @@ def _backoff(retry: int, retry_after: float | None) -> float:
     if retry_after is not None:
         return min(retry_after, _MAX_WAIT)
     return min(0.5 * 2 ** (retry - 1), 30.0) * random.uniform(0.5, 1.0)
+
+
+async def _attempt[T](
+    limiter: Limiter,
+    call: Callable[[frozenset[str]], Awaitable[Reply[T]]],
+    dropped: frozenset[str],
+    estimated: int,
+    stopped: Callable[[], bool],
+) -> Reply[T]:
+    """One call in one limiter slot; the slot is returned whatever happens."""
+    await limiter.acquire(estimated)
+    outcome: Outcome = "failed"
+    used: int | None = None
+    headers: dict[str, str] = {}
+    retry_after: float | None = None
+    try:
+        if stopped():
+            raise Skipped
+        reply = await call(dropped)
+        outcome, used = "ok", reply.tokens.input + reply.tokens.output
+        headers = dict(reply.headers)
+        return reply
+    except ProviderError as error:
+        outcome = "rate_limited" if error.failure == "rate_limit" else "failed"
+        retry_after = error.retry_after
+        raise
+    finally:
+        await limiter.release(
+            estimated=estimated,
+            used=used,
+            headers=headers,
+            outcome=outcome,
+            retry_after=retry_after,
+        )

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import inspect
 import math
 import re
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from email.utils import parsedate_to_datetime
 from typing import TYPE_CHECKING, Final, Literal, Protocol
@@ -127,6 +128,23 @@ class DecisionAdapter:
         raise ProviderError("bad_request", f"{endpoint.name} cannot write text.")
 
 
+async def read_reply[T](parse: Callable[[], object], kind: type[T]) -> T:
+    """A reply's body as ``kind``.
+
+    An unreadable body (a proxy's HTML page, cut-off JSON) is a transient
+    failure, never a crash.
+    """
+    try:
+        body = parse()
+        if inspect.isawaitable(body):
+            body = await body
+    except (ValueError, TypeError) as exc:
+        raise ProviderError("transient", f"Unreadable reply: {exc}") from exc
+    if not isinstance(body, kind):
+        raise ProviderError("transient", f"Unreadable reply: not a {kind.__name__}.")
+    return body
+
+
 def classify(
     status: int | None, message: str, headers: Mapping[str, str]
 ) -> ProviderError:
@@ -135,14 +153,14 @@ def classify(
     lowered = message.lower()
     if status is None or status in _TRANSIENT:
         return ProviderError("transient", message, retry_after=retry_after)
+    if status == 404 or _mentions(lowered, _NO_MODEL_WORDS):
+        return ProviderError("unavailable", message)
     if status in (401, 403) or _mentions(lowered, _AUTH_WORDS):
         return ProviderError("auth", message)
     if status == 402 or _mentions(lowered, _QUOTA_WORDS):
         return ProviderError("quota", message)
     if status == 429:
         return ProviderError("rate_limit", message, retry_after=retry_after)
-    if status == 404:
-        return ProviderError("unavailable", message)
     if status in (400, 422) and (param := _rejected_param(lowered)) is not None:
         return ProviderError("rejected_param", message, param=param)
     return ProviderError("bad_request", message)
@@ -171,6 +189,8 @@ _AUTH_WORDS: Final = (
     "incorrect api key",
     "invalid x-api-key",
 )
+_NO_MODEL_WORDS: Final = ("model_not_found", "does not have access to model")
+"""A model this account cannot use: try the next model, not a fatal key error."""
 _QUOTA_WORDS: Final = (
     "insufficient_quota",
     "insufficient credits",

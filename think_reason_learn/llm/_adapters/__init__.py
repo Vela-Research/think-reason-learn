@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from typing import Final
 
-from .._spec import Protocol
+from .._spec import WireProtocol
 from ._base import Adapter, Answers, GenerateRequest, ProviderError, Reply
 from .anthropic import AnthropicAdapter
 from .openai_compat import OpenAICompatAdapter
 from .openai_decisions import OpenAIDecisionsAdapter
 from .systemone import SystemOneAdapter
 
-ADAPTERS: Final[dict[Protocol, Adapter]] = {
+ADAPTERS: Final[dict[WireProtocol, Adapter]] = {
     "openai": OpenAICompatAdapter(),
     "anthropic": AnthropicAdapter(),
     "systemone": SystemOneAdapter(),

@@ -8,10 +8,16 @@ import numpy as np
 import pandas as pd
 import pytest
 from pydantic import BaseModel
+from sklearn.exceptions import NotFittedError
 
-from think_reason_learn.core._classifier import Labels, Proba, TRLClassifier
+from think_reason_learn.core._classifier import (
+    Labels,
+    Proba,
+    TRLClassifier,
+    positive_index,
+)
 from think_reason_learn.core._data import encode_labels, example_batches, to_texts
-from think_reason_learn.exceptions import DataError, LLMError
+from think_reason_learn.exceptions import DataError, LLMError, ProviderAuthError
 from think_reason_learn.llm import LLMSession, Models, YesNoQuestion
 from think_reason_learn.testing import FakeLLM, check_classifier, fake_llms
 
@@ -45,7 +51,7 @@ class OneQuestion(TRLClassifier):
         self.question_ = written.text
         yes = await self._yes(texts, session)
         table = np.ones((2, len(self.classes_)))  # Laplace smoothing
-        for answer, label in zip(yes, y):
+        for answer, label in zip(yes, y, strict=True):
             table[int(answer), label] += 1
         self.table_ = table / table.sum(axis=1, keepdims=True)
 
@@ -53,14 +59,12 @@ class OneQuestion(TRLClassifier):
         return self.table_[(await self._yes(texts, session)).astype(int)]
 
     async def _yes(self, texts: list[str], session: LLMSession) -> np.ndarray:
-        with self._progress(len(texts), "answers") as progress:
-            answers = await session.answer(
-                self._models("answerer", "answer"),
-                texts,
-                {"q": YesNoQuestion(self.question_)},
-                role="answerer",
-                progress=progress,
-            )
+        answers = await session.answer(
+            self._models("answerer", "answer"),
+            texts,
+            {"q": YesNoQuestion(self.question_)},
+            role="answerer",
+        )
         return np.array([a["q"] is not None and a["q"].label == "YES" for a in answers])
 
 
@@ -116,11 +120,11 @@ def test_missing_role_and_wrong_columns() -> None:
 
 
 def test_decision_model_cannot_write() -> None:
-    with fake_llms(writer=WRITER, judge=JUDGE):
-        with pytest.raises(ValueError, match="decision model"):
-            OneQuestion(task="t", generator="fake:judge", answerer="fake:judge").fit(
-                X, y
-            )
+    with (
+        fake_llms(writer=WRITER, judge=JUDGE),
+        pytest.raises(ValueError, match="decision model"),
+    ):
+        OneQuestion(task="t", generator="fake:judge", answerer="fake:judge").fit(X, y)
 
 
 def test_saved_model_has_no_key(tmp_path: Path) -> None:
@@ -175,7 +179,10 @@ class TestData:
             class_ratio="balanced",
             rng=np.random.default_rng(0),
         )
-        assert all(len(b) == 10 and (codes[b] == 1).sum() == 5 for b in batches)
+        # Both rare samples in every batch, never twice; the rest are common.
+        assert all(
+            len(set(b)) == len(b) == 10 and (codes[b] == 1).sum() == 2 for b in batches
+        )
         weighted = example_batches(
             codes,
             classes,
@@ -209,7 +216,7 @@ class TestData:
             )
 
 
-class TestReviewFixes:
+class TestRefitsAndCounts:
     def test_count_takes_numpy_integers(self) -> None:
         from think_reason_learn.core._data import count
 
@@ -229,8 +236,41 @@ class TestReviewFixes:
             with pytest.raises(NotFittedError):
                 fresh.predict(X)
             mute = OneQuestion(task="t", generator="fake:writer", answerer="fake:mute")
-            with fake_llms(mute=FakeLLM(answer=lambda sample, question: None)):
-                with pytest.raises(LLMError):
-                    mute.fit(X, y)  # fails mid-fit: nothing half-learned is kept
+            with (
+                fake_llms(mute=FakeLLM(answer=lambda sample, question: None)),
+                pytest.raises(LLMError),
+            ):
+                mute.fit(X, y)  # fails mid-fit: nothing half-learned is kept
             with pytest.raises(NotFittedError):
                 mute.predict(X)
+
+
+class TestFitFailures:
+    def test_a_failed_fit_keeps_its_usage_but_is_not_fitted(self) -> None:
+        failing = FakeLLM(answer=JUDGE.answer, failures=["auth"], kind="decision")
+        with fake_llms(writer=WRITER, judge=failing):
+            model = OneQuestion(
+                task="t", generator="fake:writer", answerer="fake:judge"
+            )
+            with pytest.raises(ProviderAuthError):
+                model.fit(X, y)
+        assert model.usage_.calls >= 1
+        with pytest.raises(NotFittedError):
+            model.predict(X)
+
+
+class TestInputs:
+    def test_two_dimensional_arrays_and_missing_values(self) -> None:
+        texts, names = to_texts(np.array([["a"], ["b"]]))
+        assert (texts, names) == (["a", "b"], None)
+        texts, names = to_texts(np.array([["a", "1"], ["b", "2"]]))
+        assert texts[0] == "0: a\n1: 1" and names == ["0", "1"]
+        frame = pd.DataFrame({"a": pd.array([1, None], dtype="Int64")})
+        assert to_texts(frame)[0] == ["a: 1", ""]
+        with pytest.raises(DataError, match="missing texts"):
+            to_texts(["a", None])  # type: ignore[list-item]  # a missing text, on purpose
+
+    def test_labels_keep_their_type(self) -> None:
+        classes, _ = encode_labels([1, 0, 1])
+        assert classes.dtype.kind == "i"
+        assert positive_index(np.array([0.0, 1.0]), 1) == 1

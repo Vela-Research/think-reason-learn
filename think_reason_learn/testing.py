@@ -11,6 +11,7 @@ Example:
 from __future__ import annotations
 
 import pickle
+import uuid
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -18,6 +19,7 @@ from pathlib import Path
 from typing import Final, Literal
 
 import numpy as np
+import numpy.typing as npt
 from pydantic import BaseModel
 from sklearn.base import clone
 from sklearn.exceptions import NotFittedError
@@ -37,12 +39,19 @@ from think_reason_learn.llm._adapters import (
     ProviderError,
     Reply,
 )
-from think_reason_learn.llm._adapters._base import Failure as Failure_
-from think_reason_learn.llm._questions import Answer, Question, YesNoQuestion
+from think_reason_learn.llm._adapters._base import DecisionAdapter, Failure
+from think_reason_learn.llm._questions import (
+    NO,
+    YES,
+    YES_AT,
+    Answer,
+    Question,
+    YesNoQuestion,
+)
 from think_reason_learn.llm._spec import Endpoint, ModelKind
-from think_reason_learn.llm._usage import TokenCounts
+from think_reason_learn.llm._usage import Price, TokenCounts
 
-type Failure = Literal[
+type FakeFailure = Literal[
     "rate_limit",
     "server_error",
     "timeout",
@@ -88,7 +97,7 @@ class FakeLLM:
     generate: Callable[[GenerateRequest], GenerateReply] | None = None
     answer: Callable[[str, Question], AnswerReply] | None = None
     kind: ModelKind = "reasoning"
-    failures: list[Failure] = field(default_factory=list)
+    failures: list[FakeFailure] = field(default_factory=list)
     tokens: tuple[int, int] = (10, 5)
     calls: list[FakeCall] = field(default_factory=list)
 
@@ -102,22 +111,28 @@ class FakeLLM:
 def fake_llms(**models: FakeLLM) -> Iterator[None]:
     """Make each fake callable as ``"fake:<name>"`` inside the block."""
     ADAPTERS["fake"] = _ADAPTER
-    patterns = {
-        f"fake:{name}" for name, model in models.items() if model.kind == "decision"
-    }
+    before = _spec._PROVIDERS.get("fake")
+    # A fresh address per block, so replies cached by earlier fakes never answer.
+    _spec._PROVIDERS["fake"] = _spec._Provider(
+        "fake",
+        f"fake://{uuid.uuid4().hex}",
+        local=True,
+        decision="fake",
+        catalog=_decision_fakes,
+    )
     _registry.update(models)
-    _spec._DECISION_MODELS.update(patterns)
     try:
         yield
     finally:
         for name in models:
             _registry.pop(name, None)
-        _spec._DECISION_MODELS.difference_update(patterns)
+        if before is not None:
+            _spec._PROVIDERS["fake"] = before
 
 
 _registry: Final[dict[str, FakeLLM]] = {}
 
-_ERRORS: Final[dict[Failure, tuple[Failure_, str]]] = {
+_ERRORS: Final[dict[FakeFailure, tuple[Failure, str]]] = {
     "rate_limit": ("rate_limit", "fake rate limit"),
     "server_error": ("transient", "fake server error"),
     "timeout": ("transient", "fake timeout"),
@@ -128,10 +143,76 @@ _ERRORS: Final[dict[Failure, tuple[Failure_, str]]] = {
 }
 
 
+def scripted(
+    replies: Iterable[GenerateReply],
+) -> Callable[[GenerateRequest], GenerateReply]:
+    """A ``generate`` that gives ``replies`` in order, then repeats the last."""
+    queue = list(replies)
+
+    def reply(request: GenerateRequest) -> GenerateReply:
+        return queue.pop(0) if len(queue) > 1 else queue[0]
+
+    return reply
+
+
+def check_classifier(
+    make: Callable[[], TRLClassifier], X: TextInput, y: LabelInput, tmp_dir: Path
+) -> None:
+    """Check a classifier keeps the library's contract.
+
+    It must behave as a scikit-learn classifier (settings stored untouched,
+    ``clone``, ``get_params``, fitted attributes, prediction shapes), refit,
+    pickle, and save and load without API keys. Run it inside ``fake_llms``.
+
+    Args:
+        make: Builds the classifier with fake models.
+        X: Samples to fit on and predict.
+        y: Their labels.
+        tmp_dir: A folder to save the model to.
+    """
+    model = make()
+    name = type(model).__name__
+    for check in _SKLEARN_CHECKS:
+        check(name, make())
+    type(model)()  # every setting has a default
+    clone(model)
+    try:
+        model.predict(X)
+    except NotFittedError:
+        pass
+    else:
+        raise AssertionError("predict before fit must raise NotFittedError")
+    assert model.fit(X, y) is model, "fit must return the model"
+    predicted = _check_predictions(model, X, y)
+    restored = pickle.loads(pickle.dumps(model))
+    assert (restored.predict(X) == predicted).all(), "a pickle must predict the same"
+    folder = model.save(tmp_dir / name)
+    assert "api_key" not in (folder / "model.json").read_text()
+    assert (type(model).load(folder).predict(X) == predicted).all()
+    assert model.fit(X, y) is model, "a fitted model must refit"
+
+
+def _check_predictions(
+    model: TRLClassifier, X: TextInput, y: LabelInput
+) -> npt.NDArray[np.generic]:
+    """Probabilities and labels of the right shape; returns the labels."""
+    proba = model.predict_proba(X)
+    n_samples = len(X)
+    assert proba.shape == (n_samples, len(model.classes_)), proba.shape
+    assert np.allclose(proba.sum(axis=1), 1) and (proba >= 0).all(), proba
+    predicted = model.predict(X)
+    assert len(predicted) == n_samples and set(predicted) <= set(model.classes_)
+    assert set(model.classes_.tolist()) == set(np.asarray(y).tolist()), model.classes_
+    assert model.usage_.calls > 0, "model calls must be recorded in usage_"
+    return predicted
+
+
 class _FakeAdapter:
     def max_questions(self, endpoint: Endpoint) -> int:
         return (
-            50 if endpoint.kind == "decision" else endpoint.settings.questions_per_call
+            DecisionAdapter.max_questions_per_call
+            if endpoint.kind == "decision"
+            else endpoint.settings.questions_per_call
         )
 
     async def generate(
@@ -174,6 +255,11 @@ class _FakeAdapter:
 _ADAPTER: Final = _FakeAdapter()
 
 
+def _decision_fakes() -> dict[str, Price | None]:
+    """The fake provider's catalog: fakes of kind ``"decision"``, unpriced."""
+    return {name: None for name, fake in _registry.items() if fake.kind == "decision"}
+
+
 def _fake(endpoint: Endpoint) -> FakeLLM:
     if endpoint.model_id not in _registry:
         raise ProviderError(
@@ -201,70 +287,10 @@ def _answer(reply: AnswerReply, question: Question, *, decision: bool) -> Answer
     if isinstance(reply, (int, float)) and isinstance(question, YesNoQuestion):
         if decision:
             return Answer.yes_probability(float(reply))
-        reply = "YES" if reply >= 0.5 else "NO"
+        reply = YES if reply >= YES_AT else NO
     if isinstance(reply, str) and reply in question.labels:
         return Answer.certain(reply, question.labels)
     return None
-
-
-def scripted(
-    replies: Iterable[GenerateReply],
-) -> Callable[[GenerateRequest], GenerateReply]:
-    """A ``generate`` that gives ``replies`` in order, then repeats the last."""
-    queue = list(replies)
-
-    def reply(request: GenerateRequest) -> GenerateReply:
-        return queue.pop(0) if len(queue) > 1 else queue[0]
-
-    return reply
-
-
-def check_classifier(
-    make: Callable[[], TRLClassifier], X: TextInput, y: LabelInput, tmp_dir: Path
-) -> None:
-    """Check a classifier keeps the library's contract.
-
-    It must behave as a scikit-learn classifier (settings stored untouched,
-    ``clone``, ``get_params``, fitted attributes, prediction shapes), refit,
-    pickle, and save and load without API keys. Run it inside ``fake_llms``.
-
-    Args:
-        make: Builds the classifier with fake models.
-        X: Samples to fit on and predict.
-        y: Their labels.
-        tmp_dir: A folder to save the model to.
-    """
-    model = make()
-    name = type(model).__name__
-    for check in _SKLEARN_CHECKS:
-        check(name, make())
-    type(model)()  # every setting has a default
-    clone(model)
-    try:
-        model.predict(X)
-    except NotFittedError:
-        pass
-    else:
-        raise AssertionError("predict before fit must raise NotFittedError")
-
-    assert model.fit(X, y) is model, "fit must return the model"
-    proba = model.predict_proba(X)
-    n_samples = len(X)
-    assert proba.shape == (n_samples, len(model.classes_)), proba.shape
-    assert np.allclose(proba.sum(axis=1), 1) and (proba >= 0).all(), proba
-    predicted = model.predict(X)
-    assert len(predicted) == n_samples and set(predicted) <= set(model.classes_)
-    assert set(model.classes_) == set(np.asarray(y, dtype=object)), model.classes_
-    assert model.usage_.calls > 0, "model calls must be recorded in usage_"
-
-    restored = pickle.loads(pickle.dumps(model))
-    assert (restored.predict(X) == predicted).all(), (
-        "a pickled model must predict the same"
-    )
-    folder = model.save(tmp_dir / name)
-    assert "api_key" not in (folder / "model.json").read_text()
-    assert (type(model).load(folder).predict(X) == predicted).all()
-    assert model.fit(X, y) is model, "a fitted model must refit"
 
 
 _SKLEARN_CHECKS: Final = (
@@ -277,7 +303,7 @@ _SKLEARN_CHECKS: Final = (
 __all__ = [
     "FakeCall",
     "FakeLLM",
-    "Failure",
+    "FakeFailure",
     "GenerateRequest",
     "check_classifier",
     "fake_llms",

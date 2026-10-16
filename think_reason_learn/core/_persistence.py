@@ -65,6 +65,8 @@ def _jsonable(value: object) -> object:
         return {k: _jsonable(v) for k, v in fields.items() if v is not None}
     if isinstance(value, Mapping):
         return {str(k): _jsonable(v) for k, v in value.items()}
+    if isinstance(value, np.generic):
+        return _jsonable(value.item())
     if isinstance(value, (list, tuple, np.ndarray)):
         return [_jsonable(v) for v in value]
     if isinstance(value, (str, int, float, bool)) or value is None:

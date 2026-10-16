@@ -76,11 +76,13 @@ venvPath = "."
 venv = ".venv"
 
 [tool.ruff.lint]
-select = ["E", "F", "D"]   # E/F for pyflakes + pycodestyle, D for docstrings
-ignore = ["D101"]
+select = ["E", "F", "D", "I", "UP", "B", "BLE", "SIM", "T20", "ERA", "FBT"]
+ignore = ["D101", "UP038"]  # UP038: isinstance with X | Y is slower than a tuple
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["D"]
+"examples/*.ipynb" = ["T201"]  # notebooks print their results
+"site/**" = ["T201"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

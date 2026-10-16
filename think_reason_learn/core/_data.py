@@ -24,23 +24,37 @@ text per sample."""
 type LabelInput = Sequence[object] | pd.Series | npt.NDArray[np.generic]
 """One label per sample."""
 
-type ClassRatio = Literal["balanced"] | Mapping[str, float]
-"""How the classes share the examples shown in a prompt."""
+type ClassRatio = Literal["balanced"] | Mapping[str, float] | Mapping[int, float]
+"""How the classes share the examples shown in a prompt, by class."""
+
+type ClassWeight = (
+    Literal["balanced"] | Mapping[str, float] | Mapping[int, float] | None
+)
+"""Class weights: ``"balanced"``, a weight by class (others weigh 1), or none."""
+
+type Classes = npt.NDArray[np.generic]
+"""The sorted classes, in the labels' own type (str, int, bool...)."""
 
 
 def to_texts(X: TextInput) -> tuple[list[str], list[str] | None]:
     """Each sample as text, and the column names when ``X`` is a DataFrame.
 
-    Missing values are left out of a row's text.
+    A 2-D array is read as a DataFrame (one column: as texts). Missing values
+    are left out of a row's text.
 
     Raises:
-        DataError: ``X`` is empty or not one of the accepted types.
+        DataError: ``X`` is empty, has missing texts, or is not one of the
+            accepted types.
     """
+    if isinstance(X, np.ndarray) and X.ndim == 2:
+        X = X.ravel() if X.shape[1] == 1 else pd.DataFrame(X)
     if isinstance(X, pd.DataFrame):
         names = [str(c) for c in X.columns]
         texts = [_row_text(names, row) for row in X.itertuples(index=False, name=None)]
     elif isinstance(X, (pd.Series, np.ndarray, list, tuple)):
         names = None
+        if missing := [i for i, x in enumerate(X) if _missing(x)]:
+            raise DataError(f"X has missing texts at rows {missing[:10]}.")
         texts = [str(x) for x in X]
     else:
         raise DataError(
@@ -51,10 +65,11 @@ def to_texts(X: TextInput) -> tuple[list[str], list[str] | None]:
     return texts, names
 
 
-def encode_labels(
-    y: LabelInput,
-) -> tuple[npt.NDArray[np.object_], npt.NDArray[np.intp]]:
-    """The sorted classes, and each label's index among them.
+def encode_labels(y: LabelInput) -> tuple[Classes, npt.NDArray[np.intp]]:
+    """The sorted classes in the labels' own type, and each label's index.
+
+    Classes keep their type (ints stay ints), so predictions work with
+    scikit-learn's metrics.
 
     Raises:
         DataError: ``y`` has fewer than two classes or missing labels.
@@ -62,7 +77,8 @@ def encode_labels(
     labels = pd.Series(list(y), dtype=object)
     if labels.isna().any():
         raise DataError("y has missing labels.")
-    classes, codes = np.unique(labels.to_numpy(), return_inverse=True)
+    unique, codes = np.unique(labels.to_numpy(), return_inverse=True)
+    classes: Classes = np.asarray(unique.tolist())
     if len(classes) < 2:
         raise DataError(f"y needs at least two classes, got {list(classes)}.")
     return classes, codes.astype(np.intp)
@@ -70,7 +86,7 @@ def encode_labels(
 
 def example_batches(
     codes: npt.NDArray[np.intp],
-    classes: npt.NDArray[np.object_],
+    classes: Classes,
     *,
     n_batches: int,
     batch_size: int,
@@ -80,8 +96,9 @@ def example_batches(
     """Sample indices for prompts, ``batch_size`` each, classes in ``class_ratio``.
 
     Samples are drawn without repeats until a class runs out, then that class
-    is reshuffled and reused, so a rare class still reaches every batch. A
-    class's share is filled from the others when it has no samples at all.
+    is reshuffled and reused, so a rare class still reaches every batch. No
+    sample appears twice in a batch: a class with fewer samples than its share
+    gives what it has and the others fill the rest.
     """
     weights = _weights(classes, class_ratio)
     pools = [np.flatnonzero(codes == c) for c in range(len(classes))]
@@ -89,6 +106,7 @@ def example_batches(
     batches: list[npt.NDArray[np.intp]] = []
     for _ in range(n_batches):
         wanted = _split(batch_size, weights, [len(p) > 0 for p in pools])
+        wanted = _capped(wanted, [len(p) for p in pools])
         picked = [_take(queues, pools, c, n, rng) for c, n in enumerate(wanted)]
         batch = np.concatenate(picked)
         rng.shuffle(batch)
@@ -129,23 +147,23 @@ def count(value: float | np.integer | np.floating, n: int) -> int:
 
 def _row_text(names: Sequence[str], values: tuple[object, ...]) -> str:
     return "\n".join(
-        f"{name}: {value}" for name, value in zip(names, values) if not _missing(value)
+        f"{name}: {value}"
+        for name, value in zip(names, values, strict=True)
+        if not _missing(value)
     )
 
 
 def _missing(value: object) -> bool:
-    return value is None or (isinstance(value, float) and np.isnan(value))
+    return bool(pd.api.types.is_scalar(value) and pd.isna(value))  # None, NaN, NA, NaT
 
 
-def _weights(
-    classes: npt.NDArray[np.object_], class_ratio: ClassRatio
-) -> npt.NDArray[np.float64]:
+def _weights(classes: Classes, class_ratio: ClassRatio) -> npt.NDArray[np.float64]:
     if class_ratio == "balanced":
         return np.full(len(classes), 1 / len(classes))
-    unknown = set(class_ratio) - {str(c) for c in classes}
-    if unknown:
+    shares = {str(label): float(share) for label, share in class_ratio.items()}
+    if unknown := set(shares) - {str(c) for c in classes}:
         raise ValueError(f"class_ratio names unknown classes: {sorted(unknown)}.")
-    weights = np.array([class_ratio.get(str(c), 0.0) for c in classes], dtype=float)
+    weights = np.array([shares.get(str(c), 0.0) for c in classes])
     if weights.sum() <= 0 or (weights < 0).any():
         raise ValueError("class_ratio needs non-negative shares that sum above 0.")
     return weights / weights.sum()
@@ -165,6 +183,17 @@ def _split(
     return counts.tolist()
 
 
+def _capped(wanted: list[int], sizes: list[int]) -> list[int]:
+    """No class gives more than it has; the shortfall goes to classes with room."""
+    counts = [min(w, size) for w, size in zip(wanted, sizes, strict=True)]
+    spare = sum(wanted) - sum(counts)
+    for c in sorted(range(len(counts)), key=lambda c: -wanted[c]):
+        extra = min(spare, sizes[c] - counts[c])
+        counts[c] += extra
+        spare -= extra
+    return counts
+
+
 def _take(
     queues: list[npt.NDArray[np.intp]],
     pools: list[npt.NDArray[np.intp]],
@@ -172,12 +201,9 @@ def _take(
     n: int,
     rng: np.random.Generator,
 ) -> npt.NDArray[np.intp]:
-    taken: list[npt.NDArray[np.intp]] = []
-    while n > 0 and len(pools[c]):
-        if not len(queues[c]):
-            queues[c] = rng.permutation(pools[c])
-        step = queues[c][:n]
-        queues[c] = queues[c][len(step) :]
-        taken.append(step)
-        n -= len(step)
-    return np.concatenate(taken) if taken else np.empty(0, dtype=np.intp)
+    """``n`` (at most the pool's size) distinct samples of class ``c``, in turn."""
+    queue = queues[c]
+    if len(queue) < n:  # start a new round, after what is left of this one
+        queue = np.concatenate([queue, rng.permutation(np.setdiff1d(pools[c], queue))])
+    queues[c] = queue[n:]
+    return queue[:n].astype(np.intp)

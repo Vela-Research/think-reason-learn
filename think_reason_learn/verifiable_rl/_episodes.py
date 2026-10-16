@@ -116,16 +116,11 @@ def rollouts(
     while active.any():
         rows = np.flatnonzero(active)
         states = sample.states(masks[rows])
-        done = np.ones(len(rows), dtype=bool)
-        if depth < search.max_depth:
-            probs = policy_probs(policy, states)
-            probs[:, -1] *= masks[rows].sum(axis=1) >= search.min_queries
-            actions = sample_actions(probs, rng)
-            done = actions == sample.n_slots
-            go, slots = rows[~done], actions[~done]
-            repeated = masks[go, slots]
-            penalties[go[repeated]] += search.repeat_penalty
-            masks[go[~repeated], slots[~repeated]] = True
+        done = (
+            _step(policy, sample, masks, rows, states, penalties, search, rng)
+            if depth < search.max_depth
+            else np.ones(len(rows), dtype=bool)
+        )
         if done.any():
             ended = rows[done]
             finals[ended] = states[torch.from_numpy(done)]
@@ -176,3 +171,29 @@ def targets(
     info = np.exp((q_info - q_info.max()) / search.tau_info)
     stop = float(1 / (1 + np.exp(-np.clip(q_stop / search.tau_stop, -60, 60))))
     return (info / info.sum()).astype(np.float32), stop, finals
+
+
+def _step(
+    policy: PolicyNet,
+    sample: Sample,
+    masks: Masks,
+    rows: npt.NDArray[np.intp],
+    states: torch.Tensor,
+    penalties: npt.NDArray[np.float64],
+    search: Search,
+    rng: np.random.Generator,
+) -> npt.NDArray[np.bool_]:
+    """Move the ``rows`` still going one step: reveal a slot, or stop.
+
+    Updates ``masks`` and ``penalties`` (a repeated query costs and reveals
+    nothing). Returns which rows stopped.
+    """
+    probs = policy_probs(policy, states)
+    probs[:, -1] *= masks[rows].sum(axis=1) >= search.min_queries
+    actions = sample_actions(probs, rng)
+    done = actions == sample.n_slots
+    go, slots = rows[~done], actions[~done]
+    repeated = masks[go, slots]
+    penalties[go[repeated]] += search.repeat_penalty
+    masks[go[~repeated], slots[~repeated]] = True
+    return done

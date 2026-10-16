@@ -8,6 +8,7 @@ the label the model picked, with probability 1.
 from __future__ import annotations
 
 import functools
+from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import Final
 
@@ -26,6 +27,36 @@ type Generate = Callable[
     [Endpoint, GenerateRequest, frozenset[str]],
     Awaitable[Reply[str | BaseModel | None]],
 ]
+
+
+class ReasoningAdapter(ABC):
+    """What every reasoning-model adapter shares.
+
+    Questions per call follow the model's settings, and answers are given by
+    prompting for a label.
+    """
+
+    def max_questions(self, endpoint: Endpoint) -> int:
+        """Questions per call, as the model's settings ask."""
+        return endpoint.settings.questions_per_call
+
+    @abstractmethod
+    async def generate(
+        self, endpoint: Endpoint, request: GenerateRequest, dropped: frozenset[str]
+    ) -> Reply[str | BaseModel | None]:
+        """Text, or an instance of ``request.schema``; ``None`` if unusable."""
+
+    async def answer(
+        self,
+        endpoint: Endpoint,
+        sample: str,
+        questions: Mapping[str, Question],
+        dropped: frozenset[str],
+    ) -> Reply[Answers]:
+        """Answers by prompting for a label."""
+        return await prompted_answer(
+            self.generate, endpoint, sample, questions, dropped
+        )
 
 
 async def prompted_answer(
@@ -48,7 +79,7 @@ async def prompted_answer(
     picked = _picked(reply.output, len(ids))
     answers: Answers = {
         qid: Answer.certain(label, q.labels) if label in q.labels else None
-        for qid, q, label in zip(ids, asked, picked)
+        for qid, q, label in zip(ids, asked, picked, strict=True)
     }
     return Reply(
         answers, reply.tokens, reply.served_model, reply.provider_cost, reply.headers

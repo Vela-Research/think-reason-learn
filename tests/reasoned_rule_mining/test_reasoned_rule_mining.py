@@ -9,7 +9,7 @@ from functools import partial
 import pytest
 
 from think_reason_learn.exceptions import DataError
-from think_reason_learn.llm import Question
+from think_reason_learn.llm import Question, config_context
 from think_reason_learn.reasoned_rule_mining import ReasonedRuleMining
 from think_reason_learn.testing import (
     FakeLLM,
@@ -177,6 +177,20 @@ def test_a_sample_the_miner_skips_does_not_stop_the_fit() -> None:
     ):
         model = rule_mining().fit(FOUNDERS, LABELS)
     assert len(model.mined_rules_) == 11
+
+
+def test_the_plan_covers_a_second_look_at_negatives() -> None:
+    labels = ["YES" if "exit" in f else "NO" for f in FOUNDERS]  # rated by "engineer"
+    with (
+        fake_llms(
+            writer=FakeLLM(generate=write), judge=FakeLLM(answer=judge, kind="decision")
+        ),
+        config_context(cache=False),
+    ):
+        model = rule_mining()
+        planned = model.estimate_cost(FOUNDERS, labels).calls
+        model.fit(FOUNDERS, labels)
+    assert model.usage_.calls <= planned
 
 
 def test_mining_every_sample_calibrates_on_all_without_warning(

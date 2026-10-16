@@ -31,13 +31,32 @@ def test_estimates_match_the_calls_made(
         made = model.usage_.calls
         predicted = model.estimate_cost(NEW).calls
         model.predict(NEW)
-    if name in ("gptree", "policy", "policy-rules"):
-        # Counted in full: every level, every refinement. This toy tree stops at
-        # one level, and a perfectly precise policy stops refining.
+    if name in ("gptree", "policy", "policy-rules", "rule-mining"):
+        # Counted at their most: every level, every refinement, every second
+        # look. This toy tree stops at one level, a perfectly precise policy
+        # stops refining, and only the good founders get a second look.
         assert made <= planned.calls
     else:
         assert planned.calls == made
     assert math.isclose(predicted, model.usage_.calls - made, rel_tol=0.2)
+
+
+def test_later_prompts_carry_the_instructions(
+    any_model: tuple[str, Callable[[], TRLClassifier]],
+    generic_fakes: tuple[FakeLLM, FakeLLM],
+    founders: tuple[list[str], list[str]],
+) -> None:
+    (_, make), (X, y) = any_model, founders
+    if make()._instructions_purpose is None:
+        pytest.skip("takes no instructions")
+
+    def writer_input(instructions: str) -> int:
+        model = make()
+        model.instructions = instructions
+        planned = model.estimate_cost(X, y)
+        return sum(r.input_tokens for r in planned if r.role == "generator")
+
+    assert writer_input("Be thorough. " * 500) > writer_input("Be brief.")
 
 
 def test_predict_needs_a_fitted_model_and_fit_matching_labels(

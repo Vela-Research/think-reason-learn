@@ -163,21 +163,16 @@ class ReasonedRuleMining(BinaryTRLClassifier):
     def _fit_plan(
         self, texts: list[str], y: Labels, classes: Classes
     ) -> list[UsageRecord]:
-        """Mining, compiling, then judging; the positives get the second look."""
+        """Mining, compiling, then judging; any sample may get the second look."""
         writer = self._models("generator", "generate")
         mined = self._mined_samples(y, np.random.default_rng(self.random_state))
         positive = y == positive_index(classes, self.pos_label)
-        calibrate = self._calibration_samples(positive, mined)
+        calibrate = take(texts, self._calibration_samples(positive, mined))
         policy = GENERATE_OUTPUT_TOKENS  # the compiled policy is a whole reply
         return [
             estimate_generations(writer, mean_tokens(texts), calls=len(mined)),
             estimate_generations(writer, len(mined) * QUESTION_TOKENS),
-            *self._judging_plan(
-                take(texts, calibrate),
-                take(texts, calibrate[positive[calibrate]]),
-                policy,
-                policy,
-            ),
+            *self._judging_plan(calibrate, calibrate, policy, policy),
         ]
 
     def _predict_plan(self, texts: list[str]) -> list[UsageRecord]:

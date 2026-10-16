@@ -198,11 +198,10 @@ class RRF(BinaryTRLClassifier):
         rows = take(texts, scoring)
         written = self.n_prompts * self.questions_per_prompt
         n_questions = written + len(self.expert_questions)
+        prompt = self.n_examples * mean_tokens(texts) + self._instructions_tokens()
         planned = [
             *self._instructions_plan(),
-            estimate_generations(
-                writer, self.n_examples * mean_tokens(texts), calls=self.n_prompts
-            ),
+            estimate_generations(writer, prompt, calls=self.n_prompts),
         ]
         if self.screening_size is None or n_questions <= self.screened_questions:
             return [

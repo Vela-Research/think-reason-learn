@@ -211,13 +211,14 @@ class PolicyInduction(BinaryTRLClassifier):
         cases = balanced_subset(y, 2, self.n_samples, rng)
         refinements = self.n_rounds * math.ceil(len(cases) / self.batch_size)
         policy, example = self.max_rules * QUESTION_TOKENS, mean_tokens(texts)
+        instructions = self._instructions_tokens()  # every prompt carries them
         planned = self._instructions_plan()
         if not self.initial_policy:
-            planned.append(estimate_generations(writer, self.n_examples * example))
+            first = instructions + self.n_examples * example
+            planned.append(estimate_generations(writer, first))
+        refine = instructions + policy + self.batch_size * example
         planned += [
-            estimate_generations(
-                writer, policy + self.batch_size * example, calls=refinements
-            ),
+            estimate_generations(writer, refine, calls=refinements),
             estimate_answers(
                 answerer, take(texts, cases), [policy], times=1 + refinements
             ),

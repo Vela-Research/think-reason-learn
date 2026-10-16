@@ -11,7 +11,7 @@ import pytest
 from think_reason_learn.gptree import GPTree
 from think_reason_learn.gptree._gptree import _sample_weights
 from think_reason_learn.gptree._split import Split, best_split, impurity
-from think_reason_learn.llm import ChoiceQuestion, Question
+from think_reason_learn.llm import ChoiceQuestion, Question, config_context
 from think_reason_learn.testing import (
     FakeLLM,
     GenerateRequest,
@@ -330,8 +330,32 @@ def test_a_budget_stop_inside_the_tree_stops_the_fit(
     fakes: tuple[FakeLLM, FakeLLM],
 ) -> None:
     from think_reason_learn.exceptions import BudgetExceededError
-    from think_reason_learn.llm import LLM, Price, config_context
+    from think_reason_learn.llm import LLM, Price
 
     priced = LLM("fake:judge", price=Price(input=1e6))  # a dollar a token
     with config_context(max_cost_usd=0.01), pytest.raises(BudgetExceededError):
         tree(answerer=priced).fit(FOUNDERS, LABELS)
+
+
+def test_the_plan_bounds_a_tree_that_peels_one_sample_a_level() -> None:
+    founders = [f"founder {i}" for i in range(12)]
+    labels = ["hit" if i % 3 == 0 else "miss" for i in range(12)]
+
+    def ask_each(request: GenerateRequest) -> str | dict[str, object]:
+        if request.schema is None:
+            return "Notes."
+        return {"questions": [{"text": f"Is this {f}?"} for f in founders]}
+
+    def is_it(sample: str, question: Question) -> str:
+        return "YES" if question.text == f"Is this {sample}?" else "NO"
+
+    judge = FakeLLM(answer=is_it)
+    model = tree(max_questions=12, min_samples_leaf=1, insights=False)
+    with (
+        fake_llms(writer=FakeLLM(generate=ask_each), judge=judge),
+        config_context(cache=False),
+    ):
+        planned = model.estimate_cost(founders, labels)
+        model.fit(founders, labels)
+    assert model.tree_.n_leaves > 3  # one hit peeled off per level
+    assert judge.n_calls <= sum(r.calls for r in planned if r.role == "answerer")

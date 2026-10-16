@@ -59,7 +59,12 @@ from think_reason_learn.llm import (
     estimate_generations,
     resolve_models,
 )
-from think_reason_learn.llm._estimate import QUESTION_TOKENS, mean_tokens, text_tokens
+from think_reason_learn.llm._estimate import (
+    GENERATE_OUTPUT_TOKENS,
+    QUESTION_TOKENS,
+    mean_tokens,
+    text_tokens,
+)
 
 from ._prompts import (
     CHOICE,
@@ -213,15 +218,20 @@ class GPTree(TRLClassifier):
     def _fit_plan(
         self, texts: list[str], y: Labels, classes: Classes
     ) -> list[UsageRecord]:
-        """Insights, then each level's questions, answered by every sample."""
+        """Insights, then each level's questions, answered by every sample.
+
+        Every sample is answered at each level the tree can reach, as if each
+        split peeled off just ``min_samples_leaf`` samples; the questions are
+        written for as many nodes as a tree whose splits halve has.
+        """
         writer = self._models("generator", "generate")
         n, example = len(texts), mean_tokens(texts)
-        smallest = max(
-            2, count(self.min_samples_split, n), 2 * count(self.min_samples_leaf, n)
-        )
-        levels = self._levels(n, smallest)
-        nodes = sum(min(2**k, n // smallest) for k in range(levels))
-        prompt = self.n_examples * example
+        min_leaf = max(1, count(self.min_samples_leaf, n))
+        smallest = max(2, count(self.min_samples_split, n), 2 * min_leaf)
+        nodes = sum(min(2**k, n // smallest) for k in range(self._levels(n, smallest)))
+        # Every node's prompt carries the instructions and each class's insights.
+        insights = len(classes) * GENERATE_OUTPUT_TOKENS if self.insights else 0
+        prompt = self.n_examples * example + self._instructions_tokens() + insights
         planned = [
             *self._instructions_plan(),
             *self._insights_plan(writer, y, example),
@@ -233,6 +243,7 @@ class GPTree(TRLClassifier):
             )
         questions = [QUESTION_TOKENS] * self.max_questions
         answerer = self._models("answerer", "answer")
+        levels = self._most_levels(n, smallest, min_leaf)
         return [*planned, estimate_answers(answerer, texts, questions, times=levels)]
 
     def _predict_plan(self, texts: list[str]) -> list[UsageRecord]:
@@ -255,6 +266,18 @@ class GPTree(TRLClassifier):
             limits.append(self.max_depth)
         if self.max_leaf_nodes is not None:
             limits.append(math.ceil(math.log2(max(self.max_leaf_nodes, 2))))
+        return min(limits)
+
+    def _most_levels(self, n: int, smallest: int, min_leaf: int) -> int:
+        """Most levels that split, each split adding a leaf.
+
+        A split's largest child has at least ``min_leaf`` samples fewer than it.
+        """
+        limits = [max((n - smallest) // min_leaf + 1, 0)]
+        if self.max_depth is not None:
+            limits.append(self.max_depth)
+        if self.max_leaf_nodes is not None:
+            limits.append(max(self.max_leaf_nodes - 1, 0))
         return min(limits)
 
     def _insights_plan(

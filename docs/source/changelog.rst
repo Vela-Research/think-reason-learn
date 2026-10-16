@@ -18,6 +18,8 @@ checked against its paper. See :doc:`getting_started/migration` for every rename
   for twice, one usage record per call with tokens and cost (``Usage``), and a run budget for every provider
   (``config_context(max_cost_usd=...)``). Calls run on one event loop owned by the library, so sync code works in
   notebooks too.
+- ``estimate_cost(X, y)`` on every LLM model counts the calls, tokens and dollars of ``fit(X, y)``, or of
+  ``predict(X)`` without ``y``, before anything is sent, priced like real calls.
 - ``think_reason_learn.testing``: ``FakeLLM`` and ``fake_llms`` fit and check models offline, with scripted
   replies and injected failures.
 - ``TRLClassifier`` (and ``BinaryTRLClassifier`` for two-class models): the scikit-learn base of every model; the

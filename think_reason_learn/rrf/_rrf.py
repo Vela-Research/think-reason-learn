@@ -36,7 +36,16 @@ from think_reason_learn.core._data import (
     to_texts,
 )
 from think_reason_learn.core._prompts import examples_block
-from think_reason_learn.llm import Endpoint, LLMSession, Models, run_sync
+from think_reason_learn.llm import (
+    Endpoint,
+    LLMSession,
+    Models,
+    UsageRecord,
+    estimate_answers,
+    estimate_generations,
+    run_sync,
+)
+from think_reason_learn.llm._estimate import QUESTION_TOKENS, mean_tokens
 
 from ._prompts import INSTRUCTIONS_PURPOSE, QUESTION_INSTRUCTIONS, question_prompt
 from ._selection import as_yes, question_stats, rank, tune_vote
@@ -156,7 +165,7 @@ class RRF(BinaryTRLClassifier):
         writer = self._models("generator", "generate")
         rng = np.random.default_rng(self.random_state)
         self.instructions_ = await self._instructions(session, writer)
-        generation, scoring = self._split_generation(y, rng)
+        generation, scoring = self._split_generation(y, len(self.classes_), rng)
         questions = await self._write(texts, y, generation, writer, session, rng)
         questions, answers = await self._score(
             texts, scoring, positive[scoring], questions, session, rng
@@ -176,12 +185,46 @@ class RRF(BinaryTRLClassifier):
             return np.zeros(len(answers))
         return as_yes(answers).mean(axis=1)
 
+    def _fit_plan(
+        self, texts: list[str], y: Labels, classes: npt.NDArray[np.object_]
+    ) -> list[UsageRecord]:
+        writer = self._models("generator", "generate")
+        answerer = self._models("answerer", "answer")
+        rng = np.random.default_rng(self.random_state)
+        _, scoring = self._split_generation(y, len(classes), rng)
+        rows = [texts[i] for i in scoring]
+        written = self.n_prompts * self.questions_per_prompt
+        n_questions = written + len(self.expert_questions)
+        planned = [
+            *self._instructions_plan(),
+            estimate_generations(
+                writer, self.n_examples * mean_tokens(texts), calls=self.n_prompts
+            ),
+        ]
+        if self.screening_size is None or n_questions <= self.screened_questions:
+            return [
+                *planned,
+                estimate_answers(answerer, rows, [QUESTION_TOKENS] * n_questions),
+            ]
+        screen = count(self.screening_size, len(rows))
+        return [
+            *planned,
+            estimate_answers(answerer, rows[:screen], [QUESTION_TOKENS] * n_questions),
+            estimate_answers(
+                answerer, rows[screen:], [QUESTION_TOKENS] * self.screened_questions
+            ),
+        ]
+
+    def _predict_plan(self, texts: list[str]) -> list[UsageRecord]:
+        answerer = self._models("answerer", "answer")
+        return [estimate_answers(answerer, texts, list(self.rules_))]
+
     def _split_generation(
-        self, y: Labels, rng: np.random.Generator
+        self, y: Labels, n_classes: int, rng: np.random.Generator
     ) -> tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]]:
         """Samples for writing questions, and the rest for scoring them."""
         size = count(self.generation_size, len(y))
-        generation = balanced_subset(y, len(self.classes_), size, rng, max_share=0.5)
+        generation = balanced_subset(y, n_classes, size, rng, max_share=0.5)
         scoring = np.setdiff1d(np.arange(len(y)), generation).astype(np.intp)
         return generation, scoring
 

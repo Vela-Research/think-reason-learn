@@ -17,6 +17,7 @@ from ._config import (
     set_config,
     set_limits,
 )
+from ._estimate import estimate_answers, estimate_generations
 from ._loop import run_async, run_sync
 from ._questions import NO, YES, Answer, ChoiceQuestion, Question, YesNoQuestion
 from ._session import LLMSession
@@ -58,6 +59,8 @@ __all__ = [
     "UsageRecord",
     "YesNoQuestion",
     "config_context",
+    "estimate_answers",
+    "estimate_generations",
     "format_usd",
     "get_config",
     "resolve",

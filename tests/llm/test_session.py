@@ -25,7 +25,7 @@ from think_reason_learn.llm import (
 )
 from think_reason_learn.llm import Endpoint, get_config
 from think_reason_learn.llm._cache import open_cache
-from think_reason_learn.llm._session import _tokens
+from think_reason_learn.llm._estimate import call_tokens
 from think_reason_learn.testing import (
     Failure,
     FakeLLM,
@@ -256,8 +256,8 @@ def test_a_switched_served_model_is_reported(caplog: pytest.LogCaptureFixture) -
 
 
 def test_token_estimate_counts_non_latin_text() -> None:
-    assert _tokens("abcd" * 100) == 200
-    assert _tokens("创业" * 100) == 300
+    assert call_tokens("abcd" * 100) == 200
+    assert call_tokens("创业" * 100) == 300
 
 
 def test_budget_refuses_work_estimated_over_the_cap() -> None:

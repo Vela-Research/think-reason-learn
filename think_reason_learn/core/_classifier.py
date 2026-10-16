@@ -30,10 +30,13 @@ from think_reason_learn.llm import (
     Model,
     Models,
     Usage,
+    UsageRecord,
+    estimate_generations,
     resolve_models,
     run_async,
     run_sync,
 )
+from think_reason_learn.llm._estimate import text_tokens
 from think_reason_learn.llm._spec import Task
 
 logger = logging.getLogger(__name__)
@@ -102,6 +105,30 @@ class TRLClassifier(Persistable, ClassifierMixin, BaseEstimator, ABC):
         proba = await self.apredict_proba(X)
         return self.classes_[self._decide(proba)]
 
+    def estimate_cost(self, X: TextInput, y: LabelInput | None = None) -> Usage:
+        """What ``fit(X, y)`` would spend, or with no ``y`` ``predict(X)``.
+
+        Nothing is sent. Calls are counted from the settings (and, for
+        ``predict``, the fitted model) and tokens from the text lengths, then
+        priced like real calls. Steps that depend on the answers, such as how
+        deep a tree grows or how many refinements are judged, are counted in
+        full; replies already in the cache are not subtracted.
+
+        Returns:
+            The planned calls, as a ``Usage``; read ``cost_usd`` or
+            ``by("role", "model")``.
+        """
+        texts, _ = to_texts(X)
+        if y is None:
+            check_is_fitted(self)
+            planned = self._predict_plan(texts)
+        else:
+            classes, codes = _encoded(texts, y)
+            self._task()
+            self._check_classes(classes)
+            planned = self._fit_plan(texts, codes, classes)
+        return Usage(r for r in planned if r.calls)
+
     def write_instructions(self) -> str:
         """Write the instructions now, to read or edit before ``fit``.
 
@@ -119,6 +146,23 @@ class TRLClassifier(Persistable, ClassifierMixin, BaseEstimator, ABC):
         tags.input_tags.string = True
         tags.non_deterministic = True
         return tags
+
+    def _fit_plan(
+        self, texts: list[str], y: Labels, classes: npt.NDArray[np.object_]
+    ) -> list[UsageRecord]:
+        """The calls ``fit`` would make, for ``estimate_cost``."""
+        raise NotImplementedError(f"{type(self).__name__} cannot estimate its cost.")
+
+    def _predict_plan(self, texts: list[str]) -> list[UsageRecord]:
+        """The calls ``predict`` would make, for ``estimate_cost``."""
+        raise NotImplementedError(f"{type(self).__name__} cannot estimate its cost.")
+
+    def _instructions_plan(self) -> list[UsageRecord]:
+        """The call that writes the instructions, unless they are given."""
+        if self.instructions or self._instructions_purpose is None:
+            return []
+        writer = self._models("generator", "generate")
+        return [estimate_generations(writer, text_tokens(self._task()))]
 
     def _decide(self, proba: Proba) -> Labels:
         """Label codes from probabilities: the most likely class."""
@@ -181,11 +225,7 @@ class TRLClassifier(Persistable, ClassifierMixin, BaseEstimator, ABC):
 
     async def _fit(self, X: TextInput, y: LabelInput, session: LLMSession) -> Self:
         texts, names = to_texts(X)
-        classes, codes = encode_labels(y)
-        if len(codes) != len(texts):
-            raise DataError(
-                f"X has {len(texts)} samples and y has {len(codes)} labels."
-            )
+        classes, codes = _encoded(texts, y)
         self._task()
         self._check_classes(classes)
         self._forget_fitted()
@@ -288,3 +328,11 @@ def binary_decision(proba: Proba, pos: int, threshold: float) -> Labels:
     """Label codes: positive where its probability reaches ``threshold``."""
     positive = proba[:, pos] >= threshold - 1e-9
     return np.where(positive, pos, 1 - pos).astype(np.intp)
+
+
+def _encoded(texts: list[str], y: LabelInput) -> tuple[npt.NDArray[np.object_], Labels]:
+    """The classes and label codes of ``y``, one per text."""
+    classes, codes = encode_labels(y)
+    if len(codes) != len(texts):
+        raise DataError(f"X has {len(texts)} samples and y has {len(codes)} labels.")
+    return classes, codes

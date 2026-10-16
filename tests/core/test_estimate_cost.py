@@ -11,6 +11,7 @@ from sklearn.exceptions import NotFittedError
 from think_reason_learn import config_context
 from think_reason_learn.core._classifier import TRLClassifier
 from think_reason_learn.exceptions import DataError
+from think_reason_learn.rrf import RRF
 from think_reason_learn.testing import FakeLLM
 
 NEW = [f"Another founder {i} is {'good' if i % 3 else 'bad'}." for i in range(30)]
@@ -69,3 +70,15 @@ def test_predict_needs_a_fitted_model_and_fit_matching_labels(
         make().estimate_cost(X)
     with pytest.raises(DataError, match="labels"):
         make().estimate_cost(X, y[:-1])
+
+
+def test_estimating_needs_no_api_key(
+    monkeypatch: pytest.MonkeyPatch, founders: tuple[list[str], list[str]]
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    model = RRF(
+        task="Will it succeed?",
+        generator="openai:gpt-5-mini",
+        answerer="openai:gpt-5-mini",
+    )
+    assert model.estimate_cost(*founders).calls > 0

@@ -78,6 +78,7 @@ venv = ".venv"
 include = ["think_reason_learn", "tests", "docs/source/conf.py"]
 typeCheckingMode = "strict"
 reportMissingTypeStubs = false  # scikit-learn, joblib and graphviz ship none
+reportUnnecessaryTypeIgnoreComment = "error"
 executionEnvironments = [
   # Tests are white-box: they may read private state.
   { root = "tests", extraPaths = ["."], reportPrivateUsage = false },

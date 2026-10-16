@@ -13,6 +13,7 @@ by cost-aware, asymmetric rewards; an optional LLM supervisor breaks near-ties.
 from __future__ import annotations
 
 import copy
+import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, fields
 from typing import Self
@@ -47,6 +48,8 @@ from ._episodes import (
 from ._networks import Classifier, PolicyNet
 from ._supervisor import Supervisor
 from ._torch import private_cpu_rng, shuffled_batches, tensor
+
+logger = logging.getLogger(__name__)
 
 type SlotFeatures = npt.NDArray[np.floating] | Mapping[str, npt.NDArray[np.floating]]
 """A 2-D array with the slots' columns in order, or one array per slot."""
@@ -353,7 +356,10 @@ class VerifiableRL(Persistable, ClassifierMixin, BaseEstimator):
     def _supervisor(
         self, session: LLMSession, slot_texts: SlotTexts | None
     ) -> Supervisor | None:
-        if self.supervisor is None or slot_texts is None:
+        if self.supervisor is None:
+            return None
+        if slot_texts is None:
+            logger.warning("supervisor= is not asked: pass slot_texts= to use it.")
             return None
         models = resolve_models(self.supervisor, param="supervisor", task="generate")
         return Supervisor(

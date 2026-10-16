@@ -229,3 +229,10 @@ def test_integer_labels() -> None:
     labels = (Y == "hit").astype(int)
     model = fast(pos_label=1).fit(X, labels)
     assert model.predict(X).dtype.kind == "i"
+
+
+def test_a_supervisor_without_slot_texts_is_reported(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    fast(supervisor="fake:advisor").fit(X[:20], Y[:20])
+    assert "pass slot_texts=" in caplog.text

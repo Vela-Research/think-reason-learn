@@ -628,6 +628,7 @@ class TestReviewedSandbox:
             "lambda r: [c for c in ().__class__.__base__.__subclasses__()][0]",
             "lambda r: r.get.__self__",
             "lambda r: '{0.__class__}'.format(r)",
+            "lambda r: [g := (g.gi_frame.f_back for _ in [1]), list(g)]",
             "lambda r: __builtins__",
             "lambda a, b: a",
             "(lambda r: r)(1)",
@@ -637,6 +638,10 @@ class TestReviewedSandbox:
         evaluator = FeatureEvaluator(rules=[Rule("bad", "", expression)])
         assert "bad" in evaluator.compilation_errors
         assert evaluator.evaluate({}) == {"bad": 0}
+
+    def test_endless_recursion_gives_zero(self) -> None:
+        rule = Rule("deep", "", "lambda r: (f := lambda x: f(x)) and f(1)")
+        assert FeatureEvaluator(rules=[rule]).evaluate({}) == {"deep": 0}
 
     def test_rule_names_must_differ(self) -> None:
         with pytest.raises(ValueError, match="distinct names"):

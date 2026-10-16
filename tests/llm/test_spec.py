@@ -2,11 +2,20 @@
 
 from __future__ import annotations
 
+import json
+
 import httpx2
 import pytest
 
 from think_reason_learn.exceptions import MissingAPIKeyError
-from think_reason_learn.llm import LLM, Price, _catalog, resolve, resolve_models
+from think_reason_learn.llm import (
+    LLM,
+    Price,
+    _catalog,
+    get_config,
+    resolve,
+    resolve_models,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -129,6 +138,30 @@ def test_an_unreachable_catalog_falls_back(monkeypatch: pytest.MonkeyPatch) -> N
     assert resolve(LLM("openrouter:typesafe/jev-1.14", api_key="k")).kind == "reasoning"
     kept = resolve(LLM("openrouter:typesafe/jev-1.14", api_key="k", kind="decision"))
     assert kept.protocol == "systemone"
+
+
+def test_a_price_that_is_not_an_amount_is_left_out(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    entry = {
+        "id": "openrouter/auto-decisions",
+        "architecture": {"output_modalities": ["decisions"]},
+        "pricing": {"prompt": "-1", "completion": "-1"},
+    }
+    monkeypatch.setattr(_catalog, "_download", lambda: {"data": [entry]})
+    endpoint = resolve(LLM("openrouter:openrouter/auto-decisions", api_key="k"))
+    assert endpoint.kind == "decision" and endpoint.settings.price is None
+
+
+def test_a_tampered_catalog_file_is_ignored(monkeypatch: pytest.MonkeyPatch) -> None:
+    resolve(LLM("openrouter:typesafe/jev-1.14", api_key="k"))  # keeps it on disk
+    path = get_config().cache_path.parent / "openrouter-decisions.json"
+    stored = json.loads(path.read_text())
+    stored["models"]["typesafe/jev-1.14"] = [-1e6, 0]
+    path.write_text(json.dumps(stored))
+    _catalog._loaded = None
+    endpoint = resolve(LLM("openrouter:typesafe/jev-1.14", api_key="k"))
+    assert endpoint.settings.price == Price(0.042, 0.0)  # downloaded again
 
 
 def test_decision_model_cannot_write() -> None:

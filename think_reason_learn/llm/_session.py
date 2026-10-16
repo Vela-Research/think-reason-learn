@@ -12,7 +12,7 @@ import hashlib
 import logging
 import time
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import astuple, dataclass
 from functools import partial
 from typing import Final, TypeIs, overload
 
@@ -285,6 +285,7 @@ class _Engine:
         provider_cost: float | None = None,
         error: str | None = None,
     ) -> float | None:
+        tokens = TokenCounts(*(max(0, n) for n in astuple(tokens)))  # some send -1
         cost, source = (
             (0.0, "none")
             if error is not None

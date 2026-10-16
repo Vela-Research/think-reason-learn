@@ -48,6 +48,12 @@ class Price:
     cached_input: float | None = None
     cache_write: float | None = None
 
+    def __post_init__(self) -> None:
+        """Check that every price is an amount: finite, and 0 or more."""
+        prices = (self.input, self.output, self.cached_input, self.cache_write)
+        if not all(0 <= price < math.inf for price in prices if price is not None):
+            raise ValueError(f"Prices must be finite and 0 or more, got {self}.")
+
     def cost(self, tokens: TokenCounts) -> float:
         """The cost in US dollars of ``tokens``."""
         uncached = tokens.input - tokens.cache_read - tokens.cache_write
@@ -175,8 +181,11 @@ class Usage:
 def call_cost(
     endpoint: Endpoint, tokens: TokenCounts, provider_cost: float | None
 ) -> tuple[float | None, CostSource]:
-    """A call's cost: the provider's, else the model's price, else a price table."""
-    if provider_cost is not None:
+    """A call's cost: the provider's, else the model's price, else a price table.
+
+    A provider's cost that is not an amount (negative, NaN) is ignored.
+    """
+    if provider_cost is not None and 0 <= provider_cost < math.inf:
         return provider_cost, "provider"
     if (price := endpoint.settings.price or _built_in_price(endpoint.name)) is not None:
         return price.cost(tokens), "price"

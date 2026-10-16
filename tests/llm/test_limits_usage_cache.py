@@ -191,6 +191,15 @@ class TestUsageAndPrices:
         unknown = resolve(LLM("ollama:my-own-model"))
         assert call_cost(unknown, tokens, None) == (None, "unknown")
 
+    def test_a_cost_that_is_not_an_amount_is_never_counted(self) -> None:
+        tokens = TokenCounts(input=1_000_000, output=1_000_000)
+        priced = resolve(LLM("openai:gpt-5-mini", api_key="k", price=Price(1.0, 1.0)))
+        for reported in (-1000.0, math.nan, math.inf):
+            assert call_cost(priced, tokens, reported) == (2.0, "price")
+        for price in (-1.0, math.nan, math.inf):
+            with pytest.raises(ValueError, match="finite and 0 or more"):
+                Price(price)
+
     def test_budget(self) -> None:
         budget = Budget(1.0)
         held = budget.reserve(0.6)
@@ -236,6 +245,11 @@ class TestCache:
         Cache(path).put_many({key: {"i": i} for i, key in enumerate(keys)})
         found = Cache(path).get_many(keys + ["missing"])
         assert len(found) == 1200 and found[keys[7]] == {"i": 7}
+
+    def test_only_its_owner_can_read_it(self, tmp_path: Path) -> None:
+        Cache(tmp_path / "replies" / "c.sqlite")
+        assert (tmp_path / "replies").stat().st_mode & 0o777 == 0o700
+        assert (tmp_path / "replies" / "c.sqlite").stat().st_mode & 0o777 == 0o600
 
     def test_keys_depend_on_every_part(self) -> None:
         assert cache_key(a=1, b=2) == cache_key(b=2, a=1)

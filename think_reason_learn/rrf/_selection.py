@@ -14,7 +14,7 @@ import numpy as np
 import numpy.typing as npt
 from sklearn.model_selection import StratifiedKFold
 
-from think_reason_learn.core._combine import Bools, Floats, fbeta
+from think_reason_learn.core._combine import Bools, Floats, fbeta, n_folds
 
 
 def question_stats(
@@ -102,16 +102,23 @@ def tune_vote(
     ranked = ranker(answers, y)[:max_rules]
     if not ranked:
         return [], 0, 0
-    folds = min(cv, int(np.bincount(y.astype(int), minlength=2).min()))
+    folds = n_folds(cv, y)
     if folds < 2:
         grid = vote_grid(answers[:, ranked], y, beta)
     else:
-        grid = np.zeros((len(ranked), len(ranked)))
+        total, seen = (
+            np.zeros((len(ranked), len(ranked))),
+            np.zeros((len(ranked), len(ranked))),
+        )
         splitter = StratifiedKFold(folds, shuffle=True, random_state=random_state)
         for train, held_out in splitter.split(answers, y):
             fold_ranked = ranker(answers[train], y[train])[: len(ranked)]
             fold_grid = vote_grid(answers[held_out][:, fold_ranked], y[held_out], beta)
-            grid[: len(fold_ranked), : len(fold_ranked)] += fold_grid / folds
+            size = len(fold_ranked)
+            total[:size, :size] += fold_grid
+            seen[:size, :size] += 1
+        # Average each (N, T) over the folds that could score it.
+        grid = np.divide(total, seen, out=np.zeros_like(total), where=seen > 0)
     n, t = np.unravel_index(int(np.argmax(grid)), grid.shape)
     return ranked, int(n) + 1, int(t) + 1
 

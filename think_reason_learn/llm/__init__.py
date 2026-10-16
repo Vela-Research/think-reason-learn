@@ -8,7 +8,15 @@ limits, the reply cache, budgets and usage the same way for every provider.
 """
 
 from ._adapters import Answers
-from ._config import Config, Limits, config_context, get_config, set_config, set_limits
+from ._config import (
+    Config,
+    ConfigChanges,
+    Limits,
+    config_context,
+    get_config,
+    set_config,
+    set_limits,
+)
 from ._loop import run_async, run_sync
 from ._questions import NO, YES, Answer, ChoiceQuestion, Question, YesNoQuestion
 from ._session import LLMSession
@@ -34,6 +42,7 @@ __all__ = [
     "Budget",
     "ChoiceQuestion",
     "Config",
+    "ConfigChanges",
     "Endpoint",
     "LLMSession",
     "Limits",

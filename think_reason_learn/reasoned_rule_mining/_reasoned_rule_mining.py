@@ -17,6 +17,7 @@ probabilities from decision models or vote shares instead, so any provider works
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Mapping, Sequence
 
 import numpy as np
@@ -24,13 +25,13 @@ import numpy.typing as npt
 from pydantic import BaseModel
 
 from think_reason_learn.core._classifier import BinaryTRLClassifier, Labels, Proba
-from think_reason_learn.core._combine import LinearCombiner, fit_logistic
+from think_reason_learn.core._answers import yes_probabilities
+from think_reason_learn.core._combine import LinearCombiner, fit_logistic, n_folds
 from think_reason_learn.core._data import balanced_subset
 from think_reason_learn.llm import (
     Endpoint,
     LLMSession,
     Models,
-    YesNoQuestion,
     resolve_models,
 )
 
@@ -43,6 +44,8 @@ from ._prompts import (
     mining_prompt,
     vote_question,
 )
+
+logger = logging.getLogger(__name__)
 
 _CLIP = 1e-3
 """Probabilities are clipped to [_CLIP, 1 - _CLIP] before taking log-odds."""
@@ -95,7 +98,7 @@ class ReasonedRuleMining(BinaryTRLClassifier):
         harsh_level: HarshLevel = "strict",
         beta: float = 0.5,
         cv: int = 5,
-        pos_label: str | None = None,
+        pos_label: str | int | None = None,
         random_state: int | None = None,
         verbose: int = 0,
     ) -> None:
@@ -128,12 +131,7 @@ class ReasonedRuleMining(BinaryTRLClassifier):
         writer = self._models("generator", "generate")
         self.rules_ = await self._mine(texts, y, mined, writer, session)
         self.policy_ = await self._compile(writer, session)
-        held_out = np.setdiff1d(np.arange(len(texts)), mined)
-        calibrate = (
-            held_out
-            if _both_classes(positive[held_out], self.cv)
-            else np.arange(len(texts))
-        )
+        calibrate = self._calibration_samples(positive, mined)
         features = await self._features([texts[i] for i in calibrate], session)
         self.combiner_ = fit_logistic(
             features,
@@ -142,10 +140,23 @@ class ReasonedRuleMining(BinaryTRLClassifier):
             cs=10,
             cv=self.cv,
             beta=self.beta,
-            class_weight="balanced",
+            class_weight=None,  # unweighted, so predict_proba stays calibrated
             random_state=self.random_state,
         )
         self.threshold_ = self.combiner_.threshold
+
+    def _calibration_samples(
+        self, positive: npt.NDArray[np.bool_], mined: npt.NDArray[np.intp]
+    ) -> npt.NDArray[np.intp]:
+        """Samples the miner never saw, if there are enough of each class."""
+        held_out = np.setdiff1d(np.arange(len(positive)), mined)
+        if n_folds(self.cv, positive[held_out]) >= 2:
+            return held_out
+        logger.warning(
+            "Too few unmined samples of each class to calibrate on; calibrating "
+            "on every sample, so the threshold may be optimistic. Lower n_samples."
+        )
+        return np.arange(len(positive))
 
     async def _apredict_proba(self, texts: list[str], session: LLMSession) -> Proba:
         return self._binary_proba(
@@ -157,7 +168,8 @@ class ReasonedRuleMining(BinaryTRLClassifier):
     ) -> npt.NDArray[np.intp]:
         if self.n_samples is None:
             return np.arange(len(y), dtype=np.intp)
-        return balanced_subset(y, 2, self.n_samples, rng)
+        # At most half of each class, so the rest can calibrate the cascade.
+        return balanced_subset(y, 2, self.n_samples, rng, max_share=0.5)
 
     async def _mine(
         self,
@@ -201,7 +213,7 @@ class ReasonedRuleMining(BinaryTRLClassifier):
         self, texts: Sequence[str], session: LLMSession
     ) -> npt.NDArray[np.float64]:
         """Log-odds of the first pass and of the second look, and whether it ran."""
-        positive = str(self.classes_[self._pos_index()])
+        positive = self._positive_label()
         first = await self._judge(
             self._models("answerer", "answer"),
             vote_question(self.policy_, positive),
@@ -237,19 +249,15 @@ class ReasonedRuleMining(BinaryTRLClassifier):
     ) -> npt.NDArray[np.float64]:
         """Mean probability of yes over the ensemble (one draw for decision models)."""
         draws = 1 if all(m.kind == "decision" for m in models) else self.ensemble_size
-        asked = {"q": YesNoQuestion(question)}
         runs = await asyncio.gather(
             *(
-                session.answer(models, texts, asked, role="answerer", draw=d)
+                yes_probabilities(
+                    session, models, texts, [question], missing=0.5, draw=d
+                )
                 for d in range(draws)
             )
         )
-        return np.array(
-            [
-                [a.probability() if (a := row["q"]) is not None else 0.5 for row in run]
-                for run in runs
-            ]
-        ).mean(axis=0)
+        return np.mean([run[:, 0] for run in runs], axis=0)
 
     def _harsh_models(self) -> tuple[Endpoint, ...]:
         if self.harsh_answerer is None:
@@ -269,8 +277,3 @@ class ReasonedRuleMining(BinaryTRLClassifier):
 def _logit(p: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
     clipped = np.clip(p, _CLIP, 1 - _CLIP)
     return np.log(clipped / (1 - clipped))
-
-
-def _both_classes(positive: npt.NDArray[np.bool_], cv: int) -> bool:
-    """Whether a sample set has enough of each class to calibrate on."""
-    return int(positive.sum()) >= cv and int((~positive).sum()) >= cv

@@ -9,7 +9,7 @@ import httpx2
 import pytest
 
 from think_reason_learn.llm import _calls, _config, _limiter, config_context
-from think_reason_learn.llm._adapters import _http, anthropic, openai_compat
+from think_reason_learn.llm._adapters import _http
 
 type Handler = Callable[[httpx2.Request], httpx2.Response]
 
@@ -18,8 +18,6 @@ def _reset() -> None:
     _limiter._limiters.clear()
     _config._limits.clear()
     _calls._dropped.clear()
-    openai_compat._clients.clear()
-    anthropic._clients.clear()
     _http.set_test_transport(None)
 
 

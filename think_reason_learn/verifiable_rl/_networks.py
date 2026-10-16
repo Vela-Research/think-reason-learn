@@ -37,8 +37,9 @@ class PolicyNet(nn.Module):
 
 def action_probs(logits: torch.Tensor) -> torch.Tensor:
     """Action probabilities: STOP by its sigmoid; the slots share the rest."""
+    go_on = torch.sigmoid(-logits[:, -1:])  # 1 - P(STOP), exact when STOP saturates
     stop = torch.sigmoid(logits[:, -1:])
-    return torch.cat([torch.softmax(logits[:, :-1], dim=1) * (1 - stop), stop], dim=1)
+    return torch.cat([torch.softmax(logits[:, :-1], dim=1) * go_on, stop], dim=1)
 
 
 class Classifier(nn.Module):

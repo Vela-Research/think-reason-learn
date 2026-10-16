@@ -24,15 +24,23 @@ import torch.nn as nn
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.utils.validation import check_is_fitted
 
+from think_reason_learn.core._classifier import positive_index
 from think_reason_learn.core._combine import best_threshold
 from think_reason_learn.core._data import LabelInput, encode_labels
 from think_reason_learn.core._persistence import Persistable
 from think_reason_learn.exceptions import DataError
 from think_reason_learn.llm import LLMSession, Models, Usage, resolve_models
 
-from ._episodes import Sample, Search, policy_probs, targets
+from ._episodes import (
+    Sample,
+    Search,
+    allowed_actions,
+    greedy,
+    policy_probs,
+    targets,
+)
 from ._networks import Classifier, PolicyNet
-from ._supervisor import Supervisor, boost, is_uncertain
+from ._supervisor import Supervisor
 
 type SlotFeatures = npt.NDArray[np.floating] | Mapping[str, npt.NDArray[np.floating]]
 """A 2-D array with the slots' columns in order, or one array per slot."""
@@ -127,7 +135,7 @@ class VerifiableRL(Persistable, ClassifierMixin, BaseEstimator):
         llm_bias: float = 0.05,
         threshold: float | None = None,
         beta: float = 0.5,
-        pos_label: str | None = None,
+        pos_label: str | int | None = None,
         device: str = "cpu",
         random_state: int | None = None,
     ) -> None:
@@ -271,54 +279,20 @@ class VerifiableRL(Persistable, ClassifierMixin, BaseEstimator):
             rows = np.flatnonzero(active)
             if not len(rows):
                 break
+            allowed = allowed_actions(masks[rows], self.predict_min_queries)
             probs = policy_probs(
                 self.policy_, self._states(features[rows], masks[rows])
             )
-            for row, p in zip(rows, probs):
-                action = self._act(p, masks[row], supervisor, slot_texts, row)
+            if supervisor is not None:
+                probs = supervisor.nudge(probs, allowed, masks[rows], rows)
+            for row, action in zip(rows, greedy(probs, allowed)):
                 if action == n_slots:
                     active[row] = False
                 else:
                     masks[row, action] = True
-                    paths[row].append(action)
+                    paths[row].append(int(action))
             active &= ~masks.all(axis=1)
         return masks, paths
-
-    def _act(
-        self,
-        probs: npt.NDArray[np.float64],
-        mask: npt.NDArray[np.bool_],
-        supervisor: Supervisor | None,
-        slot_texts: SlotTexts | None,
-        row: int,
-    ) -> int:
-        """The greedy action, among unseen slots, with STOP after enough queries."""
-        n_slots = len(mask)
-        probs = probs.copy()
-        probs[:n_slots][mask] = 0.0
-        if mask.sum() < self.predict_min_queries:
-            probs[n_slots] = 0.0
-        return int(np.argmax(self._nudged(probs, mask, supervisor, slot_texts, row)))
-
-    def _nudged(
-        self,
-        probs: npt.NDArray[np.float64],
-        mask: npt.NDArray[np.bool_],
-        supervisor: Supervisor | None,
-        slot_texts: SlotTexts | None,
-        row: int,
-    ) -> npt.NDArray[np.float64]:
-        n_slots = len(mask)
-        if (
-            supervisor is None
-            or slot_texts is None
-            or not is_uncertain(probs, n_slots, self.uncertain_delta)
-        ):
-            return probs
-        names = self.slot_names_
-        seen = {names[s]: slot_texts[names[s]][row] for s in np.flatnonzero(mask)}
-        pick = supervisor.pick(seen, [names[s] for s in np.flatnonzero(~mask)])
-        return probs if pick is None else boost(probs, n_slots, pick, self.llm_bias)
 
     def _states(
         self, features: npt.NDArray[np.float32], masks: npt.NDArray[np.bool_]
@@ -356,12 +330,7 @@ class VerifiableRL(Persistable, ClassifierMixin, BaseEstimator):
         return matrix.astype(np.float32)
 
     def _pos_index(self) -> int:
-        if self.pos_label is None:
-            return 1
-        labels = [str(c) for c in self.classes_]
-        if self.pos_label not in labels:
-            raise ValueError(f"pos_label={self.pos_label!r} is not one of {labels}.")
-        return labels.index(self.pos_label)
+        return positive_index(self.classes_, self.pos_label)
 
     def _supervisor(
         self, session: LLMSession, slot_texts: SlotTexts | None
@@ -369,12 +338,19 @@ class VerifiableRL(Persistable, ClassifierMixin, BaseEstimator):
         if self.supervisor is None or slot_texts is None:
             return None
         models = resolve_models(self.supervisor, param="supervisor", task="generate")
-        return Supervisor(models, session, self.slot_names_)
+        return Supervisor(
+            models,
+            session,
+            self.slot_names_,
+            slot_texts,
+            self.uncertain_delta,
+            self.llm_bias,
+        )
 
     def _build_networks(self, rng: np.random.Generator) -> None:
         state_dim = len(self.columns_)
         with torch.random.fork_rng(devices=[]):
-            torch.manual_seed(int(rng.integers(2**31)))
+            torch.default_generator.manual_seed(int(rng.integers(2**31)))
             self.policy_ = PolicyNet(
                 state_dim, len(self.slot_names_), self.policy_hidden
             ).to(self.device)
@@ -401,7 +377,7 @@ class VerifiableRL(Persistable, ClassifierMixin, BaseEstimator):
                     optimiser,
                     loss(
                         self.classifier_(self._states(features[batch], masks)),
-                        torch.from_numpy(positive[batch]),
+                        torch.from_numpy(positive[batch]).to(self.device),
                     ),
                     self.classifier_,
                     self.grad_clip,
@@ -453,7 +429,8 @@ class _Trainer:
                 self._episode(int(i), target or model.classifier_)
                 if count % model.update_every == 0:
                     self._update(optimisers, target)
-            self._update(optimisers, target)
+            if len(self.features) % model.update_every:
+                self._update(optimisers, target)
 
     def _episode(self, i: int, rollout_classifier: Classifier) -> None:
         """Visit states of one sample, recording policy targets at each."""
@@ -476,7 +453,7 @@ class _Trainer:
             state = sample.states(mask[None, :])[0]
             self.policy_examples.append((state, info, stop))
             self.clf_examples.extend((row, float(label)) for row in finals)
-            action = self._explore(sample, mask)
+            action = self._explore(sample, mask, i)
             if action == n_slots:
                 break
             mask[action] = True
@@ -485,14 +462,16 @@ class _Trainer:
         self.policy_examples = self.policy_examples[-model.policy_replay :]
         self.clf_examples = self.clf_examples[-model.clf_replay :]
 
-    def _explore(self, sample: Sample, mask: npt.NDArray[np.bool_]) -> int:
-        n_slots = len(mask)
-        unseen = [*np.flatnonzero(~mask), n_slots]
+    def _explore(self, sample: Sample, mask: npt.NDArray[np.bool_], i: int) -> int:
+        """An unseen slot, or STOP after ``min_queries``: at random or greedy."""
+        masks = mask[None, :]
+        allowed = allowed_actions(masks, self.model.min_queries)
         if self.rng.random() < self.model.eps:
-            return int(self.rng.choice(unseen))
-        probs = policy_probs(self.model.policy_, sample.states(mask[None, :]))[0]
-        probs[:n_slots][mask] = 0.0
-        return int(np.argmax(probs))
+            return int(self.rng.choice(np.flatnonzero(allowed[0])))
+        probs = policy_probs(self.model.policy_, sample.states(masks))
+        if self.supervisor is not None:
+            probs = self.supervisor.nudge(probs, allowed, masks, [i])
+        return int(greedy(probs, allowed)[0])
 
     def _update(
         self,

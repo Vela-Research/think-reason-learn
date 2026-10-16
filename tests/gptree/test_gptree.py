@@ -238,3 +238,37 @@ class TestSplit:
         y = np.array([0, 0, 0, 1])
         weights = _sample_weights(y, np.array(["a", "b"], dtype=object), "balanced")
         assert weights.tolist() == [4 / 6, 4 / 6, 4 / 6, 2.0]
+
+
+def test_prune_keeps_surviving_ids(fakes: tuple[FakeLLM, FakeLLM]) -> None:
+    mixed = [*LABELS[:4], "miss", *LABELS[5:]]
+    model = tree(max_depth=3, min_samples_leaf=1).fit(FOUNDERS, mixed)
+    before = [
+        (n.id, n.question.text if n.question else None) for n in model.tree_.nodes
+    ]
+    leaf = next(n.id for n in model.tree_.nodes if n.is_leaf)
+    model.prune(leaf)
+    after = [(n.id, n.question.text if n.question else None) for n in model.tree_.nodes]
+    assert after == before
+
+
+def test_a_node_without_answers_does_not_fail(fakes: tuple[FakeLLM, FakeLLM]) -> None:
+    model = tree().fit(FOUNDERS, LABELS)
+    with fake_llms(judge=FakeLLM(answer=lambda sample, question: None)):
+        assert len(model.predict(["someone new"])) == 1
+
+
+def test_two_classes_use_the_papers_leaf_threshold(
+    fakes: tuple[FakeLLM, FakeLLM],
+) -> None:
+    model = tree().fit(FOUNDERS, LABELS)
+    assert model.threshold_ is not None
+    three = tree().fit(FOUNDERS, [*LABELS[:7], "other"])
+    assert three.threshold_ is None
+
+
+def test_leaf_budget_stops_growth_early(fakes: tuple[FakeLLM, FakeLLM]) -> None:
+    writer, _ = fakes
+    mixed = [*LABELS[:4], "miss", *LABELS[5:]]
+    tree(max_leaf_nodes=2, min_samples_leaf=1, insights=False).fit(FOUNDERS, mixed)
+    assert sum(c.schema is not None for c in writer.calls) == 1

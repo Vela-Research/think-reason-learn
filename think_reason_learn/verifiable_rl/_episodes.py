@@ -78,9 +78,19 @@ def policy_probs(policy: PolicyNet, states: torch.Tensor) -> npt.NDArray[np.floa
 def sample_actions(
     probs: npt.NDArray[np.float64], rng: np.random.Generator
 ) -> npt.NDArray[np.intp]:
-    """One action per row, drawn from its probabilities."""
-    draws = rng.random((len(probs), 1))
+    """One action per row, drawn in proportion to its (unnormalised) weights."""
+    draws = rng.random((len(probs), 1)) * probs.sum(axis=1, keepdims=True)
     return np.minimum((probs.cumsum(axis=1) < draws).sum(axis=1), probs.shape[1] - 1)
+
+
+def allowed_actions(masks: Masks, min_queries: int) -> Masks:
+    """Per row, the unseen slots, and STOP once ``min_queries`` slots are seen."""
+    return np.column_stack([~masks, masks.sum(axis=1) >= min_queries])
+
+
+def greedy(probs: npt.NDArray[np.float64], allowed: Masks) -> npt.NDArray[np.intp]:
+    """Per row, the most likely allowed action."""
+    return np.argmax(np.where(allowed, probs, -1.0), axis=1)
 
 
 def rollouts(
@@ -101,14 +111,16 @@ def rollouts(
     masks = masks.copy()
     n = len(masks)
     returns, penalties = np.zeros(n), np.zeros(n)
-    finals = torch.zeros((n, len(sample.columns)), dtype=sample.features.dtype)
+    finals = sample.features.new_zeros((n, len(sample.columns)))
     active = np.ones(n, dtype=bool)
     while active.any():
         rows = np.flatnonzero(active)
         states = sample.states(masks[rows])
         done = np.ones(len(rows), dtype=bool)
         if depth < search.max_depth:
-            actions = sample_actions(policy_probs(policy, states), rng)
+            probs = policy_probs(policy, states)
+            probs[:, -1] *= masks[rows].sum(axis=1) >= search.min_queries
+            actions = sample_actions(probs, rng)
             done = actions == sample.n_slots
             go, slots = rows[~done], actions[~done]
             repeated = masks[go, slots]
@@ -141,7 +153,9 @@ def targets(
     Each information action is revealed and then rolled out ``n_rollouts``
     times; STOP is worth the reward of stopping now, unless fewer than
     ``min_queries`` slots are revealed. The targets are a softmax over the
-    information values and, separately, a sigmoid of the STOP value.
+    information values and, separately, a sigmoid of the STOP value, as in the
+    paper. So slot costs and the step penalty shape which slot is revealed, not
+    when to stop: STOP is learned from whether the call made now is right.
 
     Returns:
         The information target, the STOP target, and the rollouts' final states

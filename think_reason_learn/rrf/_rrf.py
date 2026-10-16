@@ -25,6 +25,7 @@ import pandas as pd
 from pydantic import BaseModel
 
 from think_reason_learn.core._classifier import BinaryTRLClassifier, Labels, Proba
+from think_reason_learn.core._answers import yes_probabilities
 from think_reason_learn.core._combine import LinearCombiner, fit_logistic
 from think_reason_learn.core._data import (
     ClassRatio,
@@ -35,7 +36,7 @@ from think_reason_learn.core._data import (
     to_texts,
 )
 from think_reason_learn.core._prompts import examples_block
-from think_reason_learn.llm import Endpoint, LLMSession, Models, YesNoQuestion, run_sync
+from think_reason_learn.llm import Endpoint, LLMSession, Models, run_sync
 
 from ._prompts import INSTRUCTIONS_PURPOSE, QUESTION_INSTRUCTIONS, question_prompt
 from ._selection import as_yes, question_stats, rank, tune_vote
@@ -108,7 +109,7 @@ class RRF(BinaryTRLClassifier):
         cv: int = 5,
         screening_size: int | float | None = None,
         screened_questions: int = 20,
-        pos_label: str | None = None,
+        pos_label: str | int | None = None,
         random_state: int | None = None,
         verbose: int = 0,
     ) -> None:
@@ -169,10 +170,10 @@ class RRF(BinaryTRLClassifier):
     def _positive_scores(
         self, answers: npt.NDArray[np.float64]
     ) -> npt.NDArray[np.float64]:
-        if not self.rules_:
-            return np.zeros(len(answers))
         if self.combiner_ is not None:
             return self.combiner_.scores(np.nan_to_num(answers, nan=0.0))
+        if not self.rules_:
+            return np.zeros(len(answers))
         return as_yes(answers).mean(axis=1)
 
     def _split_generation(
@@ -244,36 +245,27 @@ class RRF(BinaryTRLClassifier):
         screen = rng.permutation(len(rows))[: count(self.screening_size, len(rows))]
         screened = await self._answer([rows[i] for i in screen], questions, session)
         _, _, scores = question_stats(as_yes(screened), positive[screen], self.beta)
-        kept = [
-            questions[j]
-            for j in np.argsort(-scores, kind="stable")[: self.screened_questions]
-        ]
-        return kept, await self._answer(rows, kept, session)
+        best = np.argsort(-scores, kind="stable")[: self.screened_questions]
+        kept = [questions[j] for j in best]
+        rest = np.setdiff1d(np.arange(len(rows)), screen)
+        answers = np.empty((len(rows), len(kept)))
+        answers[screen] = screened[:, best]
+        answers[rest] = await self._answer([rows[i] for i in rest], kept, session)
+        return kept, answers
 
     async def _answer(
         self, texts: Sequence[str], questions: Sequence[str], session: LLMSession
     ) -> npt.NDArray[np.float64]:
         """P(YES) per sample (rows) and question (columns); NaN where unanswered."""
-        if not questions:
-            return np.zeros((len(texts), 0))
-        asked = {f"q{j}": YesNoQuestion(q) for j, q in enumerate(questions)}
-        with self._progress(len(texts) * len(asked), "RRF answers") as progress:
-            answers = await session.answer(
+        with self._progress(len(texts) * len(questions), "RRF answers") as progress:
+            return await yes_probabilities(
+                session,
                 self._models("answerer", "answer"),
                 texts,
-                asked,
-                role="answerer",
+                questions,
+                missing=np.nan,
                 progress=progress,
             )
-        return np.array(
-            [
-                [
-                    a.probability() if (a := row[qid]) is not None else np.nan
-                    for qid in asked
-                ]
-                for row in answers
-            ]
-        )
 
     def _select(
         self,

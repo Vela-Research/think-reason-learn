@@ -74,7 +74,12 @@ Offline tests
 
    from think_reason_learn.testing import FakeLLM, fake_llms
 
-   writer = FakeLLM(generate=lambda request: {"questions": [{"text": "Is the founder technical?"}]})
+   def write(request):  # instructions are text; questions fill a schema
+       if request.schema is None:
+           return "Technical founders do well."
+       return {"questions": [{"text": "Is the founder technical?"}]}
+
+   writer = FakeLLM(generate=write)
    judge = FakeLLM(answer=lambda sample, question: 0.9 if "engineer" in sample else 0.1, kind="decision")
    with fake_llms(writer=writer, judge=judge):
        GPTree(task=task, generator="fake:writer", answerer="fake:judge").fit(X, y)

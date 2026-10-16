@@ -85,15 +85,15 @@ class UsageRecord:
     time: float
     role: str
     model: str
-    served_model: str | None
-    input_tokens: int
-    output_tokens: int
-    cache_read_tokens: int
-    cache_write_tokens: int
-    reasoning_tokens: int
     cost_usd: float | None
     cost_source: CostSource
-    latency_s: float
+    served_model: str | None = None
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    reasoning_tokens: int = 0
+    latency_s: float = 0.0
     calls: int = 1
     cached: bool = False
     error: str | None = None
@@ -268,10 +268,8 @@ def _built_in_price(name: str) -> Price | None:
 
 
 def _price_table_cost(endpoint: Endpoint, tokens: TokenCounts) -> float | None:
-    try:
-        import genai_prices
-    except ImportError:
-        return None
+    import genai_prices  # loads its table, so only when a price is needed
+
     usage = genai_prices.Usage(
         input_tokens=tokens.input,
         output_tokens=tokens.output,

@@ -11,14 +11,18 @@ import pytest
 from think_reason_learn.exceptions import LLMError, ProviderAuthError
 from think_reason_learn.llm import (
     LLM,
+    Endpoint,
     Answers,
     ChoiceQuestion,
     LLMSession,
     Model,
     YesNoQuestion,
+    resolve,
     resolve_models,
     run_sync,
 )
+from think_reason_learn.llm._adapters._base import Failure, ProviderError, classify
+from think_reason_learn.llm._calls import _drop, _dropped
 
 type Handler = Callable[[httpx2.Request], httpx2.Response]
 type Wire = Callable[[Handler], list[httpx2.Request]]
@@ -172,8 +176,62 @@ class TestOpenAICompatible:
     def test_json_object_providers_are_validated(self, wire: Wire) -> None:
         sent = wire(lambda r: _chat('{"a1": "YES"}'))
         _, [result] = _answer(LLM("deepseek:deepseek-chat", api_key="k"))
-        assert json.loads(sent[0].content)["response_format"] == {"type": "json_object"}
+        body = json.loads(sent[0].content)
+        assert body["response_format"] == {"type": "json_object"}
+        assert '"a1"' in body["messages"][0]["content"]  # the schema is in the prompt
         assert _label(result, "tech") == "YES"
+
+    @pytest.mark.parametrize(
+        "reply",
+        [
+            _chat('{"a1": "YE'),  # cut-off JSON
+            _chat('{"a1": "MAYBE"}'),  # not a label
+            _chat("null"),
+        ],
+    )
+    def test_unusable_replies_are_unanswered_not_crashes(
+        self, wire: Wire, reply: httpx2.Response
+    ) -> None:
+        wire(lambda r: reply)
+        with pytest.raises(LLMError, match="No answers"):
+            _answer(LLM("openai:gpt-5-mini", api_key="k"))
+
+    def test_concurrent_drops_keep_each_other(self) -> None:
+        endpoint: Endpoint = resolve(LLM("openai:gpt-5-mini", api_key="k"))
+        for param in ("temperature", "reasoning_effort"):  # both saw nothing dropped
+            error = ProviderError("rejected_param", "unsupported", param=param)
+            assert _drop(endpoint, error, frozenset())
+        assert _dropped[endpoint.key] == {"temperature", "reasoning_effort"}
+
+
+@pytest.mark.parametrize(
+    ("status", "message", "failure"),
+    [
+        (None, "connection reset", "transient"),
+        (529, "overloaded", "transient"),
+        (401, "nope", "auth"),
+        (400, "API key not valid. Please pass a valid API key.", "auth"),
+        (402, "Payment required", "quota"),
+        (429, "You exceeded your current quota: insufficient_quota", "quota"),
+        (400, "Your credit balance is too low", "quota"),
+        (429, "Rate limit reached for requests", "rate_limit"),
+        (429, "Quota exceeded; check your plan and billing details", "rate_limit"),
+        (404, "The model does not exist", "unavailable"),
+        (
+            400,
+            "Unsupported value: 'temperature' does not support 0.0",
+            "rejected_param",
+        ),
+        (400, "max_tokens is too large", "bad_request"),  # no rejection words
+    ],
+)
+def test_classify(status: int | None, message: str, failure: Failure) -> None:
+    assert classify(status, message, {}).failure == failure
+
+
+def test_classify_names_the_rejected_setting() -> None:
+    error = classify(400, "Unrecognized request argument: reasoning.effort", {})
+    assert error.param == "reasoning_effort"
 
 
 def _message(text: str) -> httpx2.Response:

@@ -19,7 +19,13 @@ if TYPE_CHECKING:
     from .._spec import Endpoint
 
 type Failure = Literal[
-    "rate_limit", "transient", "auth", "quota", "bad_request", "rejected_param"
+    "rate_limit",
+    "transient",
+    "auth",
+    "quota",
+    "unavailable",
+    "bad_request",
+    "rejected_param",
 ]
 """Why a call failed: retried (rate_limit, transient), fatal to the run (auth,
 quota), tried on the next model (bad_request), or resent without a setting
@@ -105,21 +111,38 @@ class Adapter(Protocol):
         ...
 
 
+class DecisionAdapter:
+    """What every decision-model adapter shares: many questions per call, no writing."""
+
+    max_questions_per_call: int = 50
+
+    def max_questions(self, endpoint: Endpoint) -> int:
+        """Questions about one sample sent in one call."""
+        return self.max_questions_per_call
+
+    async def generate(
+        self, endpoint: Endpoint, request: GenerateRequest, dropped: frozenset[str]
+    ) -> Reply[str | BaseModel | None]:
+        """Decision models do not write; roles that write reject them earlier."""
+        raise ProviderError("bad_request", f"{endpoint.name} cannot write text.")
+
+
 def classify(
     status: int | None, message: str, headers: Mapping[str, str]
 ) -> ProviderError:
-    """Name a failed call by its HTTP status (``None``: no response)."""
+    """Name a failed call by its HTTP status (``None``: no response) and message."""
     retry_after = retry_after_seconds(headers)
     lowered = message.lower()
     if status is None or status in _TRANSIENT:
         return ProviderError("transient", message, retry_after=retry_after)
-    if status in (401, 403) or any(word in lowered for word in _AUTH_WORDS):
+    if status in (401, 403) or _mentions(lowered, _AUTH_WORDS):
         return ProviderError("auth", message)
+    if status == 402 or _mentions(lowered, _QUOTA_WORDS):
+        return ProviderError("quota", message)
     if status == 429:
-        quota = any(word in lowered for word in _QUOTA_WORDS)
-        return ProviderError(
-            "quota" if quota else "rate_limit", message, retry_after=retry_after
-        )
+        return ProviderError("rate_limit", message, retry_after=retry_after)
+    if status == 404:
+        return ProviderError("unavailable", message)
     if status in (400, 422) and (param := _rejected_param(lowered)) is not None:
         return ProviderError("rejected_param", message, param=param)
     return ProviderError("bad_request", message)
@@ -148,13 +171,37 @@ _AUTH_WORDS: Final = (
     "incorrect api key",
     "invalid x-api-key",
 )
-_QUOTA_WORDS: Final = ("insufficient_quota", "spend limit", "billing", "credit balance")
-_PARAM_RE: Final = re.compile("|".join(OPTIONAL_PARAMS))
+_QUOTA_WORDS: Final = (
+    "insufficient_quota",
+    "insufficient credits",
+    "credit balance",
+    "spend limit",
+)
+_PARAM_RE: Final = re.compile("|".join([*OPTIONAL_PARAMS, "effort"]))
+_REJECTION_WORDS: Final = (
+    "unsupported",
+    "not supported",
+    "does not support",
+    "unrecognized",
+    "unknown",
+    "not allowed",
+    "extra inputs",
+    "only the default",
+)
 
 
 def _rejected_param(message: str) -> str | None:
+    """The setting a 400 says the model does not support, if it says so."""
+    if not _mentions(message, _REJECTION_WORDS):
+        return None
     match = _PARAM_RE.search(message)
-    return match.group(0) if match else None
+    if match is None:
+        return None
+    return "reasoning_effort" if match.group(0) == "effort" else match.group(0)
+
+
+def _mentions(message: str, words: tuple[str, ...]) -> bool:
+    return any(word in message for word in words)
 
 
 def _is_number(value: str) -> bool:

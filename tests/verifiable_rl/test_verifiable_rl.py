@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import torch
+import torch.nn as nn
 from sklearn.base import clone
 from sklearn.exceptions import NotFittedError
 from sklearn.utils.estimator_checks import (
@@ -20,9 +21,10 @@ from sklearn.utils.estimator_checks import (
 from think_reason_learn.exceptions import DataError
 from think_reason_learn.testing import FakeLLM, GenerateRequest, fake_llms
 from think_reason_learn.verifiable_rl import VerifiableRL
+from think_reason_learn.llm import LLMSession, resolve_models
 from think_reason_learn.verifiable_rl._episodes import Sample, Search, rollouts, targets
 from think_reason_learn.verifiable_rl._networks import Classifier, PolicyNet
-from think_reason_learn.verifiable_rl._supervisor import boost, is_uncertain
+from think_reason_learn.verifiable_rl._supervisor import Supervisor, boost, is_uncertain
 
 SLOTS = {"signal": 2, "noise": 2, "more_noise": 2}
 rng = np.random.default_rng(0)
@@ -78,6 +80,51 @@ def test_never_reveals_a_slot_twice() -> None:
     paths = fast().fit(X, Y).decision_paths(X)
     assert all(len(path) == len(set(path)) for path in paths)
     assert all(path for path in paths)  # predict_min_queries=1
+
+
+def test_a_saturated_stop_still_never_repeats_a_slot() -> None:
+    model = fast(predict_min_queries=3).fit(X, Y)
+    _always_stop(model.policy_)  # P(STOP) rounds to 1 in float32
+    assert all(sorted(path) == sorted(SLOTS) for path in model.decision_paths(X[:5]))
+
+
+def _always_stop(policy: PolicyNet) -> PolicyNet:
+    head = policy.net[-1]
+    assert isinstance(head, nn.Linear)
+    with torch.no_grad():
+        head.weight[-1] = 0.0
+        head.bias[-1] = 40.0
+    return policy
+
+
+def test_rollouts_reveal_min_queries_before_stopping() -> None:
+    search = Search(2, 20, 2, 1.0, 4.0, 4.0, -16.0, 0.0, -0.25, -0.1, -5.0, 0.3)
+    sample = Sample(torch.ones(6), np.repeat(np.arange(3), 2), np.zeros(3))
+    start = np.array([[True, False, False]] * 8)
+    _, finals = rollouts(
+        sample,
+        start,
+        1,
+        (_always_stop(PolicyNet(6, 3, 16)), Classifier(6, 16)),
+        1,
+        search,
+        np.random.default_rng(0),
+    )
+    assert ((finals != 0).sum(dim=1) >= 4).all()  # two slots of two columns
+
+
+def test_supervisor_is_not_asked_when_stop_wins_anyway() -> None:
+    advisor = FakeLLM(generate=lambda r: {"slot": "noise"})
+    with fake_llms(advisor=advisor):
+        models = resolve_models("fake:advisor", param="supervisor", task="generate")
+        texts = {name: ["text"] for name in SLOTS}
+        supervisor = Supervisor(models, LLMSession(), list(SLOTS), texts, 1.0, 0.5)
+        masks = np.zeros((2, 3), dtype=bool)
+        allowed = np.ones((2, 4), dtype=bool)
+        probs = np.array([[0.1, 0.1, 0.1, 0.7], [0.3, 0.3, 0.3, 0.1]])
+        nudged = supervisor.nudge(probs, allowed, masks, [0, 0])
+    assert advisor.n_calls == 1  # only the second row
+    assert np.array_equal(nudged[0], probs[0]) and nudged[1, 1] > nudged[1, 0]
 
 
 def test_deterministic_without_touching_global_torch_state() -> None:

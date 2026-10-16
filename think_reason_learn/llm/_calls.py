@@ -10,6 +10,7 @@ from typing import Final
 
 from ._adapters._base import ProviderError, Reply
 from ._limiter import limiter_for
+from ._loop import on_fork
 from ._spec import Endpoint
 
 logger = logging.getLogger(__name__)
@@ -46,7 +47,7 @@ async def send[T](
                 estimated=estimated_tokens,
                 used=None,
                 headers={},
-                rate_limited=error.failure == "rate_limit",
+                outcome="rate_limited" if error.failure == "rate_limit" else "failed",
                 retry_after=error.retry_after,
             )
             if _drop(endpoint, error, dropped):
@@ -58,25 +59,21 @@ async def send[T](
             continue
         except BaseException:
             await limiter.release(
-                estimated=estimated_tokens,
-                used=None,
-                headers={},
-                rate_limited=False,
-                retry_after=None,
+                estimated=estimated_tokens, used=None, headers={}, outcome="failed"
             )
             raise
         await limiter.release(
             estimated=estimated_tokens,
             used=reply.tokens.input + reply.tokens.output,
             headers=reply.headers,
-            rate_limited=False,
-            retry_after=None,
+            outcome="ok",
         )
         return reply
 
 
 _dropped: Final[dict[str, frozenset[str]]] = {}
 """Settings each endpoint rejected, left out of its later calls."""
+on_fork(_dropped.clear)
 
 
 def _drop(endpoint: Endpoint, error: ProviderError, dropped: frozenset[str]) -> bool:
@@ -86,7 +83,7 @@ def _drop(endpoint: Endpoint, error: ProviderError, dropped: frozenset[str]) -> 
         or error.param in dropped
     ):
         return False
-    _dropped[endpoint.key] = dropped | {error.param}
+    _dropped[endpoint.key] = _dropped.get(endpoint.key, frozenset()) | {error.param}
     logger.warning(
         f"{endpoint.name} rejected {error.param}; calling it without from now on."
     )

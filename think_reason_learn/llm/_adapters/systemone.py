@@ -9,36 +9,21 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping
-from typing import Final
 
 import httpx2
-from pydantic import BaseModel
-
 from .._config import get_config
 from .._questions import Answer, ChoiceQuestion, Question, YesNoQuestion
 from .._spec import Endpoint
 from .._usage import TokenCounts
-from ._base import Answers, GenerateRequest, ProviderError, Reply, classify
+from ._base import Answers, DecisionAdapter, ProviderError, Reply, classify
 from ._http import http_client
 
 type _Wire = dict[str, str | dict[str, None]]
 type _Raw = dict[str, object]
 
-_MAX_QUESTIONS: Final = 50
 
-
-class SystemOneAdapter:
+class SystemOneAdapter(DecisionAdapter):
     """POSTs System One requests with ``httpx2``."""
-
-    def max_questions(self, endpoint: Endpoint) -> int:
-        """Questions per request."""
-        return _MAX_QUESTIONS
-
-    async def generate(
-        self, endpoint: Endpoint, request: GenerateRequest, dropped: frozenset[str]
-    ) -> Reply[str | BaseModel | None]:
-        """Decision models do not write; roles that write reject them earlier."""
-        raise ProviderError("bad_request", f"{endpoint.name} cannot write text.")
 
     async def answer(
         self,
@@ -48,7 +33,7 @@ class SystemOneAdapter:
         dropped: frozenset[str],
     ) -> Reply[Answers]:
         """Answers with Jev's probabilities."""
-        client = http_client(endpoint.client_key, get_config().timeout)
+        client = http_client(endpoint.client_key)
         body = {
             "model": endpoint.model_id,
             "state": sample,
@@ -56,7 +41,10 @@ class SystemOneAdapter:
         }
         try:
             response = await client.post(
-                endpoint.base_url or "", json=body, headers=_auth(endpoint)
+                endpoint.base_url or "",
+                json=body,
+                headers=_auth(endpoint),
+                timeout=get_config().timeout,
             )
         except httpx2.RequestError as exc:
             raise classify(None, f"{type(exc).__name__}: {exc}", {}) from exc

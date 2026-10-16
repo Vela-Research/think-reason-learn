@@ -37,6 +37,8 @@ from think_reason_learn.core._data import (
     ClassRatio,
     ClassWeight,
     TextInput,
+    by_class,
+    class_shares,
     count,
     example_batches,
     take,
@@ -269,6 +271,7 @@ class GPTree(TRLClassifier):
         return [estimate_generations(writer, size * example, calls=calls)]
 
     def _check_classes(self, classes: Classes) -> None:
+        class_shares(classes, self.example_class_ratio)  # a bad ratio fails now
         if len(classes) == 2:
             positive_index(classes, self.pos_label)  # a bad pos_label fails now
 
@@ -394,7 +397,7 @@ class _Grower:
     async def insights(self) -> str:
         """A short summary of each class, as the paper's insight step."""
         summaries = await asyncio.gather(
-            *(self._summarise(c) for c in range(len(self.model.classes_)))
+            *(self._insight(c) for c in range(len(self.model.classes_)))
         )
         return "\n\n".join(
             f"{label}:\n{summary}"
@@ -424,6 +427,15 @@ class _Grower:
                 for child in self._apply(p)
             ]
         return self.tree
+
+    async def _insight(self, c: int) -> str:
+        """Class ``c``'s summary; "" if the generator writes none, as it is optional."""
+        try:
+            return await self._summarise(c)
+        except NoOutputError as error:
+            label = self.model.classes_[c]
+            logger.warning(f"No insights for class {label}; going on without: {error}")
+            return ""
 
     async def _summarise(self, c: int) -> str:
         members = self.rng.permutation(np.flatnonzero(self.y == c))
@@ -522,19 +534,27 @@ class _Grower:
             instructions=instructions,
         )
         if self.critic is not None:
+            written = await self._reviewed(self.critic, prompt, written)
+        return self._valid(node, written)
+
+    async def _reviewed(
+        self, critic: tuple[Endpoint, ...], prompt: str, written: _Questions
+    ) -> _Questions:
+        """The critic's questions; the written ones if it fails or adds questions."""
+        try:
             reviewed = await self.session.generate(
-                self.critic,
+                critic,
                 f"{prompt}\n\nCandidate questions:\n{written.model_dump_json()}",
                 role="critic",
                 schema=_Questions,
                 instructions=CRITIC_INSTRUCTIONS,
             )
-            written = (
-                reviewed
-                if 0 < len(reviewed.questions) <= len(written.questions)
-                else written
-            )
-        return self._valid(node, written)
+        except NoOutputError as error:
+            logger.warning(f"No review by the critic; the questions stay: {error}")
+            return written
+        if 0 < len(reviewed.questions) <= len(written.questions):
+            return reviewed
+        return written
 
     def _node_prompt(self, node: Node, idx: npt.NDArray[np.intp]) -> str:
         model = self.model
@@ -667,10 +687,7 @@ def _sample_weights(
     if class_weight == "balanced":
         counts = np.bincount(y, minlength=len(classes))
         return (len(y) / (len(classes) * np.maximum(counts, 1)))[y]
-    weights = {str(label): float(w) for label, w in class_weight.items()}
-    if unknown := set(weights) - {str(c) for c in classes}:
-        raise ValueError(f"class_weight names unknown classes: {sorted(unknown)}.")
-    return np.array([weights.get(str(c), 1.0) for c in classes])[y]
+    return by_class(classes, class_weight, default=1.0, name="class_weight")[y]
 
 
 def _label(answer: Answer | None) -> str | None:

@@ -19,7 +19,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Mapping, Sequence
-from functools import partial
 from typing import Final
 
 import numpy as np
@@ -33,7 +32,7 @@ from think_reason_learn.core._classifier import (
     Proba,
     positive_index,
 )
-from think_reason_learn.core._combine import LinearCombiner, fit_logistic, held_out_rows
+from think_reason_learn.core._combine import LinearCombiner, fit_combiner, held_out_rows
 from think_reason_learn.core._data import Classes, balanced_subset, take
 from think_reason_learn.core._prompts import most_written
 from think_reason_learn.llm import (
@@ -150,17 +149,14 @@ class ReasonedRuleMining(BinaryTRLClassifier):
             take(texts, calibrate), session, harsh=self.use_harsh
         )
         self.harsh_share_ = float(features[:, 2].mean()) if len(features) else 0.0
-        self.combiner_ = await asyncio.to_thread(
-            partial(
-                fit_logistic,
-                features,
-                positive[calibrate],
-                l1_ratios=(0.0,),
-                cv=self.cv,
-                beta=self.beta,
-                class_weight=None,  # unweighted, so predict_proba stays calibrated
-                random_state=self.random_state,
-            )
+        self.combiner_, _ = await fit_combiner(
+            features,
+            positive[calibrate],
+            l1_ratios=(0.0,),
+            cv=self.cv,
+            beta=self.beta,
+            class_weight=None,  # unweighted, so predict_proba stays calibrated
+            random_state=self.random_state,
         )
         self.threshold_ = self.combiner_.threshold
 

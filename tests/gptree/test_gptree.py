@@ -268,11 +268,34 @@ def test_leaf_budget_stops_growth_early(fakes: tuple[FakeLLM, FakeLLM]) -> None:
     assert sum(c.schema is not None for c in writer.calls) == 1
 
 
-def test_a_bad_pos_label_fails_before_any_call(fakes: tuple[FakeLLM, FakeLLM]) -> None:
+def test_bad_settings_fail_before_any_call(fakes: tuple[FakeLLM, FakeLLM]) -> None:
     writer, judge = fakes
     with pytest.raises(ValueError, match="pos_label"):
         tree(pos_label="HIT").fit(FOUNDERS, LABELS)
+    with pytest.raises(ValueError, match="example_class_ratio names unknown"):
+        tree(example_class_ratio={"HIT": 1.0}).fit(FOUNDERS, LABELS)
     assert writer.n_calls == judge.n_calls == 0
+
+
+def test_a_failed_critic_keeps_the_written_questions() -> None:
+    with fake_llms(
+        writer=FakeLLM(generate=write),
+        judge=FakeLLM(answer=answer),
+        reviewer=FakeLLM(generate=lambda request: None),
+    ):
+        model = tree(critic="fake:reviewer").fit(FOUNDERS, LABELS)
+    assert not model.tree_.nodes[0].is_leaf
+
+
+def test_a_failed_insight_is_left_out() -> None:
+    def no_hit_insight(request: GenerateRequest) -> str | dict[str, object] | None:
+        return None if "Samples labelled hit" in request.prompt else write(request)
+
+    with fake_llms(
+        writer=FakeLLM(generate=no_hit_insight), judge=FakeLLM(answer=answer)
+    ):
+        model = tree().fit(FOUNDERS, LABELS)
+    assert model.insights_.startswith("miss:") and "hit:" not in model.insights_
 
 
 def test_yes_no_options_make_a_yes_no_question(fakes: tuple[FakeLLM, FakeLLM]) -> None:

@@ -140,6 +140,27 @@ def test_positive_class_and_two_classes_only(judge: FakeLLM) -> None:
         rrf().fit(FOUNDERS, [str(i % 3) for i in range(48)])
 
 
+def test_bad_data_and_settings_fail_before_any_call(judge: FakeLLM) -> None:
+    with pytest.raises(DataError, match="No samples to write questions from"):
+        rrf().fit(["an engineer", "a chef"], ["YES", "NO"])
+    with pytest.raises(ValueError, match="example_class_ratio names unknown"):
+        rrf(example_class_ratio={"yes": 1.0}).fit(FOUNDERS, LABELS)
+    assert judge.n_calls == 0
+
+
+def test_elasticnet_warns_when_it_weighs_no_question(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with fake_llms(
+        writer=FakeLLM(generate=write),
+        judge=FakeLLM(answer=lambda sample, question: 0.5, kind="decision"),
+    ):
+        model = rrf(combiner="elasticnet", drop_below_base_rate=False).fit(
+            FOUNDERS, LABELS
+        )
+    assert model.rules_ == () and "Every weight is zero" in caplog.text
+
+
 class TestSelection:
     y = np.array([True, True, False, False])
     answers = np.array([[1, 0, 1], [1, 0, 1], [0, 1, 1], [0, 0, 1]], dtype=bool)

@@ -24,6 +24,7 @@ from ._prompts import build_system_prompt, build_user_prompt, format_samples
 from ._types import (
     CognitiveMode,
     DataSchema,
+    GeneratedRule,
     GeneratedRules,
     HelperFunction,
     Record,
@@ -138,7 +139,7 @@ class FeatureGenerator:
             ),
             draw=draw,
         )
-        rules = [Rule(r.name, r.description, r.expression) for r in written.rules]
+        rules = _distinct(written.rules)
         logger.info(f"Generated {len(rules)} rules")
         return rules
 
@@ -151,3 +152,17 @@ class _Ask:
     n_samples: int
     prior_rules: Sequence[Rule] | None
     positive: object
+
+
+def _distinct(written: Sequence[GeneratedRule]) -> list[Rule]:
+    """The rules, a repeated name suffixed ``_2``, ``_3``... so names are distinct."""
+    used: set[str] = set()
+    rules: list[Rule] = []
+    for rule in written:
+        name, n = rule.name, 1
+        while name in used:
+            n += 1
+            name = f"{rule.name}_{n}"
+        used.add(name)
+        rules.append(Rule(name, rule.description, rule.expression))
+    return rules

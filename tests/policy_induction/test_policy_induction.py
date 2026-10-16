@@ -114,6 +114,19 @@ def test_two_classes_only(fakes: tuple[FakeLLM, FakeLLM]) -> None:
         policy_induction().fit(FOUNDERS, [str(i % 3) for i in range(36)])
 
 
+def test_rules_predictor_warns_when_it_weighs_no_rule(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with fake_llms(
+        writer=FakeLLM(generate=writer(GOOD)),
+        judge=FakeLLM(answer=lambda sample, question: 0.5, kind="decision"),
+    ):
+        model = policy_induction(
+            initial_policy=GOOD, n_rounds=0, predictor="rules"
+        ).fit(FOUNDERS, LABELS)
+    assert model.weighted_rules_ == () and "Every weight is zero" in caplog.text
+
+
 def test_paper_defaults() -> None:
     model = PolicyInduction()
     assert (model.n_rounds, model.n_samples, model.batch_size, model.n_examples) == (
@@ -182,4 +195,16 @@ def test_a_failed_refinement_keeps_the_policy() -> None:
         judge=FakeLLM(answer=judge_answer, kind="decision"),
     ):
         model = policy_induction().fit(FOUNDERS, LABELS)
+    assert model.policy_ == BAD and not any(model.history_["kept"])
+
+
+def test_a_refinement_that_cannot_be_judged_keeps_the_policy() -> None:
+    def no_engineers(sample: str, question: Question) -> float | None:
+        return None if "engineers" in question.text else judge_answer(sample, question)
+
+    with fake_llms(
+        writer=FakeLLM(generate=writer(GOOD)),
+        judge=FakeLLM(answer=no_engineers, kind="decision"),
+    ):
+        model = policy_induction(initial_policy=BAD).fit(FOUNDERS, LABELS)
     assert model.policy_ == BAD and not any(model.history_["kept"])

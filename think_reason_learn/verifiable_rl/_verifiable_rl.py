@@ -220,7 +220,7 @@ class VerifiableRL(Persistable, ClassifierMixin, BaseEstimator):
             self.classes_ = classes
             self._train(features, codes, slot_texts)
         except BaseException:
-            forget_fitted(self)  # a failed refit leaves no half-built model
+            forget_fitted(self, keep="usage_")  # what the failed fit spent
             raise
         return self
 

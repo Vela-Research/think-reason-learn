@@ -26,18 +26,19 @@ from pydantic import BaseModel
 
 from think_reason_learn.core._answers import yes_probabilities
 from think_reason_learn.core._classifier import BinaryTRLClassifier, Labels, Proba
-from think_reason_learn.core._combine import LinearCombiner, fit_logistic
+from think_reason_learn.core._combine import LinearCombiner, fit_combiner
 from think_reason_learn.core._data import (
     Classes,
     ClassRatio,
     TextInput,
     balanced_subset,
+    class_shares,
     count,
     example_batches,
     take,
 )
 from think_reason_learn.core._prompts import examples_block, most_written
-from think_reason_learn.exceptions import NoOutputError
+from think_reason_learn.exceptions import DataError, NoOutputError
 from think_reason_learn.llm import (
     Endpoint,
     LLMSession,
@@ -164,16 +165,15 @@ class RRF(BinaryTRLClassifier):
         writer = self._models("generator", "generate")
         self._models("answerer", "answer")  # fail before paying for questions
         rng = np.random.default_rng(self.random_state)
-        self.instructions_ = await self._instructions(session, writer)
         generation, scoring = self._split_generation(y, len(self.classes_), rng)
+        self.instructions_ = await self._instructions(session, writer)
         questions = await self._write(texts, y, generation, writer, session, rng)
         if not questions:
             raise NoOutputError("The generator wrote no usable questions.")
         questions, answers = await self._score(
             texts, scoring, positive[scoring], questions, session, rng
         )
-        # Ranking and cross-validation are CPU work: off the shared event loop.
-        await asyncio.to_thread(self._select, questions, answers, positive[scoring])
+        await self._select(questions, answers, positive[scoring])
 
     async def _apredict_proba(self, texts: list[str], session: LLMSession) -> Proba:
         answers = await self._answer(texts, self.rules_, session)
@@ -222,12 +222,21 @@ class RRF(BinaryTRLClassifier):
         answerer = self._models("answerer", "answer")
         return [estimate_answers(answerer, texts, list(self.rules_))]
 
+    def _check_classes(self, classes: Classes) -> None:
+        super()._check_classes(classes)
+        class_shares(classes, self.example_class_ratio)  # a bad ratio fails now
+
     def _split_generation(
         self, y: Labels, n_classes: int, rng: np.random.Generator
     ) -> tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]]:
         """Samples for writing questions, and the rest for scoring them."""
         size = count(self.generation_size, len(y))
         generation = balanced_subset(y, n_classes, size, rng, max_share=0.5)
+        if not len(generation):
+            raise DataError(
+                "No samples to write questions from: each class sets aside at most "
+                "half its samples. Give more samples, or a larger generation_size."
+            )
         scoring = np.setdiff1d(np.arange(len(y)), generation).astype(np.intp)
         return generation, scoring
 
@@ -322,7 +331,7 @@ class RRF(BinaryTRLClassifier):
             missing=np.nan,
         )
 
-    def _select(
+    async def _select(
         self,
         questions: list[str],
         answers: npt.NDArray[np.float64],
@@ -340,31 +349,38 @@ class RRF(BinaryTRLClassifier):
         )
         self.combiner_, self.min_votes_ = None, 0
         if self.combiner == "vote":
-            ranked, n_rules, min_votes = tune_vote(
-                yes,
-                positive,
-                beta=self.beta,
-                drop_below_base_rate=self.drop_below_base_rate,
-                hamming_threshold=self.hamming_threshold,
-                max_rules=self.max_rules,
-                cv=self.cv,
-                random_state=self.random_state,
-            )
-            used = ranked[:n_rules]
-            self.min_votes_ = min_votes
-            self.threshold_ = min_votes / n_rules if n_rules else math.inf
+            # Tuning the vote is CPU work: off the shared event loop.
+            used = await asyncio.to_thread(self._fit_vote, yes, positive)
         else:
-            used, self.threshold_ = self._fit_elasticnet(yes, answers, positive)
+            used = await self._fit_elasticnet(yes, answers, positive)
         self.rules_ = tuple(questions[j] for j in used)
         self.questions_["used"] = [j in used for j in range(len(questions))]
 
-    def _fit_elasticnet(
+    def _fit_vote(
+        self, yes: npt.NDArray[np.bool_], positive: npt.NDArray[np.bool_]
+    ) -> list[int]:
+        """The rules of the tuned vote; sets its minimum votes and threshold."""
+        ranked, n_rules, min_votes = tune_vote(
+            yes,
+            positive,
+            beta=self.beta,
+            drop_below_base_rate=self.drop_below_base_rate,
+            hamming_threshold=self.hamming_threshold,
+            max_rules=self.max_rules,
+            cv=self.cv,
+            random_state=self.random_state,
+        )
+        self.min_votes_ = min_votes
+        self.threshold_ = min_votes / n_rules if n_rules else math.inf
+        return ranked[:n_rules]
+
+    async def _fit_elasticnet(
         self,
         yes: npt.NDArray[np.bool_],
         answers: npt.NDArray[np.float64],
         positive: npt.NDArray[np.bool_],
-    ) -> tuple[list[int], float]:
-        """Rules weighted by elastic net, and its threshold.
+    ) -> list[int]:
+        """Rules weighted by elastic net; sets the combiner and its threshold.
 
         Questions are ranked on every scoring row before the combiner tunes its
         out-of-fold threshold, so the threshold is slightly optimistic.
@@ -377,8 +393,9 @@ class RRF(BinaryTRLClassifier):
             hamming_threshold=self.hamming_threshold,
         )[: self.max_rules]
         if not ranked:
-            return [], math.inf
-        fitted = fit_logistic(
+            self.threshold_ = math.inf
+            return []
+        self.combiner_, kept = await fit_combiner(
             np.nan_to_num(answers[:, ranked], nan=0.0),
             positive,
             l1_ratios=(0.1, 0.5, 0.9),
@@ -386,12 +403,10 @@ class RRF(BinaryTRLClassifier):
             beta=self.beta,
             class_weight="balanced",
             random_state=self.random_state,
+            drop_zero=True,
         )
-        nonzero = np.flatnonzero(fitted.coef)
-        self.combiner_ = LinearCombiner(
-            fitted.coef[nonzero], fitted.intercept, fitted.threshold
-        )
-        return [ranked[j] for j in nonzero], fitted.threshold
+        self.threshold_ = self.combiner_.threshold
+        return [ranked[j] for j in kept]
 
     def _summary(self) -> Mapping[str, object]:
         return {

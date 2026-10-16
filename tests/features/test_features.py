@@ -658,6 +658,14 @@ def test_the_positive_label_is_chosen(writer: FakeLLM) -> None:
         _generator().generate(samples=_sample_founders(), labels=labels)
 
 
+def test_repeated_rule_names_are_made_distinct() -> None:
+    twice = GeneratedRules(rules=[*CANNED_RULES.rules, CANNED_RULES.rules[0]])
+    with fake_llms(writer=FakeLLM(generate=lambda request: twice)):
+        rules = _generator().generate(samples=_sample_founders(), labels=SAMPLE_LABELS)
+    assert [r.name for r in rules] == ["has_phd", "prior_exit", "has_phd_2"]
+    FeatureEvaluator(rules=rules)  # accepts them
+
+
 def test_each_call_draws_afresh(writer: FakeLLM) -> None:
     generator = _generator()
     for _ in range(2):

@@ -7,10 +7,12 @@ folds they are tuned on the fitted rows, which can be optimistic.
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import logging
 import re
 from dataclasses import dataclass
+from functools import partial
 from typing import Final, TypedDict
 
 import numpy as np
@@ -116,6 +118,43 @@ def fit_logistic(
     out_of_fold = out_of_fold_proba(model, features, y, splitter)
     threshold, _ = best_threshold(out_of_fold, y, beta)
     return LinearCombiner.from_model(fit(model, features, y), threshold)
+
+
+async def fit_combiner(
+    features: Floats,
+    y: Bools,
+    *,
+    l1_ratios: tuple[float, ...],
+    cv: int,
+    beta: float,
+    class_weight: str | None,
+    random_state: int | None,
+    drop_zero: bool = False,
+) -> tuple[LinearCombiner, npt.NDArray[np.intp]]:
+    """``fit_logistic`` off the event loop: the combiner, and the columns it weighs.
+
+    With ``drop_zero`` the columns whose weight is zero are dropped. A warning
+    is logged when none is left: the model then gives every sample one score.
+    """
+    fitted = await asyncio.to_thread(
+        partial(
+            fit_logistic,
+            features,
+            y,
+            l1_ratios=l1_ratios,
+            cv=cv,
+            beta=beta,
+            class_weight=class_weight,
+            random_state=random_state,
+        )
+    )
+    used = np.flatnonzero(fitted.coef) if drop_zero else np.arange(len(fitted.coef))
+    if not len(used):
+        logger.warning(
+            "Every weight is zero, so the model gives every sample the same score. "
+            "Try more samples or other rules."
+        )
+    return LinearCombiner(fitted.coef[used], fitted.intercept, fitted.threshold), used
 
 
 def n_folds(cv: int, y: Bools) -> int:

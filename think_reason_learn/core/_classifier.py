@@ -259,3 +259,44 @@ def _jsonable(value: object) -> object:
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
     return str(value)
+
+
+class BinaryTRLClassifier(TRLClassifier):
+    """Base of the two-class models: a positive class and a decision threshold.
+
+    The positive class is ``pos_label``, by default the second sorted label
+    (``"YES"`` of ``"NO"``/``"YES"``). A sample is positive when its positive
+    probability reaches ``threshold_``.
+    """
+
+    pos_label: str | None
+    threshold_: float
+
+    def _positive(self, y: Labels) -> npt.NDArray[np.bool_]:
+        """Which labels are the positive class."""
+        if len(self.classes_) != 2:
+            raise DataError(
+                f"{type(self).__name__} predicts two classes; "
+                f"y has {len(self.classes_)}."
+            )
+        return y == self._pos_index()
+
+    def _pos_index(self) -> int:
+        if self.pos_label is None:
+            return 1
+        labels = [str(c) for c in self.classes_]
+        if self.pos_label not in labels:
+            raise ValueError(f"pos_label={self.pos_label!r} is not one of {labels}.")
+        return labels.index(self.pos_label)
+
+    def _binary_proba(self, positive: npt.NDArray[np.float64]) -> Proba:
+        """Class probabilities from the positive class's."""
+        proba = np.empty((len(positive), 2))
+        proba[:, self._pos_index()] = positive
+        proba[:, 1 - self._pos_index()] = 1 - positive
+        return proba
+
+    def _decide(self, proba: Proba) -> Labels:
+        pos = self._pos_index()
+        positive = proba[:, pos] >= self.threshold_ - 1e-9
+        return np.where(positive, pos, 1 - pos).astype(np.intp)

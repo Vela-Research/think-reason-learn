@@ -95,6 +95,27 @@ def example_batches(
     return batches
 
 
+def balanced_subset(
+    codes: npt.NDArray[np.intp],
+    n_classes: int,
+    size: int,
+    rng: np.random.Generator,
+    *,
+    max_share: float = 1.0,
+) -> npt.NDArray[np.intp]:
+    """Up to ``size`` distinct samples, split evenly across the classes.
+
+    A class gives at most ``max_share`` of its samples; one with too few gives
+    what it has.
+    """
+    per_class = math.ceil(size / n_classes)
+    chosen = [
+        rng.permutation(members)[: min(per_class, int(len(members) * max_share))]
+        for members in (np.flatnonzero(codes == c) for c in range(n_classes))
+    ]
+    return np.sort(np.concatenate(chosen)).astype(np.intp)
+
+
 def count(value: int | float, n: int) -> int:
     """An int as is; a float as that fraction of ``n``, rounded up.
 

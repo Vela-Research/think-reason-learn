@@ -45,6 +45,12 @@ every model uses them.
   ``predict_founder_level`` (use ``predict``/``predict_proba``), ``cross_validate_aggregation`` (refitting reuses
   cached questions and answers, and scikit-learn's ``cross_val_score`` works), prompt presets, cumulative memory and
   embedding-based filtering.
+- **Policy Induction, rebuilt** on the new base, following the paper by default: a first policy written from 40
+  balanced examples (or ``initial_policy`` from an expert), refined with 240 balanced cases over 4 rounds, and a
+  refinement kept only when it raises precision on those cases (the paper's memory step, missing before). The
+  answerer judges each sample under the whole policy; ``predictor="rules"`` keeps the per-rule L1 logistic
+  regression. ``batch_size`` trades fidelity for fewer calls. Removed: ``confirm_requests`` (it called
+  ``input()``), checkpoints (the cache resumes), ``WeightTrainerConfig`` (plain parameters).
 - ``core._combine``: one logistic combiner and F-beta threshold search shared by the models; thresholds are tuned
   on out-of-fold scores of the final model's settings.
 - Requires ``openai`` 3.x and ``anthropic`` 1.x. The Anthropic SDK no longer takes ``temperature``; the old

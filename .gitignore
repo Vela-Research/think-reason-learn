@@ -60,3 +60,5 @@ examples/*
 .private/
 
 vcbench/*
+# Claude Code agent worktrees
+.claude/worktrees/

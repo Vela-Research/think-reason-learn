@@ -38,6 +38,7 @@ intersphinx_mapping = {
     "pandas": ("https://pandas.pydata.org/pandas-docs/stable", None),
     "numpy": ("https://numpy.org/doc/stable", None),
     "pydantic": ("https://docs.pydantic.dev/latest", None),
+    "sklearn": ("https://scikit-learn.org/stable", None),
 }
 
 # Make Sphinx include type hints alongside docstring descriptions
@@ -64,6 +65,7 @@ napoleon_attr_types = False
 napoleon_preprocess_types = True
 napoleon_use_param = True
 napoleon_use_rtype = True
+napoleon_use_ivar = True
 
 # autodoc_pydantic settings to avoid duplication and combine fields
 autodoc_pydantic_model_member_order = "groupwise"
@@ -73,16 +75,6 @@ autodoc_pydantic_field_doc_policy = "description"
 autodoc_pydantic_model_show_json = False
 autodoc_pydantic_model_show_config_summary = True
 
-# autodoc_type_aliases = {
-#     "LLMChoiceModel": "think_reason_learn.core.llms._schemas.LLMChoiceModel",
-#     "LLMChoiceDict": "think_reason_learn.core.llms._schemas.LLMChoiceDict",
-#     "LLMChoice": "think_reason_learn.core.llms._schemas.LLMChoice",
-#     "think_reason_learn.core.llms._schemas.LLMChoice": "LLMChoice",
-#     "think_reason_learn.core.llms._schemas.LLMChoiceModel": "LLMChoiceModel",
-#     "think_reason_learn.core.llms._schemas.LLMChoiceDict": "LLMChoiceDict",
-
-# }
-
 # MyST niceties
 myst_enable_extensions = ["colon_fence", "deflist", "linkify"]
 
@@ -90,22 +82,23 @@ myst_url_schemes = ("http", "https", "mailto")
 
 nitpicky = True
 
-nitpick_ignore = [
-    ("py:class", "anthropic.NotGiven"),
-    ("py:class", "openai.NotGiven"),
-    ("py:class", "T"),
-    ("py:obj", "think_reason_learn.core.llms._schemas.T"),
-    ("py:class", "think_reason_learn.core._singleton.T"),
-    ("py:class", "think_reason_learn.core.llms._schemas.T"),
-    ("py:class", "TypeAliasForwardRef"),
-    ("py:class", "LLMChoiceModel"),
-    ("py:class", "asyncio.locks.Lock"),
-    ("py:data", "typing.Union"),
+# PEP 695 type aliases, private modules, and types the inventories name differently.
+nitpick_ignore_regex = [
+    ("py:class", r".*TypeAliasType"),
+    ("py:class", r"think_reason_learn\..*\._.*"),
+    ("py:class", r"[A-Z][A-Za-z]*"),  # unqualified type alias names
+    ("py:class", r"graphviz\..*"),
+    ("py:class", r"(pathlib\._local\.Path|numpy\.(float|int)64|pandas\.core\..*)"),
+    ("std:term", r"meta-estimator"),
+    ("std:label", r"metadata_routing"),
+    ("py:func", r"sklearn\.set_config"),
 ]
 
-nitpick_ignore_regex = [
-    (r"py:class", r"DataFrame containing"),
-    (r"py:class", r"done based on (prediction|semantic)"),
+nitpick_ignore = [
+    ("py:class", "T"),
+    ("py:class", "S"),
+    ("py:class", "TypeAliasForwardRef"),
+    ("py:data", "typing.Union"),
 ]
 
 

@@ -1,10 +1,11 @@
 Changelog
 =========
 
-Unreleased
-----------
-The redesign: one way to call every model, built in steps. The new modules ship alongside the old ones until
-every model uses them.
+0.3.0
+-----
+The redesign: one way to call every model, on one provider layer, as scikit-learn classifiers, with each model
+checked against its paper. See :doc:`getting_started/migration` for every rename. 0.2.0 was never published to PyPI;
+0.3.0 is the first release there.
 
 - ``think_reason_learn.llm``: one interface to every model. A model is a ``"provider:model"`` string
   (``"openai:gpt-5-mini"``, ``"anthropic:claude-sonnet-5-5"``, ``"ollama:qwen3:8b"``, ``"jev"``) or an
@@ -73,8 +74,16 @@ every model uses them.
 - ``core._combine``: one logistic combiner and F-beta threshold search shared by the models. ``C`` is chosen by
   log loss (average precision ties on separable data and picked an over-regularised model), and thresholds are tuned
   on out-of-fold scores of the final model's settings, midway between scores so they are not knife-edged.
-- Requires ``openai`` 3.x and ``anthropic`` 1.x. The Anthropic SDK no longer takes ``temperature``; the old
-  adapter now sends it in the request body when set.
+- **Removed the old provider layer** (``think_reason_learn.core.llms``, the ``*Choice`` classes, ``TRLModel``,
+  ``core.exceptions``; exceptions live in ``think_reason_learn.exceptions``). The library no longer reads ``.env``.
+- **Lighter install**: the Google and xAI SDKs, ``pydantic-settings``, ``orjson``, ``pyarrow`` and ``httpx`` are no
+  longer needed; Anthropic (``[anthropic]``), PyTorch (``[rl]``) and a price table (``[prices]``) are extras, and
+  ``[all]`` installs them all. License metadata uses an SPDX expression.
+- **Lambda features**: ``FeatureGenerator(schema, helpers, generator="openai:gpt-5-mini")`` with ``generate`` and
+  ``agenerate``, on the new layer.
+- Docs: new quick start, installation guide and a migration guide; the API reference covers the new modules and
+  builds without warnings. Examples: one notebook per model, all runnable offline in tests' style.
+- Requires ``openai`` 3.x (and ``anthropic`` 1.x for Claude).
 
 0.2.0
 -----

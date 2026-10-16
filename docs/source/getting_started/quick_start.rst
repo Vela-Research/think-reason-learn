@@ -1,75 +1,80 @@
 Quick start
 -----------
 
-This fits a small GPTree on six example founder profiles, draws the tree and prints a prediction for each profile. Run
-it in Jupyter, which allows ``await`` at the top level, with ``OPENAI_API_KEY`` and ``TYPESAFE_API_KEY`` set and
-Graphviz installed.
+Fit a GPTree on a handful of founder profiles. The generator writes questions, the answerer answers them for each
+founder, and the tree learns which answers predict success.
 
 .. code-block:: python
 
-   import pandas as pd
-   from IPython.display import Image, display
    from think_reason_learn.gptree import GPTree
-   from think_reason_learn.core.llms import OpenAIChoice
 
-   X = pd.DataFrame({"founder_info": [
-       "Alex is a serial entrepreneur with two successful exits and expertise in AI.",
-       "Jordan graduated top of class from Oxford but has no business experience.",
-       "Taylor has 10 years in finance, raised a seed round quickly and built a strong team.",
-       "Casey started a company out of high school and has faced several failures.",
-       "Morgan is a former Google engineer with machine learning patents and VC backing.",
-       "Seraphine has a first-class degree in Minerals Engineering and a strong mining network.",
-   ]})
-   y = ["successful", "failed", "successful", "failed", "successful", "successful"]
+   X = [
+       "Alex is a serial entrepreneur with two exits and a strong network in AI.",
+       "Jordan graduated top of class from MIT but has no business experience.",
+       "Taylor has 10 years in finance and raised a seed round quickly.",
+       "Casey started a company out of high school and failed twice.",
+       "Morgan is a former Google engineer with patents in machine learning.",
+       "Riley left a consulting job last month and has no product yet.",
+   ]
+   y = ["successful", "failed", "successful", "failed", "successful", "failed"]
 
-   llm = [OpenAIChoice(model="gpt-4o-mini")]
-   tree = GPTree(qgen_llmc=llm, critic_llmc=llm, qgen_instr_llmc=llm, max_depth=2)
-   await tree.set_task("Predict whether a founder succeeds or fails from their background.")
-   await tree.fit(X, y, reset=True)
+   tree = GPTree(
+       task="Predict whether a startup founder will succeed.",
+       generator="openai:gpt-5-mini",
+       answerer="jev",
+       min_samples_leaf=1,
+   )
+   tree.write_instructions()      # optional: read or edit before the expensive fit
+   tree.fit(X, y)
 
-   display(Image(tree.view_node(tree.get_root_id())))
-   print(tree.get_questions())
+   tree.predict(["Sam is a staff engineer who sold a company."])
+   tree.predict_proba(X)
+   tree.plot()                    # needs Graphviz
+   tree.usage_.by("role", "model")
 
-   async for index, question, answer, node_id, usage in tree.predict(X):
-       print(index, question, answer)
-
-``fit()`` returns once the whole tree is built. To get each node as it is built, for example to ``stop()`` the tree
-or give it ``advice()`` between nodes, iterate ``tree.fit_iter(X, y)`` instead.
-
-Other providers work the same way. Use ``AnthropicChoice``, ``GoogleChoice`` or ``XAIChoice`` from
-``think_reason_learn.core.llms`` with the matching API key. The API reference covers
-:doc:`Random Rule Forest </think_reason_learn.rrf>` and the other methods.
-
-Who answers the questions
-~~~~~~~~~~~~~~~~~~~~~~~~~
-
-The chat model above writes the tree's questions. Jev, Typesafe's System One model, answers them for each profile:
-it is the default answering model in GPTree, Random Rule Forest (``qanswer_llmc``) and Policy Induction
-(``predict_llmc``). Jev reads one sample and answers all the questions about it in one request, so the sample is paid
-for once rather than once per question. Labels are never sent to it.
-
-Before a run spends anything, the library prints the estimated cost. Each ``fit()`` or ``predict()`` stops if the
-estimate, or the actual spend, passes its cap, which is $10 unless you set another. Answers already paid for are kept
-in ``~/.cache/think_reason_learn/jev`` and reused when the same sample and questions come up again:
+The other models are called the same way:
 
 .. code-block:: python
 
-   from think_reason_learn.core.llms import JevChoice
+   from think_reason_learn.policy_induction import PolicyInduction
+   from think_reason_learn.reasoned_rule_mining import ReasonedRuleMining
+   from think_reason_learn.rrf import RRF
 
-   tree = GPTree(qgen_llmc=llm, critic_llmc=llm, qgen_instr_llmc=llm,
-                 qanswer_llmc=[JevChoice(max_cost_usd=25, cache=False)])
+   RRF(task=task, generator="openai:gpt-5-mini").fit(X, y)
+   PolicyInduction(task=task, generator="anthropic:claude-sonnet-5-5").fit(X, y)
+   ReasonedRuleMining(task=task, generator="openai:gpt-5-mini", harsh_answerer="openai:gpt-5").fit(X, y)
 
-To answer with a chat model instead, for example because you have no ``TYPESAFE_API_KEY``, pass it as the answering
-model:
+Choosing models
+~~~~~~~~~~~~~~~
+
+A model is ``"provider:model"`` or an ``LLM`` with settings; a tuple is a fallback order. Reasoning models write and
+answer; decision models such as Jev only answer, with probabilities.
 
 .. code-block:: python
 
-   tree = GPTree(qgen_llmc=llm, critic_llmc=llm, qgen_instr_llmc=llm, qanswer_llmc=llm, max_depth=2)
+   from think_reason_learn import LLM
 
-Why Jev: on twelve benchmark datasets we had studied before, with the same Random Rule Forest questions and the same
-logistic combiner, Jev's probabilities gave a mean test AUC of 0.686, against 0.660 for Jev's answers recorded as
-YES/NO at 0.5 and 0.630 for Gemini's YES/NO answers. Random Rule Forest's default combiner, elastic-net, uses the
-probabilities. For Policy Induction, Jev's probabilities gave 0.695 against Gemini's 0.683. This is a development
-comparison, not an independent evaluation. As for cost, answering 2,194 court cases (ECHR) with 14 questions each
-through this library used 3.16 million input tokens: $0.13 at Jev's list price of $42 per billion input tokens
-(checked 22 September 2026).
+   GPTree(
+       task=task,
+       generator=("anthropic:claude-sonnet-5-5", "openai:gpt-5-mini"),
+       answerer=LLM("ollama:qwen3:8b", questions_per_call=5),
+       critic=True,
+   )
+
+Async code
+~~~~~~~~~~
+
+``fit`` and ``predict`` work in notebooks and scripts. In async applications use ``afit``, ``apredict`` and
+``apredict_proba``.
+
+Offline tests
+~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   from think_reason_learn.testing import FakeLLM, fake_llms
+
+   writer = FakeLLM(generate=lambda request: {"questions": [{"text": "Is the founder technical?"}]})
+   judge = FakeLLM(answer=lambda sample, question: 0.9 if "engineer" in sample else 0.1, kind="decision")
+   with fake_llms(writer=writer, judge=judge):
+       GPTree(task=task, generator="fake:writer", answerer="fake:judge").fit(X, y)

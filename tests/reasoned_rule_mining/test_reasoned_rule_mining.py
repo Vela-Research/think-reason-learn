@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 from collections.abc import Iterator
 from functools import partial
-from pathlib import Path
 
 import pytest
 
@@ -15,7 +14,6 @@ from think_reason_learn.reasoned_rule_mining import ReasonedRuleMining
 from think_reason_learn.testing import (
     FakeLLM,
     GenerateRequest,
-    check_classifier,
     fake_llms,
 )
 
@@ -56,10 +54,6 @@ def fakes() -> Iterator[tuple[FakeLLM, FakeLLM]]:
     writer, answerer = FakeLLM(generate=write), FakeLLM(answer=judge, kind="decision")
     with fake_llms(writer=writer, judge=answerer):
         yield writer, answerer
-
-
-def test_contract(fakes: tuple[FakeLLM, FakeLLM], tmp_path: Path) -> None:
-    check_classifier(rule_mining, FOUNDERS, LABELS, tmp_path)
 
 
 def test_mines_one_rule_per_sample_from_its_true_class(

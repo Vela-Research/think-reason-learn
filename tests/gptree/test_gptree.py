@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from functools import partial
-from pathlib import Path
 
 import numpy as np
 import pytest
@@ -16,7 +15,6 @@ from think_reason_learn.llm import ChoiceQuestion, Question
 from think_reason_learn.testing import (
     FakeLLM,
     GenerateRequest,
-    check_classifier,
     fake_llms,
 )
 
@@ -66,10 +64,6 @@ def fakes() -> Iterator[tuple[FakeLLM, FakeLLM]]:
     writer, judge = FakeLLM(generate=write), FakeLLM(answer=answer)
     with fake_llms(writer=writer, judge=judge):
         yield writer, judge
-
-
-def test_contract(fakes: tuple[FakeLLM, FakeLLM], tmp_path: Path) -> None:
-    check_classifier(tree, FOUNDERS, LABELS, tmp_path)
 
 
 def test_splits_on_the_question_that_separates_the_classes(

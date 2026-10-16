@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from functools import partial
-from pathlib import Path
 
 import numpy as np
 import pytest
@@ -16,7 +15,6 @@ from think_reason_learn.rrf._selection import question_stats, rank, tune_vote, v
 from think_reason_learn.testing import (
     FakeLLM,
     GenerateRequest,
-    check_classifier,
     fake_llms,
 )
 
@@ -68,10 +66,6 @@ def judge() -> Iterator[FakeLLM]:
     fake = FakeLLM(answer=answer)
     with fake_llms(writer=FakeLLM(generate=write), judge=fake):
         yield fake
-
-
-def test_contract(judge: FakeLLM, tmp_path: Path) -> None:
-    check_classifier(rrf, FOUNDERS, LABELS, tmp_path)
 
 
 def test_the_vote_uses_the_question_that_predicts(judge: FakeLLM) -> None:

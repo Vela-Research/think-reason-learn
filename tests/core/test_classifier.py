@@ -53,14 +53,12 @@ class OneQuestion(TRLClassifier):
         return self.table_[(await self._yes(texts, session)).astype(int)]
 
     async def _yes(self, texts: list[str], session: LLMSession) -> np.ndarray:
-        with self._progress(len(texts), "answers") as progress:
-            answers = await session.answer(
-                self._models("answerer", "answer"),
-                texts,
-                {"q": YesNoQuestion(self.question_)},
-                role="answerer",
-                progress=progress,
-            )
+        answers = await session.answer(
+            self._models("answerer", "answer"),
+            texts,
+            {"q": YesNoQuestion(self.question_)},
+            role="answerer",
+        )
         return np.array([a["q"] is not None and a["q"].label == "YES" for a in answers])
 
 

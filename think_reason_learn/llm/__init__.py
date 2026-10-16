@@ -19,7 +19,7 @@ from ._config import (
 )
 from ._estimate import estimate_answers, estimate_generations
 from ._loop import run_async, run_sync
-from ._questions import NO, YES, Answer, ChoiceQuestion, Question, YesNoQuestion
+from ._questions import NO, YES, YES_AT, Answer, ChoiceQuestion, Question, YesNoQuestion
 from ._session import LLMSession
 from ._spec import (
     LLM,
@@ -38,6 +38,7 @@ __all__ = [
     "LLM",
     "NO",
     "YES",
+    "YES_AT",
     "Answer",
     "Answers",
     "Budget",

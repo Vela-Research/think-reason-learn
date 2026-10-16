@@ -38,7 +38,6 @@ from think_reason_learn.core._data import (
     TextInput,
     count,
     example_batches,
-    to_texts,
 )
 from think_reason_learn.core._prompts import examples_block
 from think_reason_learn.llm import (
@@ -54,7 +53,6 @@ from think_reason_learn.llm import (
     estimate_answers,
     estimate_generations,
     resolve_models,
-    run_sync,
 )
 from think_reason_learn.llm._estimate import QUESTION_TOKENS, mean_tokens, text_tokens
 
@@ -189,7 +187,7 @@ class GPTree(TRLClassifier):
 
     def apply(self, X: TextInput) -> npt.NDArray[np.intp]:
         """The leaf each sample reaches."""
-        return run_sync(self._route(to_texts(X)[0], self._session()))
+        return self._run(X, "routing", self._route)
 
     def plot(self) -> graphviz.Source:
         """The tree as a Graphviz figure (needs the Graphviz program to render)."""

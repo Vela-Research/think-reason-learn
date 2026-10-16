@@ -11,6 +11,7 @@ Example:
 from __future__ import annotations
 
 import pickle
+import uuid
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -38,7 +39,14 @@ from think_reason_learn.llm._adapters import (
     Reply,
 )
 from think_reason_learn.llm._adapters._base import Failure as Failure_
-from think_reason_learn.llm._questions import Answer, Question, YesNoQuestion
+from think_reason_learn.llm._questions import (
+    NO,
+    YES,
+    YES_AT,
+    Answer,
+    Question,
+    YesNoQuestion,
+)
 from think_reason_learn.llm._spec import Endpoint, ModelKind
 from think_reason_learn.llm._usage import Price, TokenCounts
 
@@ -102,11 +110,14 @@ class FakeLLM:
 def fake_llms(**models: FakeLLM) -> Iterator[None]:
     """Make each fake callable as ``"fake:<name>"`` inside the block."""
     ADAPTERS["fake"] = _ADAPTER
-    _spec._PROVIDERS.setdefault(
+    before = _spec._PROVIDERS.get("fake")
+    # A fresh address per block, so replies cached by earlier fakes never answer.
+    _spec._PROVIDERS["fake"] = _spec._Provider(
         "fake",
-        _spec._Provider(
-            "fake", None, local=True, decision="fake", catalog=_decision_fakes
-        ),
+        f"fake://{uuid.uuid4().hex}",
+        local=True,
+        decision="fake",
+        catalog=_decision_fakes,
     )
     _registry.update(models)
     try:
@@ -114,6 +125,8 @@ def fake_llms(**models: FakeLLM) -> Iterator[None]:
     finally:
         for name in models:
             _registry.pop(name, None)
+        if before is not None:
+            _spec._PROVIDERS["fake"] = before
 
 
 _registry: Final[dict[str, FakeLLM]] = {}
@@ -207,7 +220,7 @@ def _answer(reply: AnswerReply, question: Question, *, decision: bool) -> Answer
     if isinstance(reply, (int, float)) and isinstance(question, YesNoQuestion):
         if decision:
             return Answer.yes_probability(float(reply))
-        reply = "YES" if reply >= 0.5 else "NO"
+        reply = YES if reply >= YES_AT else NO
     if isinstance(reply, str) and reply in question.labels:
         return Answer.certain(reply, question.labels)
     return None

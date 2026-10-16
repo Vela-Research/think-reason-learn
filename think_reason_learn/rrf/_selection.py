@@ -12,6 +12,8 @@ from functools import partial
 
 import numpy as np
 import numpy.typing as npt
+
+from think_reason_learn.llm import YES_AT
 from sklearn.model_selection import StratifiedKFold
 
 from think_reason_learn.core._combine import Bools, Floats, fbeta, n_folds
@@ -125,4 +127,4 @@ def tune_vote(
 
 def as_yes(probabilities: npt.NDArray[np.float64]) -> Bools:
     """Answers as YES (probability of yes at least 0.5); missing answers are NO."""
-    return np.nan_to_num(probabilities, nan=0.0) >= 0.5
+    return np.nan_to_num(probabilities, nan=0.0) >= YES_AT

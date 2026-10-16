@@ -176,6 +176,7 @@ def test_unreadable_cache_entries_are_asked_again(tmp_path: Path) -> None:
         models = _resolved("judge")
         run_sync(LLMSession().answer(models, ["x"], QUESTIONS, role="a"))
         cache = open_cache(get_config().cache_path)
+        assert cache is not None
         rows = cache._db.execute("SELECT key FROM replies").fetchall()
         cache.put_many({key: {"label": "corrupt"} for (key,) in rows})
         [result] = run_sync(LLMSession().answer(models, ["x"], QUESTIONS, role="a"))
@@ -308,12 +309,8 @@ def test_progress_counts_answers() -> None:
     seen: list[int] = []
     with fake_llms(judge=FakeLLM(answer=_answer)):
         run_sync(
-            LLMSession().answer(
-                _resolved("judge"),
-                ["x", "y"],
-                QUESTIONS,
-                role="a",
-                progress=seen.append,
+            LLMSession(progress=seen.append).answer(
+                _resolved("judge"), ["x", "y"], QUESTIONS, role="a"
             )
         )
     assert sum(seen) == 4

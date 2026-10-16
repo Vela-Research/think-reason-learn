@@ -35,6 +35,7 @@ from think_reason_learn.core._combine import LinearCombiner, fit_logistic, n_fol
 from think_reason_learn.core._data import balanced_subset, example_batches
 from think_reason_learn.core._prompts import examples_block
 from think_reason_learn.llm import (
+    YES_AT,
     Endpoint,
     LLMSession,
     Models,
@@ -152,7 +153,7 @@ class PolicyInduction(BinaryTRLClassifier):
         )
         self.policy_, self.combiner_, self.weighted_rules_ = policy, None, ()
         if self.predictor == "policy":
-            self.threshold_ = 0.5  # the paper takes the answerer's call as it is
+            self.threshold_ = YES_AT  # the paper takes the answerer's call as is
         else:
             await self._fit_rules(texts, positive, cases, session)
 
@@ -323,15 +324,13 @@ class PolicyInduction(BinaryTRLClassifier):
         self, texts: Sequence[str], rules: Sequence[str], session: LLMSession
     ) -> npt.NDArray[np.float64]:
         """Probability that each rule (columns) holds for each sample (rows)."""
-        with self._progress(len(texts) * len(rules), "rule answers") as progress:
-            return await yes_probabilities(
-                session,
-                self._models("answerer", "answer"),
-                texts,
-                [rule_question(rule) for rule in rules],
-                missing=0.0,
-                progress=progress,
-            )
+        return await yes_probabilities(
+            session,
+            self._models("answerer", "answer"),
+            texts,
+            [rule_question(rule) for rule in rules],
+            missing=0.0,
+        )
 
     async def _fit_rules(
         self,
@@ -388,5 +387,5 @@ def _precision(
     scores: npt.NDArray[np.float64], positive: npt.NDArray[np.bool_]
 ) -> float:
     """Precision of calling a sample positive when its probability is at least 0.5."""
-    called = scores >= 0.5
+    called = scores >= YES_AT
     return float((called & positive).sum() / called.sum()) if called.any() else 0.0

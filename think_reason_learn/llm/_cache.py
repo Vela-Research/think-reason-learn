@@ -10,14 +10,16 @@ from __future__ import annotations
 
 import hashlib
 import json
+import itertools
 import logging
-import os
 import sqlite3
 import threading
 import time
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Final
+
+from ._loop import on_fork
 
 logger = logging.getLogger(__name__)
 
@@ -55,17 +57,21 @@ class Cache:
         self._lock = threading.Lock()
 
     def get_many(self, keys: Iterable[str]) -> dict[str, JSON]:
-        """The stored replies among ``keys``."""
-        wanted = list(dict.fromkeys(keys))
+        """The stored replies among ``keys``; an unreadable one counts as missing."""
         found: dict[str, JSON] = {}
-        for start in range(0, len(wanted), _BATCH):
-            batch = wanted[start : start + _BATCH]
+        for batch in itertools.batched(dict.fromkeys(keys), _BATCH):
             marks = ",".join("?" * len(batch))
-            with self._lock:
-                rows = self._db.execute(
-                    f"SELECT key, value FROM replies WHERE key IN ({marks})", batch
-                ).fetchall()
-            found.update((key, json.loads(value)) for key, value in rows)
+            try:
+                with self._lock:
+                    rows = self._db.execute(
+                        f"SELECT key, value FROM replies WHERE key IN ({marks})", batch
+                    ).fetchall()
+            except sqlite3.Error:
+                logger.warning("Could not read the reply cache.", exc_info=True)
+                return found
+            found.update(
+                (key, value) for key, value in map(_decoded, rows) if key is not None
+            )
         return found
 
     def put_many(self, replies: Mapping[str, JSON]) -> None:
@@ -90,12 +96,28 @@ _caches: Final[dict[Path, Cache]] = {}
 _caches_lock: Final = threading.Lock()
 
 
-def open_cache(path: Path) -> Cache:
-    """The cache at ``path``, opened once per process."""
+def open_cache(path: Path) -> Cache | None:
+    """The cache at ``path``, opened once per process; ``None`` if it cannot open.
+
+    A read-only folder or a corrupt file turns caching off for the run, with a
+    warning, instead of stopping it.
+    """
     with _caches_lock:
         if path not in _caches:
-            _caches[path] = Cache(path)
+            try:
+                _caches[path] = Cache(path)
+            except (OSError, sqlite3.Error) as error:
+                logger.warning(f"Running without the reply cache at {path}: {error}")
+                return None
         return _caches[path]
 
 
-os.register_at_fork(after_in_child=_caches.clear)
+on_fork(_caches.clear)
+
+
+def _decoded(row: tuple[str, str]) -> tuple[str | None, JSON]:
+    key, value = row
+    try:
+        return key, json.loads(value)
+    except ValueError:
+        return None, None

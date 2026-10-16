@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 
 import numpy as np
 import numpy.typing as npt
@@ -18,7 +18,6 @@ async def yes_probabilities(
     *,
     missing: float,
     draw: int = 0,
-    progress: Callable[[int], None] | None = None,
 ) -> npt.NDArray[np.float64]:
     """Probability of yes for each sample (rows) and yes/no question (columns).
 
@@ -29,14 +28,11 @@ async def yes_probabilities(
         questions: The questions' text.
         missing: The value of an unanswered question.
         draw: Ask again instead of reusing answers of an earlier draw.
-        progress: Called with the number of answers as they arrive.
     """
     if not questions or not texts:
         return np.full((len(texts), len(questions)), missing)
     asked = {f"q{j}": YesNoQuestion(q) for j, q in enumerate(questions)}
-    answers = await session.answer(
-        models, texts, asked, role="answerer", draw=draw, progress=progress
-    )
+    answers = await session.answer(models, texts, asked, role="answerer", draw=draw)
     return np.array(
         [
             [

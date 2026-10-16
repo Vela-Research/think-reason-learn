@@ -33,7 +33,6 @@ from think_reason_learn.core._data import (
     balanced_subset,
     count,
     example_batches,
-    to_texts,
 )
 from think_reason_learn.core._prompts import examples_block
 from think_reason_learn.llm import (
@@ -43,7 +42,6 @@ from think_reason_learn.llm import (
     UsageRecord,
     estimate_answers,
     estimate_generations,
-    run_sync,
 )
 from think_reason_learn.llm._estimate import QUESTION_TOKENS, mean_tokens
 
@@ -155,8 +153,11 @@ class RRF(BinaryTRLClassifier):
 
     def answers(self, X: TextInput) -> pd.DataFrame:
         """Probability of YES for each rule (columns) and sample (rows)."""
-        texts = to_texts(X)[0]
-        matrix = run_sync(self._answer(texts, self.rules_, self._session()))
+        matrix = self._run(
+            X,
+            "answering",
+            lambda texts, session: self._answer(texts, self.rules_, session),
+        )
         return pd.DataFrame(matrix, columns=pd.Index(self.rules_))
 
     async def _afit(self, texts: list[str], y: Labels, session: LLMSession) -> None:
@@ -300,15 +301,13 @@ class RRF(BinaryTRLClassifier):
         self, texts: Sequence[str], questions: Sequence[str], session: LLMSession
     ) -> npt.NDArray[np.float64]:
         """P(YES) per sample (rows) and question (columns); NaN where unanswered."""
-        with self._progress(len(texts) * len(questions), "RRF answers") as progress:
-            return await yes_probabilities(
-                session,
-                self._models("answerer", "answer"),
-                texts,
-                questions,
-                missing=np.nan,
-                progress=progress,
-            )
+        return await yes_probabilities(
+            session,
+            self._models("answerer", "answer"),
+            texts,
+            questions,
+            missing=np.nan,
+        )
 
     def _select(
         self,

@@ -7,6 +7,8 @@ from typing import Final
 
 YES: Final = "YES"
 NO: Final = "NO"
+YES_AT: Final = 0.5
+"""A probability of yes from which the answer counts as yes."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,7 +40,8 @@ class ChoiceQuestion:
     labels: tuple[str, ...]
 
     def __post_init__(self) -> None:
-        """Check the labels."""
+        """Check the labels, and keep them as a tuple (a list is accepted)."""
+        object.__setattr__(self, "labels", tuple(self.labels))
         if len(self.labels) < 2 or len(set(self.labels)) != len(self.labels):
             raise ValueError(
                 f"A choice question needs two or more different labels, got "
@@ -71,7 +74,8 @@ class Answer:
     def yes_probability(cls, probability: float) -> Answer:
         """A yes/no answer from the probability of yes."""
         return cls(
-            YES if probability >= 0.5 else NO, {YES: probability, NO: 1 - probability}
+            YES if probability >= YES_AT else NO,
+            {YES: probability, NO: 1 - probability},
         )
 
     def probability(self, label: str = YES) -> float:

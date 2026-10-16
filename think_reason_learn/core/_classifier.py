@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Iterator
+from collections.abc import Awaitable, Callable, Iterator
 from contextlib import contextmanager
 from typing import ClassVar, Self
 
@@ -43,6 +43,8 @@ logger = logging.getLogger(__name__)
 
 type Proba = npt.NDArray[np.float64]
 type Labels = npt.NDArray[np.intp]
+type Work[T] = Callable[[list[str], LLMSession], Awaitable[T]]
+"""Work on a model's texts within one session, at prediction time."""
 
 
 class TRLClassifier(Persistable, ClassifierMixin, BaseEstimator, ABC):
@@ -58,6 +60,7 @@ class TRLClassifier(Persistable, ClassifierMixin, BaseEstimator, ABC):
 
     task: str | None
     instructions: str | None
+    verbose: int = 0
     classes_: npt.NDArray[np.object_]
     n_features_in_: int
     feature_names_in_: npt.NDArray[np.object_]
@@ -81,19 +84,20 @@ class TRLClassifier(Persistable, ClassifierMixin, BaseEstimator, ABC):
         Returns:
             The fitted model.
         """
-        return run_sync(self._fit(X, y, LLMSession()))
+        return run_sync(self._fit(X, y))
 
     async def afit(self, X: TextInput, y: LabelInput) -> Self:
         """Fit the model, from async code. See ``fit``."""
-        return await run_async(self._fit(X, y, LLMSession()))
+        return await run_async(self._fit(X, y))
 
     def predict_proba(self, X: TextInput) -> Proba:
         """Class probabilities, one row per sample, columns in ``classes_`` order."""
-        return run_sync(self._proba(X, self._session()))
+        return self._run(X, "predicting", self._checked_proba)
 
     async def apredict_proba(self, X: TextInput) -> Proba:
         """Class probabilities, from async code. See ``predict_proba``."""
-        return await run_async(self._proba(X, self._session()))
+        check_is_fitted(self)
+        return await run_async(self._arun(X, "predicting", self._checked_proba))
 
     def predict(self, X: TextInput) -> npt.NDArray[np.object_]:
         """The predicted label of each sample."""
@@ -139,6 +143,10 @@ class TRLClassifier(Persistable, ClassifierMixin, BaseEstimator, ABC):
         writer = self._models("generator", "generate")
         self.instructions = run_sync(self._written_instructions(LLMSession(), writer))
         return self.instructions
+
+    def __sklearn_is_fitted__(self) -> bool:
+        """Fitted once a fit has finished; a failed fit leaves only ``usage_``."""
+        return hasattr(self, "classes_")
 
     def __sklearn_tags__(self) -> Tags:
         """Text input, and answers that can vary between calls."""
@@ -203,60 +211,71 @@ class TRLClassifier(Persistable, ClassifierMixin, BaseEstimator, ABC):
         return resolve_models(models, param=param, task=task)
 
     @contextmanager
-    def _progress(
-        self, total: int, description: str
-    ) -> Iterator[Callable[[int], None] | None]:
-        """A progress callback when ``verbose`` is set, else ``None``."""
-        if not getattr(self, "verbose", 0):
-            yield None
+    def _session(self, doing: str, usage: Usage | None = None) -> Iterator[LLMSession]:
+        """A session for one run, counting answers on a progress bar if ``verbose``."""
+        if not self.verbose:
+            yield LLMSession(usage=usage)
             return
         from tqdm.auto import tqdm
 
-        with tqdm(total=total, desc=description, unit="answer") as bar:
+        with tqdm(desc=f"{type(self).__name__} {doing}", unit=" answers") as bar:
 
             def advance(count: int) -> None:
                 bar.update(count)
 
-            yield advance
+            yield LLMSession(usage=usage, progress=advance)
 
-    def _session(self) -> LLMSession:
+    def _run[T](self, X: TextInput, doing: str, work: Work[T]) -> T:
+        """Run ``work`` on the texts of ``X``, recorded in ``usage_``."""
         check_is_fitted(self)
-        return LLMSession(usage=self.usage_)
+        return run_sync(self._arun(X, doing, work))
 
-    async def _fit(self, X: TextInput, y: LabelInput, session: LLMSession) -> Self:
-        texts, names = to_texts(X)
-        classes, codes = _encoded(texts, y)
-        self._task()
-        self._check_classes(classes)
-        self._forget_fitted()
-        self.classes_, self.usage_ = classes, session.usage
-        self.n_features_in_ = len(names) if names is not None else 1
-        if names is not None:
-            self.feature_names_in_ = np.asarray(names, dtype=object)
-        try:
-            await self._afit(texts, codes, session)
-        except BaseException:
-            self._forget_fitted()
-            raise
-        return self
+    async def _arun[T](self, X: TextInput, doing: str, work: Work[T]) -> T:
+        texts = self._texts(X)
+        with self._session(doing, self.usage_) as session:
+            return await work(texts, session)
 
-    def _check_classes(self, classes: npt.NDArray[np.object_]) -> None:
-        """Raise before any call if the model cannot learn ``classes``."""
-
-    def _forget_fitted(self) -> None:
-        """Drop what an earlier or failed fit learned, so nothing stale remains."""
-        for name in [
-            n for n in vars(self) if n.endswith("_") and not n.startswith("_")
-        ]:
-            delattr(self, name)
-
-    async def _proba(self, X: TextInput, session: LLMSession) -> Proba:
+    def _texts(self, X: TextInput) -> list[str]:
+        """The texts of ``X``, whose columns must be those fitted on."""
         texts, names = to_texts(X)
         expected = getattr(self, "feature_names_in_", None)
         if expected is not None and names is not None and list(expected) != names:
             raise DataError(
                 f"X has columns {names}; the model was fitted on {list(expected)}."
             )
+        return texts
+
+    async def _fit(self, X: TextInput, y: LabelInput) -> Self:
+        texts, names = to_texts(X)
+        classes, codes = _encoded(texts, y)
+        self._task()
+        self._check_classes(classes)
+        self._forget_fitted()
+        with self._session("fitting") as session:
+            self.classes_, self.usage_ = classes, session.usage
+            self.n_features_in_ = len(names) if names is not None else 1
+            if names is not None:
+                self.feature_names_in_ = np.asarray(names, dtype=object)
+            try:
+                await self._afit(texts, codes, session)
+            except BaseException:
+                self._forget_fitted(keep="usage_")  # what the failed fit spent
+                raise
+        return self
+
+    def _check_classes(self, classes: npt.NDArray[np.object_]) -> None:
+        """Raise before any call if the model cannot learn ``classes``."""
+
+    def _forget_fitted(self, *, keep: str | None = None) -> None:
+        """Drop what an earlier or failed fit learned, so nothing stale remains."""
+        for name in [
+            n
+            for n in vars(self)
+            if n.endswith("_") and not n.startswith("_") and n != keep
+        ]:
+            delattr(self, name)
+
+    async def _checked_proba(self, texts: list[str], session: LLMSession) -> Proba:
         proba = await self._apredict_proba(texts, session)
         if proba.shape != (len(texts), len(self.classes_)):
             raise RuntimeError(

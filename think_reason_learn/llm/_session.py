@@ -27,7 +27,12 @@ from ._adapters import ADAPTERS, Answers, GenerateRequest, ProviderError, Reply
 from ._cache import JSON, Cache, cache_key, open_cache
 from ._calls import send
 from ._config import get_config
-from ._estimate import ANSWER_OUTPUT_TOKENS, GENERATE_OUTPUT_TOKENS, call_tokens
+from ._estimate import (
+    GENERATE_OUTPUT_TOKENS,
+    answer_output_tokens,
+    call_tokens,
+    planned_cost,
+)
 from ._limiter import apply_limits
 from ._questions import Answer, Question
 from ._spec import Endpoint
@@ -37,6 +42,8 @@ logger = logging.getLogger(__name__)
 
 _WINDOW: Final = 256
 """Answer requests scheduled at once; the limiter decides how many are sent."""
+_DEAD_AFTER: Final = 5
+"""Failed requests in a row, retries spent, after which a model's pass stops."""
 
 
 class LLMSession:
@@ -47,10 +54,17 @@ class LLMSession:
 
     Args:
         usage: Where calls are recorded; a new ``Usage`` by default.
+        progress: Called with the number of answers each time some arrive.
     """
 
-    def __init__(self, *, usage: Usage | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        usage: Usage | None = None,
+        progress: Callable[[int], None] | None = None,
+    ) -> None:
         """Start a run under the current settings."""
+        self.progress = progress
         self.config = get_config()
         self.usage = usage if usage is not None else Usage()
         self.budget = Budget(self.config.max_cost_usd)
@@ -150,7 +164,6 @@ class LLMSession:
         *,
         role: str,
         draw: int = 0,
-        progress: Callable[[int], None] | None = None,
     ) -> list[Answers]:
         """Answer every question about every sample.
 
@@ -162,7 +175,6 @@ class LLMSession:
             questions: Questions by id.
             role: Who is asking, recorded with usage, e.g. ``"answerer"``.
             draw: Different draws ask again; the same draw reuses answers.
-            progress: Called with the number of answers each time some arrive.
 
         Returns:
             Per sample, the answer to each question id; ``None`` if unanswered.
@@ -176,9 +188,7 @@ class LLMSession:
         errors: list[str] = []
         digests = [hashlib.sha256(sample.encode()).hexdigest() for sample in samples]
         for endpoint in models:
-            pass_ = _AnswerPass(
-                self, endpoint, samples, digests, questions, role, draw, progress
-            )
+            pass_ = _AnswerPass(self, endpoint, samples, digests, questions, role, draw)
             if not await pass_.run(results, errors):
                 break
         if (
@@ -337,8 +347,8 @@ class _AnswerPass:
     questions: Mapping[str, Question]
     role: str
     draw: int
-    progress: Callable[[int], None] | None
     unavailable: bool = False
+    failed_in_a_row: int = 0
     fatal: ProviderAuthError | BudgetExceededError | None = None
 
     async def run(self, results: list[Answers], errors: list[str]) -> bool:
@@ -404,9 +414,11 @@ class _AnswerPass:
             return
         tokens = TokenCounts(
             input=sum(self._estimate(r) for r in requests),
-            output=sum(len(r.qids) for r in requests) * ANSWER_OUTPUT_TOKENS,
+            output=sum(
+                answer_output_tokens(self.endpoint, len(r.qids)) for r in requests
+            ),
         )
-        cost = call_cost(self.endpoint, tokens, None)[0]
+        cost = planned_cost(self.endpoint, len(requests), tokens)[0]
         what = f"Answering with {self.endpoint.name} ({len(requests)} calls)"
         logger.info(
             f"{what}: estimated "
@@ -429,9 +441,13 @@ class _AnswerPass:
             await self._ask(request, results)
         except ProviderError as error:
             errors.append(f"{self.endpoint.name}: {error}")
-            self.unavailable |= error.failure == "unavailable"
+            self.failed_in_a_row += 1
+            if error.failure == "unavailable" or self.failed_in_a_row >= _DEAD_AFTER:
+                self.unavailable = True
         except (ProviderAuthError, BudgetExceededError) as error:
             self.fatal = error
+        else:
+            self.failed_in_a_row = 0
 
     async def _ask(self, request: _Request, results: list[Answers]) -> None:
         sample = self.samples[request.sample]
@@ -443,7 +459,7 @@ class _AnswerPass:
             lambda dropped: adapter.answer(endpoint, sample, asked, dropped),
             TokenCounts(
                 input=self._estimate(request),
-                output=len(asked) * ANSWER_OUTPUT_TOKENS,
+                output=answer_output_tokens(endpoint, len(asked)),
             ),
         )
         stored: dict[str, JSON] = {}
@@ -459,8 +475,8 @@ class _AnswerPass:
         self.session.budget.check()
 
     def _advance(self, count: int) -> None:
-        if self.progress is not None and count:
-            self.progress(count)
+        if self.session.progress is not None and count:
+            self.session.progress(count)
 
 
 @dataclass(slots=True)

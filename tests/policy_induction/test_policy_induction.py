@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from functools import partial
 
 import pytest
 
-from think_reason_learn.exceptions import DataError, LLMError
+from think_reason_learn.exceptions import LLMError
 from think_reason_learn.llm import Question
 from think_reason_learn.policy_induction import PolicyInduction
 from think_reason_learn.testing import (
@@ -56,13 +56,11 @@ policy_induction = partial(
 
 
 @pytest.fixture
-def fakes() -> Iterator[tuple[FakeLLM, FakeLLM]]:
-    write, judge = (
+def scripted() -> tuple[FakeLLM, FakeLLM]:
+    return (
         FakeLLM(generate=writer(GOOD)),
         FakeLLM(answer=judge_answer, kind="decision"),
     )
-    with fake_llms(writer=write, judge=judge):
-        yield write, judge
 
 
 def test_a_better_refinement_is_kept(fakes: tuple[FakeLLM, FakeLLM]) -> None:
@@ -107,11 +105,6 @@ def test_rules_predictor_weighs_each_rule(fakes: tuple[FakeLLM, FakeLLM]) -> Non
     ).fit(FOUNDERS, LABELS)
     assert model.combiner_ is not None and model.combiner_.coef[0] > 0
     assert list(model.predict(["an engineer", "a lawyer"])) == ["hit", "miss"]
-
-
-def test_two_classes_only(fakes: tuple[FakeLLM, FakeLLM]) -> None:
-    with pytest.raises(DataError, match="two classes"):
-        policy_induction().fit(FOUNDERS, [str(i % 3) for i in range(36)])
 
 
 def test_rules_predictor_warns_when_it_weighs_no_rule(

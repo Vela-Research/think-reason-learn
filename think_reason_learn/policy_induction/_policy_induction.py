@@ -234,7 +234,7 @@ class PolicyInduction(BinaryTRLClassifier):
     def _predict_plan(self, texts: list[str]) -> list[UsageRecord]:
         answerer = self._models("answerer", "answer")
         if self.combiner_ is None:
-            question = policy_question(_numbered(self.policy_), self._positive_label())
+            question = self._policy_question(self.policy_)
             return [estimate_answers(answerer, texts, [question])]
         rules = [rule_question(rule) for rule in self.weighted_rules_]
         return [estimate_answers(answerer, texts, rules)]
@@ -327,12 +327,15 @@ class PolicyInduction(BinaryTRLClassifier):
         self, policy: Sequence[str], texts: Sequence[str], session: LLMSession
     ) -> npt.NDArray[np.float64]:
         """Probability that each sample is positive under the whole policy."""
-        question = policy_question(_numbered(policy), self._positive_label())
         answerer = self._models("answerer", "answer")
         scores = await yes_probabilities(
-            session, answerer, texts, [question], missing=0.0
+            session, answerer, texts, [self._policy_question(policy)], missing=0.0
         )
         return scores[:, 0]
+
+    def _policy_question(self, policy: Sequence[str]) -> str:
+        """The question that judges a sample under the whole policy."""
+        return policy_question(_numbered(policy), self._positive_label())
 
     async def _rule_answers(
         self, texts: Sequence[str], rules: Sequence[str], session: LLMSession

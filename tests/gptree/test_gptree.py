@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
 from functools import partial
 
 import numpy as np
@@ -60,10 +59,8 @@ tree = partial(
 
 
 @pytest.fixture
-def fakes() -> Iterator[tuple[FakeLLM, FakeLLM]]:
-    writer, judge = FakeLLM(generate=write), FakeLLM(answer=answer)
-    with fake_llms(writer=writer, judge=judge):
-        yield writer, judge
+def scripted() -> tuple[FakeLLM, FakeLLM]:
+    return FakeLLM(generate=write), FakeLLM(answer=answer)
 
 
 def test_splits_on_the_question_that_separates_the_classes(

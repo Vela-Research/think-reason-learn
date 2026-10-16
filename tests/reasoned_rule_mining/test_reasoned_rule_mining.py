@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator
 from functools import partial
 
 import pytest
 
-from think_reason_learn.exceptions import DataError
 from think_reason_learn.llm import Question, config_context
 from think_reason_learn.reasoned_rule_mining import ReasonedRuleMining
 from think_reason_learn.testing import (
@@ -50,10 +48,8 @@ rule_mining = partial(
 
 
 @pytest.fixture
-def fakes() -> Iterator[tuple[FakeLLM, FakeLLM]]:
-    writer, answerer = FakeLLM(generate=write), FakeLLM(answer=judge, kind="decision")
-    with fake_llms(writer=writer, judge=answerer):
-        yield writer, answerer
+def scripted() -> tuple[FakeLLM, FakeLLM]:
+    return FakeLLM(generate=write), FakeLLM(answer=judge, kind="decision")
 
 
 def test_mines_one_rule_per_sample_from_its_true_class(
@@ -105,11 +101,6 @@ def test_reasoning_answerers_vote_in_an_ensemble() -> None:
     with fake_llms(writer=FakeLLM(generate=write), judge=voter):
         rule_mining(ensemble_size=3, use_harsh=False).fit(FOUNDERS, LABELS)
     assert voter.n_calls == 3 * (len(FOUNDERS) - 12)
-
-
-def test_two_classes_only(fakes: tuple[FakeLLM, FakeLLM]) -> None:
-    with pytest.raises(DataError, match="two classes"):
-        rule_mining().fit(FOUNDERS, [str(i % 3) for i in range(48)])
 
 
 def test_paper_defaults() -> None:

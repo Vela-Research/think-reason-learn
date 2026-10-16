@@ -127,7 +127,6 @@ class ReasonedRuleMining(BinaryTRLClassifier):
         self.random_state = random_state
         self.verbose = verbose
 
-    instructions: str | None = None
     harsh_level: HarshLevel
     mined_rules_: tuple[tuple[str, str], ...]
     policy_: str

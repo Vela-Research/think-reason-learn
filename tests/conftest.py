@@ -150,6 +150,14 @@ def generic_fakes() -> Iterator[tuple[FakeLLM, FakeLLM]]:
 
 
 @pytest.fixture
+def fakes(scripted: tuple[FakeLLM, FakeLLM]) -> Iterator[tuple[FakeLLM, FakeLLM]]:
+    """The test module's ``scripted`` writer and judge, callable as ``fake:...``."""
+    writer, judge = scripted
+    with fake_llms(writer=writer, judge=judge):
+        yield writer, judge
+
+
+@pytest.fixture
 def founders() -> tuple[list[str], list[str]]:
     """Eighty founders, half of them good."""
     return list(_X), list(_Y)

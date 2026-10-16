@@ -157,7 +157,7 @@ class TRLClassifier(Persistable, ClassifierMixin, BaseEstimator, ABC):
 
     def __sklearn_tags__(self) -> Tags:
         """Text input, and answers that can vary between calls."""
-        base = super().__sklearn_tags__()  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]  # BaseEstimator types it loosely
+        base = super().__sklearn_tags__()  # pyright: ignore[reportUnknownVariableType]  # BaseEstimator types it loosely
         return text_tags(base)  # pyright: ignore[reportUnknownArgumentType]  # as above
 
     def _fit_plan(
@@ -172,7 +172,7 @@ class TRLClassifier(Persistable, ClassifierMixin, BaseEstimator, ABC):
 
     def _instructions_plan(self) -> list[UsageRecord]:
         """The call that writes the instructions, unless they are given."""
-        if self.instructions or self._instructions_purpose is None:
+        if self._instructions_purpose is None or self.instructions:
             return []
         writer = self._models("generator", "generate")
         return [estimate_generations(writer, text_tokens(self._task()))]

@@ -46,7 +46,7 @@ from ._episodes import (
 )
 from ._networks import Classifier, PolicyNet
 from ._supervisor import Supervisor
-from ._torch import backward, private_cpu_rng, shuffled_batches, tensor
+from ._torch import private_cpu_rng, shuffled_batches, tensor
 
 type SlotFeatures = npt.NDArray[np.floating] | Mapping[str, npt.NDArray[np.floating]]
 """A 2-D array with the slots' columns in order, or one array per slot."""
@@ -248,7 +248,7 @@ class VerifiableRL(Persistable, ClassifierMixin, BaseEstimator):
         self.threshold_ = (
             self.threshold
             if self.threshold is not None
-            else best_threshold(proba, positive == 1, self.beta)[0]
+            else best_threshold(proba, positive == 1, self.beta)
         )
 
     def predict_proba(
@@ -554,7 +554,7 @@ def _step(
     grad_clip: float,
 ) -> None:
     optimiser.zero_grad(set_to_none=True)
-    backward(loss)
+    loss.backward()  # pyright: ignore[reportUnknownMemberType]  # partial annotation
     if grad_clip:
         nn.utils.clip_grad_norm_(network.parameters(), grad_clip)
     optimiser.step()

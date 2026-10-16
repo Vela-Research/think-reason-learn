@@ -8,16 +8,13 @@ folds they are tuned on the fitted rows, which can be optimistic.
 from __future__ import annotations
 
 import asyncio
-import inspect
 import logging
-import re
 from dataclasses import dataclass
 from functools import partial
 from typing import Final, TypedDict
 
 import numpy as np
 import numpy.typing as npt
-import sklearn
 from sklearn.linear_model import LogisticRegression, LogisticRegressionCV
 from sklearn.model_selection import StratifiedKFold
 
@@ -27,8 +24,8 @@ from think_reason_learn.core._sklearn import (
     chosen,
     fit,
     out_of_fold_proba,
+    penalty,
     positive_proba,
-    pr_curve,
     weights,
 )
 
@@ -44,26 +41,22 @@ def fbeta(tp: Floats, fp: Floats, fn: Floats, beta: float) -> Floats:
     )
 
 
-def best_threshold(scores: Floats, y: Bools, beta: float) -> tuple[float, float]:
-    """The score threshold with the best F-beta for ``y``, and that F-beta.
+def best_threshold(scores: Floats, y: Bools, beta: float) -> float:
+    """The score threshold with the best F-beta for ``y``.
 
-    The threshold sits midway between the best cut's score and the next lower
-    score seen.
+    Each distinct score is tried as a cut (positive at or above it); of equally
+    good cuts the lowest wins. The threshold sits midway between the best cut
+    and the next lower score seen.
     """
-    precision, recall, thresholds = pr_curve(y, scores)
-    b2 = beta**2
-    denominator = b2 * precision[:-1] + recall[:-1]
-    f = np.divide(
-        (1 + b2) * precision[:-1] * recall[:-1],
-        denominator,
-        out=np.zeros_like(denominator),
-        where=denominator > 0,
-    )
-    best = int(np.argmax(f))
+    cuts = np.unique(scores)
+    positives, negatives = np.sort(scores[y]), np.sort(scores[~y])
+    tp = (len(positives) - np.searchsorted(positives, cuts)).astype(float)
+    fp = (len(negatives) - np.searchsorted(negatives, cuts)).astype(float)
+    best = int(np.argmax(fbeta(tp, fp, len(positives) - tp, beta)))
     # Midway to the next lower score, so new samples just under a training
     # score are not flipped by a knife-edge threshold.
-    below = thresholds[best - 1] if best > 0 else thresholds[best]
-    return float((thresholds[best] + below) / 2), float(f[best])
+    below = cuts[best - 1] if best > 0 else cuts[best]
+    return float((cuts[best] + below) / 2)
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,13 +103,13 @@ def fit_logistic(
             _logistic(1.0, l1_ratios[0], class_weight, random_state), features, y
         )
         scores = positive_proba(model, features)
-        return LinearCombiner.from_model(model, best_threshold(scores, y, beta)[0])
+        return LinearCombiner.from_model(model, best_threshold(scores, y, beta))
     splitter = StratifiedKFold(folds, shuffle=True, random_state=random_state)
     model = _chosen(features, y, splitter, l1_ratios, cs, class_weight, random_state)
     # The threshold is tuned on out-of-fold scores of the model actually used,
     # with the chosen C and l1_ratio, so the scales match.
     out_of_fold = out_of_fold_proba(model, features, y, splitter)
-    threshold, _ = best_threshold(out_of_fold, y, beta)
+    threshold = best_threshold(out_of_fold, y, beta)
     return LinearCombiner.from_model(fit(model, features, y), threshold)
 
 
@@ -192,7 +185,7 @@ def _chosen(
     """An unfitted model with the C and l1_ratio inner cross-validation chose."""
     search = LogisticRegressionCV(
         Cs=cs,
-        l1_ratios=list(l1_ratios),  # pyright: ignore[reportArgumentType]  # stubs type it as a sentinel str
+        l1_ratios=list(l1_ratios),
         cv=splitter,
         scoring="neg_log_loss",
         class_weight=class_weight,
@@ -215,23 +208,11 @@ def _logistic(
     )
 
 
-def _penalty() -> str:
-    """The ``penalty`` to pass: ``"elasticnet"`` before scikit-learn 1.8.
-
-    Later versions deprecate ``penalty``; passing its default avoids a warning.
-    """
-    match = re.match(r"(\d+)\.(\d+)", sklearn.__version__)
-    if match is None or (int(match.group(1)), int(match.group(2))) < (1, 8):
-        return "elasticnet"
-    default: str = inspect.signature(LogisticRegression).parameters["penalty"].default
-    return default
-
-
 class _Solver(TypedDict):
     solver: str
     max_iter: int
     penalty: str
 
 
-_SOLVER: Final = _Solver(solver="saga", max_iter=5000, penalty=_penalty())
+_SOLVER: Final = _Solver(solver="saga", max_iter=5000, penalty=penalty())
 """Solver settings shared by the cross-validated search and the final model."""

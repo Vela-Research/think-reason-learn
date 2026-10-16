@@ -10,8 +10,8 @@ from think_reason_learn.core._combine import best_threshold, fit_logistic
 class TestCombine:
     def test_best_threshold(self) -> None:
         scores = np.array([0.1, 0.4, 0.6, 0.9])
-        threshold, f = best_threshold(scores, np.array([False, False, True, True]), 1.0)
-        assert threshold == 0.5 and f == 1.0  # midway between 0.4 and 0.6
+        threshold = best_threshold(scores, np.array([False, False, True, True]), 1.0)
+        assert threshold == 0.5  # midway between 0.4 and 0.6
 
     def test_logistic_learns_a_separable_feature(self) -> None:
         rng = np.random.default_rng(0)

@@ -663,7 +663,7 @@ class _Grower:
             return None
         pos = positive_index(self.model.classes_, self.model.pos_label)
         shares = np.array([self.tree.proba(int(leaf))[pos] for leaf in self.leaf_of])
-        return best_threshold(shares, self.y == pos, self.model.beta)[0]
+        return best_threshold(shares, self.y == pos, self.model.beta)
 
     def _value(self, idx: npt.NDArray[np.intp]) -> tuple[float, ...]:
         counts = np.bincount(

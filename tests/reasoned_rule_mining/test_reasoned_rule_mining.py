@@ -1,0 +1,123 @@
+"""Reasoned Rule Mining offline: mining, calibration, the cascade, the contract."""
+
+from __future__ import annotations
+
+import re
+from collections.abc import Iterator
+from functools import partial
+from pathlib import Path
+
+import pytest
+
+from think_reason_learn.exceptions import DataError
+from think_reason_learn.llm import Question
+from think_reason_learn.reasoned_rule_mining import ReasonedRuleMining
+from think_reason_learn.testing import (
+    FakeLLM,
+    GenerateRequest,
+    check_classifier,
+    fake_llms,
+)
+
+TRAITS = ["engineer, exit", "lawyer", "engineer", "chef", "engineer, exit", "banker"]
+FOUNDERS = [f"founder {i}: {TRAITS[i % len(TRAITS)]}" for i in range(48)]
+LABELS = ["YES" if "engineer" in f else "NO" for f in FOUNDERS]
+
+
+def write(request: GenerateRequest) -> str | dict[str, object]:
+    if request.schema is None:
+        return "YES when the founder is an engineer; otherwise NO."
+    label = re.search(r"True class: (\w+)", request.prompt)
+    assert label is not None
+    return {
+        "reasoning": "Engineers build.",
+        "rule": f"IF engineer THEN class = {label[1]}",
+    }
+
+
+def judge(sample: str, question: Question) -> float:
+    if question.text.startswith("Re-examine"):
+        return 0.9 if "exit" in sample else 0.2
+    return 0.97 if "engineer" in sample else 0.05
+
+
+rule_mining = partial(
+    ReasonedRuleMining,
+    task="Will the founder succeed?",
+    generator="fake:writer",
+    answerer="fake:judge",
+    n_samples=12,
+    cv=3,
+)
+
+
+@pytest.fixture
+def fakes() -> Iterator[tuple[FakeLLM, FakeLLM]]:
+    writer, answerer = FakeLLM(generate=write), FakeLLM(answer=judge, kind="decision")
+    with fake_llms(writer=writer, judge=answerer):
+        yield writer, answerer
+
+
+def test_contract(fakes: tuple[FakeLLM, FakeLLM], tmp_path: Path) -> None:
+    check_classifier(rule_mining, FOUNDERS, LABELS, tmp_path)
+
+
+def test_mines_one_rule_per_sample_from_its_true_class(
+    fakes: tuple[FakeLLM, FakeLLM],
+) -> None:
+    model = rule_mining().fit(FOUNDERS, LABELS)
+    assert len(model.rules_) == 12
+    assert {label for label, _ in model.rules_} == {"YES", "NO"}
+    assert all(rule.endswith(f"= {label}") for label, rule in model.rules_)
+    assert model.policy_.startswith("YES when the founder is an engineer")
+    assert list(model.predict(["an engineer", "a poet"])) == ["YES", "NO"]
+
+
+def test_calibrates_on_samples_the_miner_never_saw(
+    fakes: tuple[FakeLLM, FakeLLM],
+) -> None:
+    writer, answerer = fakes
+    rule_mining().fit(FOUNDERS, LABELS)
+    mined = {
+        line.removeprefix("Sample:\n")
+        for c in writer.calls
+        if c.schema is not None
+        for line in [(c.prompt or "").split("\n\n")[1]]
+    }
+    judged = {c.sample for c in answerer.calls}
+    assert len(mined) == 12 and not mined & judged
+
+
+def test_only_confident_samples_get_the_harsh_look() -> None:
+    first, harsh = (
+        FakeLLM(answer=judge, kind="decision"),
+        FakeLLM(answer=judge, kind="decision"),
+    )
+    with fake_llms(writer=FakeLLM(generate=write), judge=first, harsh=harsh):
+        rule_mining(harsh_answerer="fake:harsh").fit(FOUNDERS, LABELS)
+    reviewed = {c.sample for c in harsh.calls}
+    assert reviewed and all("engineer" in (s or "") for s in reviewed)
+    assert not any(c.questions[0].startswith("Re-examine") for c in first.calls)
+
+
+def test_no_harsh_look_when_off(fakes: tuple[FakeLLM, FakeLLM]) -> None:
+    _, answerer = fakes
+    rule_mining(use_harsh=False).fit(FOUNDERS, LABELS)
+    assert not any(c.questions[0].startswith("Re-examine") for c in answerer.calls)
+
+
+def test_reasoning_answerers_vote_in_an_ensemble() -> None:
+    voter = FakeLLM(answer=lambda s, q: "YES" if "engineer" in s else "NO")
+    with fake_llms(writer=FakeLLM(generate=write), judge=voter):
+        rule_mining(ensemble_size=3, use_harsh=False).fit(FOUNDERS, LABELS)
+    assert voter.n_calls == 3 * (len(FOUNDERS) - 12)
+
+
+def test_two_classes_only(fakes: tuple[FakeLLM, FakeLLM]) -> None:
+    with pytest.raises(DataError, match="two classes"):
+        rule_mining().fit(FOUNDERS, [str(i % 3) for i in range(48)])
+
+
+def test_paper_defaults() -> None:
+    model = ReasonedRuleMining()
+    assert (model.harsh_gate, model.harsh_level, model.beta) == (0.95, "strict", 0.5)

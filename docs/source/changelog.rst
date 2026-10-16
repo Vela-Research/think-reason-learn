@@ -11,8 +11,11 @@ checked against its paper. See :doc:`getting_started/migration` for every rename
   (``"openai:gpt-5-mini"``, ``"anthropic:claude-sonnet-5-5"``, ``"ollama:qwen3:8b"``, ``"jev"``) or an
   ``LLM(...)`` with settings (temperature, reasoning effort, base URL, key, price). One OpenAI-compatible adapter
   covers OpenAI, Gemini, xAI, OpenRouter, Groq, Together, DeepSeek, Mistral, Azure, Ollama, vLLM, LM Studio and
-  llama.cpp; Anthropic, Jev's System One format (also Microsoft-Decision-1 and Jev on OpenRouter) and OpenAI's
-  Decisions API have their own. Decision models answer and cannot write: a role that writes rejects them.
+  llama.cpp; Anthropic, Jev's System One format (also Microsoft-Decision-1 and every decision model on OpenRouter) and OpenAI's
+  Decisions API have their own. Decision models answer and cannot write: a role that writes rejects them. Which
+  models are decision models is never guessed from names: Typesafe serves only decision models, OpenRouter's come
+  from its public catalog (with their prices), and ``LLM(..., kind="decision")`` asks for any other model's
+  decision API.
 - ``LLMSession`` makes every call: fallbacks, retries that honour ``Retry-After``, a shared limiter per model and
   account (``set_limits``; concurrency halves on a rate limit and recovers), a disk cache so no answer is paid
   for twice, one usage record per call with tokens and cost (``Usage``), and a run budget for every provider

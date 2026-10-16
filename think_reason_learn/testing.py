@@ -40,7 +40,7 @@ from think_reason_learn.llm._adapters import (
 from think_reason_learn.llm._adapters._base import Failure as Failure_
 from think_reason_learn.llm._questions import Answer, Question, YesNoQuestion
 from think_reason_learn.llm._spec import Endpoint, ModelKind
-from think_reason_learn.llm._usage import TokenCounts
+from think_reason_learn.llm._usage import Price, TokenCounts
 
 type Failure = Literal[
     "rate_limit",
@@ -102,17 +102,18 @@ class FakeLLM:
 def fake_llms(**models: FakeLLM) -> Iterator[None]:
     """Make each fake callable as ``"fake:<name>"`` inside the block."""
     ADAPTERS["fake"] = _ADAPTER
-    patterns = {
-        f"fake:{name}" for name, model in models.items() if model.kind == "decision"
-    }
+    _spec._PROVIDERS.setdefault(
+        "fake",
+        _spec._Provider(
+            "fake", None, local=True, decision="fake", catalog=_decision_fakes
+        ),
+    )
     _registry.update(models)
-    _spec._DECISION_MODELS.update(patterns)
     try:
         yield
     finally:
         for name in models:
             _registry.pop(name, None)
-        _spec._DECISION_MODELS.difference_update(patterns)
 
 
 _registry: Final[dict[str, FakeLLM]] = {}
@@ -172,6 +173,11 @@ class _FakeAdapter:
 
 
 _ADAPTER: Final = _FakeAdapter()
+
+
+def _decision_fakes() -> dict[str, Price | None]:
+    """The fake provider's catalog: fakes of kind ``"decision"``, unpriced."""
+    return {name: None for name, fake in _registry.items() if fake.kind == "decision"}
 
 
 def _fake(endpoint: Endpoint) -> FakeLLM:

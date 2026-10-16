@@ -80,7 +80,7 @@ A model is `"provider:model"`, or an `LLM` with settings. A tuple is a fallback 
 "openrouter:meta-llama/llama-3.3-70b-instruct"   # OPENROUTER_API_KEY
 "ollama:qwen3:8b"                                # local, no key
 "jev"                                            # TYPESAFE_API_KEY
-"openai:gpt-6-luna"                              # OpenAI Decisions
+"openrouter:openai/gpt-6-luna-decisions"         # any decision model OpenRouter lists
 ```
 
 Groq, Together, DeepSeek, Mistral, Azure and any OpenAI-compatible server (vLLM, LM Studio, llama.cpp) work too:
@@ -92,9 +92,11 @@ LLM("openai:gpt-5-mini", temperature=0.2, reasoning_effort="low", service_tier="
 LLM("Qwen3-32B", base_url="http://gpu-box:8000/v1")
 ```
 
-Reasoning models write and answer; decision models (Jev, OpenAI Decisions, Microsoft-Decision-1) only answer,
-with probabilities. Putting a decision model in a writing role fails before anything is sent. Keys are read from the
-environment.
+Reasoning models write and answer; decision models (Jev, GPT-6 Luna Decisions, Microsoft-Decision-1...) only answer,
+with probabilities. Putting a decision model in a writing role fails before anything is sent. Which models are
+decision models is never guessed from their names: Typesafe serves only decision models, and OpenRouter's are read
+from its public catalog (kept for a day, so new ones work at once). Elsewhere, ask for a model's decision API with
+`LLM("openai:gpt-6-luna", kind="decision")`. Keys are read from the environment.
 
 ## Speed, cost and reruns
 

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import httpx2
 import pytest
 
 from think_reason_learn.exceptions import MissingAPIKeyError
-from think_reason_learn.llm import LLM, resolve, resolve_models
+from think_reason_learn.llm import LLM, Price, _catalog, resolve, resolve_models
 
 
 @pytest.fixture(autouse=True)
@@ -70,20 +71,64 @@ def test_missing_key_names_the_variable() -> None:
 
 
 def test_decision_models_route_to_their_protocol() -> None:
-    assert resolve("openai:gpt-6-luna").protocol == "openai-decisions"
-    routed = resolve(LLM("openrouter:vendor/new-decider", kind="decision"))
-    assert (routed.protocol, routed.base_url) == (
-        "systemone",
-        "https://openrouter.ai/api/v1/systemone",
+    luna = LLM("openai:gpt-6-luna", api_key="k")
+    assert resolve(luna).kind == "reasoning"  # the chat model, unless asked
+    decisions = resolve(LLM("openai:gpt-6-luna", api_key="k", kind="decision"))
+    assert (decisions.protocol, decisions.model_id) == (
+        "openai-decisions",
+        "gpt-6-luna",
     )
     azure = resolve(
         LLM(
-            "azure:Microsoft-Decision-1",
+            "azure:my-decision-deployment",
             base_url="https://r.example/systemone",
             api_key="k",
+            kind="decision",
         )
     )
     assert (azure.protocol, azure.api_key_header) == ("systemone", True)
+
+
+def test_openrouter_decision_models_come_from_its_catalog() -> None:
+    listed = resolve(LLM("openrouter:openai/gpt-6-luna-decisions", api_key="k"))
+    assert (listed.kind, listed.protocol, listed.base_url) == (
+        "decision",
+        "systemone",
+        "https://openrouter.ai/api/alpha/decisions",
+    )
+    assert listed.settings.price == Price(input=0.1, output=0.0)
+    chat = resolve(LLM("openrouter:openai/gpt-6-luna", api_key="k"))
+    assert chat.kind == "reasoning" and chat.settings.price is None
+    unlisted = resolve(LLM("openrouter:vendor/brand-new", api_key="k", kind="decision"))
+    assert unlisted.protocol == "systemone"
+
+
+def test_the_catalog_is_read_once_a_day_and_kept_on_disk(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    downloads: list[int] = []
+    served = _catalog._download  # the offline catalog from conftest
+
+    def download() -> object:
+        downloads.append(1)
+        return served()
+
+    monkeypatch.setattr(_catalog, "_download", download)
+    for _ in range(3):
+        resolve(LLM("openrouter:typesafe/jev-1.14", api_key="k"))
+    _catalog._loaded = None  # a new process reads the disk copy
+    resolve(LLM("openrouter:typesafe/jev-1.14", api_key="k"))
+    assert len(downloads) == 1
+
+
+def test_an_unreachable_catalog_falls_back(monkeypatch: pytest.MonkeyPatch) -> None:
+    def offline() -> object:
+        raise httpx2.ConnectError("offline")
+
+    monkeypatch.setattr(_catalog, "_download", offline)
+    assert resolve(LLM("openrouter:typesafe/jev-1.14", api_key="k")).kind == "reasoning"
+    kept = resolve(LLM("openrouter:typesafe/jev-1.14", api_key="k", kind="decision"))
+    assert kept.protocol == "systemone"
 
 
 def test_decision_model_cannot_write() -> None:

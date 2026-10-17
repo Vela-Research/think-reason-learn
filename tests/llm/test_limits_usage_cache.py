@@ -27,7 +27,7 @@ from think_reason_learn.llm import (
     set_config,
     set_limits,
 )
-from think_reason_learn.llm._cache import Cache, cache_key
+from think_reason_learn.llm._cache import Cache, cache_key, open_cache
 from think_reason_learn.llm._calls import _backoff
 from think_reason_learn.llm._config import Limits, limits_for
 from think_reason_learn.llm._limiter import (
@@ -218,7 +218,7 @@ class TestUsageAndPrices:
         listed = call_cost(resolve(LLM("openai:gpt-5-mini", api_key="k")), tokens, None)
         assert listed[1] == "price_table" and (listed[0] or 0) > 0
         unknown = resolve(LLM("ollama:my-own-model"))
-        assert call_cost(unknown, tokens, None) == (None, "unknown")
+        assert call_cost(unknown, tokens, None) == (0.0, "local")  # your own machine
         decisions = resolve(LLM("openai:gpt-6-luna", api_key="k", kind="decision"))
         chat = resolve(LLM("openai:gpt-6-luna", api_key="k"))
         assert (call_cost(decisions, tokens, None)[0] or 0) < (
@@ -294,6 +294,14 @@ class TestCache:
         Cache(tmp_path / "replies" / "c.sqlite")
         assert (tmp_path / "replies").stat().st_mode & 0o777 == 0o700
         assert (tmp_path / "replies" / "c.sqlite").stat().st_mode & 0o777 == 0o600
+
+    def test_it_says_where_it_is_once(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        path = tmp_path / "replies.sqlite"
+        assert open_cache(path) is open_cache(path)
+        assert caplog.text.count(f"cached at {path}") == 1
+        assert "cache=False" in caplog.text
 
     def test_keys_depend_on_every_part(self) -> None:
         assert cache_key(a=1, b=2) == cache_key(b=2, a=1)

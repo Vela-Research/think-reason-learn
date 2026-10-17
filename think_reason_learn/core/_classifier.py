@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from collections.abc import Awaitable, Callable, Generator
+from collections.abc import Awaitable, Callable, Generator, Iterable
 from contextlib import contextmanager
-from typing import ClassVar, Self
+from typing import ClassVar, Final, Self
 
 import numpy as np
 import numpy.typing as npt
@@ -39,14 +39,19 @@ from think_reason_learn.llm import (
     Usage,
     UsageRecord,
     estimate_generations,
+    get_config,
     resolve_models,
     run_async,
     run_sync,
     text_tokens,
 )
 from think_reason_learn.llm._spec import Task, keys_optional
+from think_reason_learn.llm._usage import format_usd, unpriced_message
 
 logger = logging.getLogger(__name__)
+
+_WARN_ABOVE_USD: Final = 1.0
+"""A run estimated above this many dollars says so in a warning, not an info line."""
 
 type Proba = npt.NDArray[np.float64]
 type Labels = npt.NDArray[np.intp]
@@ -249,6 +254,7 @@ class TRLClassifier(Persistable, ClassifierMixin, BaseEstimator, ABC):
 
     async def _arun[T](self, X: TextInput, doing: str, work: Work[T]) -> T:
         texts = self._texts(X)
+        self._announce(lambda: self._predict_plan(texts), doing)
         with self._session(doing, self.usage_) as session:
             return await work(texts, session)
 
@@ -267,6 +273,7 @@ class TRLClassifier(Persistable, ClassifierMixin, BaseEstimator, ABC):
         classes, codes = _encoded(texts, y)
         self._task()
         self._check_classes(classes)
+        self._announce(lambda: self._fit_plan(texts, codes, classes), "fitting")
         self._forget_fitted()
         with self._session("fitting") as session:
             self.classes_, self.usage_ = classes, session.usage
@@ -282,6 +289,34 @@ class TRLClassifier(Persistable, ClassifierMixin, BaseEstimator, ABC):
 
     def _check_classes(self, classes: Classes) -> None:
         """Raise before any call if the model cannot learn ``classes``."""
+
+    def _announce(self, plan: Callable[[], Iterable[UsageRecord]], doing: str) -> None:
+        """Log what a run is estimated to cost, before any call.
+
+        A warning above ``_WARN_ABOVE_USD``, else an info line. With a cost cap,
+        a model of unknown price stops the run here, since the cap cannot count it.
+        """
+        try:
+            usage = Usage(r for r in plan() if r.calls)
+        except NotImplementedError:
+            logger.debug(f"{type(self).__name__} plans no costs; none is logged.")
+            return
+        if not usage.calls:
+            return
+        if get_config().max_cost_usd is not None and usage.unpriced:
+            raise ValueError(unpriced_message(usage.unpriced))
+        unknown = (
+            f", plus calls to {sorted(usage.unpriced)} at no known price"
+            if usage.unpriced
+            else ""
+        )
+        cost = usage.cost_usd
+        logger.log(
+            logging.WARNING if cost > _WARN_ABOVE_USD else logging.INFO,
+            f"{type(self).__name__} {doing}: about {usage.calls} calls, estimated "
+            f"{format_usd(cost)}{unknown} before cached replies. Cap a run with "
+            "config_context(max_cost_usd=...).",
+        )
 
     def _forget_fitted(self, *, keep: str | None = None) -> None:
         forget_fitted(self, keep=keep)

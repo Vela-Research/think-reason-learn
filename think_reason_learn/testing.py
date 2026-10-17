@@ -135,7 +135,10 @@ def fake_llms(**models: FakeLLM) -> Generator[None]:
     # A fresh address per block, so replies cached by earlier fakes never answer.
     address = f"fake://{uuid.uuid4().hex}"
     try:
-        with extra_provider("fake", "fake", address, catalog=_decision_fakes):
+        # Fakes stand in for hosted models: priced from the catalog, else unknown.
+        with extra_provider(
+            "fake", "fake", address, catalog=_decision_fakes, local=False
+        ):
             yield
     finally:
         for name in models:

@@ -32,6 +32,9 @@ class Config:
         max_retries: Retries of a call after a rate limit, server error or
             timeout.
         timeout: Seconds before a call times out (then it is retried).
+        max_retry_time: Seconds after a call first fails in which it is
+            retried: a retry that could not finish within them (``timeout``
+            included) is not started.
     """
 
     cache: bool = True
@@ -39,6 +42,7 @@ class Config:
     max_cost_usd: float | None = None
     max_retries: int = 5
     timeout: float = 120.0
+    max_retry_time: float = 300.0
 
     @property
     def cache_path(self) -> Path:
@@ -79,6 +83,7 @@ class ConfigChanges(TypedDict, total=False):
     max_cost_usd: float | None
     max_retries: int
     timeout: float
+    max_retry_time: float
 
 
 def set_config(**changes: Unpack[ConfigChanges]) -> None:

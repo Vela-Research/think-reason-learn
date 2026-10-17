@@ -41,8 +41,10 @@ class LLM:
     Args:
         model: ``"provider:model"``, e.g. ``"anthropic:claude-sonnet-5-5"``. With
             ``base_url``, a bare model id calls any OpenAI-compatible server.
-        temperature: Sampling temperature. ``None`` uses the model's default. A
-            model that rejects a temperature is called without one.
+        temperature: Sampling temperature. ``None``: 0 when a reasoning model
+            answers questions, so answers repeat, and the model's default when
+            it writes or casts votes to average. A model that rejects a
+            temperature is called without one, with a warning.
         reasoning_effort: Reasoning effort for models that support it. Claude's
             lowest is ``"low"``, which ``"none"`` and ``"minimal"`` ask for.
         max_output_tokens: Cap on output tokens per call.
@@ -50,7 +52,9 @@ class LLM:
             OpenAI and Gemini at slower speed.
         questions_per_call: Questions a reasoning model answers per call about
             one sample. Decision models take every question in one call.
-        base_url: Endpoint to call instead of the provider's.
+        base_url: Endpoint to call instead of the provider's. It gets only an
+            ``api_key`` passed here, never the provider's key from the
+            environment (Azure, whose endpoint is always yours, excepted).
         api_key: Key to use instead of the provider's environment variable.
         kind: ``"decision"`` to call the model's decision API, e.g. OpenAI's
             ``gpt-6-luna`` (also a chat model) or an Azure deployment of
@@ -298,14 +302,16 @@ def extra_provider(
     base_url: str,
     *,
     catalog: Callable[[], Catalog] | None = None,
+    local: bool = True,
 ) -> Generator[None]:
-    """Serve ``"<name>:<model>"`` inside the block, from a local endpoint.
+    """Serve ``"<name>:<model>"`` inside the block, from ``base_url``.
 
-    For tests: ``testing.fake_llms`` adds its fake provider this way.
+    For tests: ``testing.fake_llms`` adds its fake provider this way. A local
+    provider's models are free and get fewer calls at once.
     """
     before = _PROVIDERS.get(name)
     _PROVIDERS[name] = _Provider(
-        protocol, base_url, local=True, decision=protocol, catalog=catalog
+        protocol, base_url, local=local, decision=protocol, catalog=catalog
     )
     try:
         yield
@@ -391,6 +397,8 @@ def _base_url(
 def _api_key(spec: LLM, provider: _Provider, name: str) -> str | None:
     if spec.api_key:
         return spec.api_key
+    if spec.base_url is not None and not provider.needs_base_url:
+        return None  # the provider's key never goes to another server
     found = next(
         (os.environ[env] for env in provider.key_env if os.environ.get(env)), None
     )

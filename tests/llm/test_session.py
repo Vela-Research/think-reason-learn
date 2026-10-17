@@ -12,6 +12,7 @@ from think_reason_learn.exceptions import (
     BudgetExceededError,
     LLMError,
     ProviderAuthError,
+    ProviderDownError,
 )
 from think_reason_learn.llm import (
     LLM,
@@ -387,7 +388,7 @@ def test_a_dead_model_is_skipped_after_a_few_failures() -> None:
     assert dead.n_calls < 3 * 40  # retries stop once the model looks dead
 
 
-def test_the_last_model_keeps_trying_after_failures() -> None:
+def test_the_last_model_keeps_trying_after_a_failure() -> None:
     flaky = FakeLLM(answer=_answer, failures=["unavailable"])
     samples = [f"engineer {i}" for i in range(20)]
     with fake_llms(flaky=flaky):
@@ -397,6 +398,49 @@ def test_the_last_model_keeps_trying_after_failures() -> None:
             )
         )
     assert sum(r["tech"] is not None for r in results) == 19
+
+
+def test_the_last_model_stops_the_run_after_failures_in_a_row() -> None:
+    down = FakeLLM(answer=_answer, failures=["unavailable"] * 40)
+    samples = [f"engineer {i}" for i in range(40)]
+    with fake_llms(down=down), pytest.raises(ProviderDownError, match="rerun"):
+        run_sync(
+            LLMSession().answer(
+                _resolved("down"), samples, {"tech": QUESTIONS["tech"]}, role="a"
+            )
+        )
+    assert down.n_calls < 40  # it stopped instead of failing every sample
+
+
+def test_answers_missing_without_an_error_are_counted(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    judge = FakeLLM(answer=lambda s, q: None if "chef" in s else "YES")
+    with fake_llms(judge=judge):
+        run_sync(
+            LLMSession().answer(
+                _resolved("judge"),
+                ["a chef", "an engineer"],
+                {"tech": QUESTIONS["tech"]},
+                role="a",
+            )
+        )
+    assert "1 of 2 answers are missing (replies were refused" in caplog.text
+
+
+def test_retries_stop_at_max_retry_time() -> None:
+    judge = FakeLLM(answer=_answer, failures=["server_error"] * 3)
+    with (
+        fake_llms(judge=judge),
+        config_context(max_retry_time=0.0),
+        pytest.raises(LLMError),
+    ):
+        run_sync(
+            LLMSession().answer(
+                _resolved("judge"), ["x"], {"tech": QUESTIONS["tech"]}, role="a"
+            )
+        )
+    assert judge.n_calls == 1  # 5 retries were allowed, but not the time
 
 
 def test_bad_requests_do_not_hand_over_to_the_next_model() -> None:

@@ -18,6 +18,7 @@ async def yes_probabilities(
     *,
     missing: float,
     draw: int = 0,
+    ensemble: bool = False,
 ) -> npt.NDArray[np.float64]:
     """Probability of yes for each sample (rows) and yes/no question (columns).
 
@@ -26,13 +27,17 @@ async def yes_probabilities(
         models: The answerer's models.
         texts: The samples.
         questions: The questions' text.
-        missing: The value of an unanswered question.
+        missing: The value of an unanswered question: 0 (NO), or NaN to show
+            it, read as NO.
         draw: Ask again instead of reusing answers of an earlier draw.
+        ensemble: The draws are averaged; see ``LLMSession.answer``.
     """
     if not questions or not texts:
         return np.full((len(texts), len(questions)), missing)
     asked = {f"q{j}": YesNoQuestion(q) for j, q in enumerate(questions)}
-    answers = await session.answer(models, texts, asked, role="answerer", draw=draw)
+    answers = await session.answer(
+        models, texts, asked, role="answerer", draw=draw, ensemble=ensemble
+    )
     return np.array(
         [
             [

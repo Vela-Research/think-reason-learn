@@ -2,7 +2,8 @@
 
 Every one derives from ``TRLError``. Of the model-call errors (``LLMError``),
 ``NoOutputError`` is the one a model can recover from by skipping a step;
-``ProviderAuthError`` and ``BudgetExceededError`` stop the run.
+``ProviderAuthError``, ``ProviderDownError`` and ``BudgetExceededError`` stop the
+run.
 """
 
 __all__ = [
@@ -12,6 +13,7 @@ __all__ = [
     "MissingAPIKeyError",
     "NoOutputError",
     "ProviderAuthError",
+    "ProviderDownError",
     "TRLError",
 ]
 
@@ -38,6 +40,10 @@ class MissingAPIKeyError(TRLError, ValueError):
 
 class ProviderAuthError(LLMError):
     """A provider rejected the API key, or the account has no quota left."""
+
+
+class ProviderDownError(LLMError):
+    """The last model left kept failing, so the run stopped instead of waiting."""
 
 
 class BudgetExceededError(LLMError):

@@ -23,10 +23,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 type CostSource = Literal[
-    "provider", "price", "price_table", "cache", "none", "unknown"
+    "provider", "price", "price_table", "local", "cache", "none", "unknown"
 ]
-"""Where a call's cost came from: the provider's bill, a price, the cache (free),
-nothing to pay (a failed call), or nowhere (unknown)."""
+"""Where a call's cost came from: the provider's bill, a price, a model on your own
+machine or network (free), the cache (free), nothing to pay (a failed call), or
+nowhere (unknown)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,7 +188,7 @@ class Usage:
 def call_cost(
     endpoint: Endpoint, tokens: TokenCounts, provider_cost: float | None
 ) -> tuple[float | None, CostSource]:
-    """A call's cost: the provider's, else the model's price, else a price table.
+    """A call's cost: the provider's, the model's price, a price table, or 0 locally.
 
     A provider's cost that is not an amount (negative, NaN) is ignored.
     """
@@ -198,6 +199,8 @@ def call_cost(
         return price.cost(tokens), "price"
     if (cost := _price_table_cost(endpoint, tokens)) is not None:
         return cost, "price_table"
+    if endpoint.local:
+        return 0.0, "local"
     return None, "unknown"
 
 
@@ -257,6 +260,14 @@ class Budget:
             "spent). Answers so far are cached; rerun with a higher cap to continue "
             "without paying for them again."
         )
+
+
+def unpriced_message(models: Iterable[str]) -> str:
+    """Why a cost cap cannot hold over ``models``, which have no known price."""
+    return (
+        f"max_cost_usd is set, but {sorted(models)} have no known price, so the cap "
+        "cannot count their calls. Give each a price: LLM(..., price=Price(...))."
+    )
 
 
 def format_usd(usd: float) -> str:

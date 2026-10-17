@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+import logging
 import math
 from collections.abc import Callable
 
 import pytest
 from sklearn.exceptions import NotFittedError
 
-from think_reason_learn import config_context
+from think_reason_learn import LLM, config_context
 from think_reason_learn.core._classifier import TRLClassifier
 from think_reason_learn.exceptions import DataError
+from think_reason_learn.llm import Price
 from think_reason_learn.rrf import RRF
 from think_reason_learn.testing import FakeLLM
 
@@ -82,3 +84,38 @@ def test_estimating_needs_no_api_key(
         answerer="openai:gpt-5-mini",
     )
     assert model.estimate_cost(*founders).calls > 0
+
+
+def test_each_run_logs_its_estimate_first(
+    any_model: tuple[str, Callable[[], TRLClassifier]],
+    generic_fakes: tuple[FakeLLM, FakeLLM],
+    founders: tuple[list[str], list[str]],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    (_, make), (X, y) = any_model, founders
+    with caplog.at_level(logging.INFO, logger="think_reason_learn"):
+        make().fit(X, y).predict(X)
+    logged = [r.message for r in caplog.records if "before cached replies" in r.message]
+    assert len(logged) == 2 and "fitting" in logged[0] and "predicting" in logged[1]
+
+
+def test_a_costly_run_warns_and_a_cap_refuses_unknown_prices(
+    generic_fakes: tuple[FakeLLM, FakeLLM],
+    founders: tuple[list[str], list[str]],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    writer, judge = generic_fakes
+    costly = LLM("fake:judge", price=Price(input=1e3))
+    with config_context(cache=False):
+        RRF(task="t", generator="fake:writer", answerer=costly, cv=2).fit(*founders)
+    assert any(
+        r.levelno == logging.WARNING and "estimated $" in r.message
+        for r in caplog.records
+    )
+    calls = writer.n_calls + judge.n_calls
+    with (
+        config_context(max_cost_usd=100),
+        pytest.raises(ValueError, match="no known price"),
+    ):
+        RRF(task="t", generator="fake:writer", answerer="fake:judge").fit(*founders)
+    assert writer.n_calls + judge.n_calls == calls  # refused before any call

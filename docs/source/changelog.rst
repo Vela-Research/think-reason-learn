@@ -19,11 +19,19 @@ few parameters away, and every model is seeded with ``random_state=42``. See :do
   decision API.
 - ``LLMSession`` makes every call: fallbacks, retries that honour ``Retry-After``, a shared limiter per model and
   account (``set_limits``; concurrency halves on a rate limit and recovers), a disk cache so no answer is paid
-  for twice, one usage record per call with tokens and cost (``Usage``), and a run budget for every provider
-  (``config_context(max_cost_usd=...)``). Calls run on one event loop owned by the library, so sync code works in
-  notebooks too.
+  for twice (its location is logged once), one usage record per call with tokens and cost (``Usage``), and a run
+  budget for every provider (``config_context(max_cost_usd=...)``), which refuses a model with no known price
+  before any call; models on your own machine or network are free. A failed call is retried within
+  ``max_retry_time`` (5 minutes) of its first failure, and when the last model left fails 5 calls in a row the run
+  stops with ``ProviderDownError`` instead of failing every sample. Every missing answer is counted in a warning,
+  and each model counts it as NO (GPTree sends the sample down the largest branch). A reasoning model answers at
+  temperature 0 unless one is set, and writes or casts votes to average at its default; a model that rejects a
+  temperature is called without one, with a warning. A ``base_url`` you set gets only an ``api_key`` you pass, never
+  the provider's key from the environment (Azure excepted). Calls run on one event loop owned by the library, so
+  sync code works in notebooks too.
 - ``estimate_cost(X, y)`` on every LLM model counts the calls, tokens and dollars of ``fit(X, y)``, or of
-  ``predict(X)`` without ``y``, without calling a model or needing its API key, priced like real calls.
+  ``predict(X)`` without ``y``, without calling a model or needing its API key, priced like real calls. Each
+  ``fit`` and ``predict`` logs this estimate first, as a warning above $1.
 - ``think_reason_learn.testing``: ``FakeLLM`` and ``fake_llms`` fit and check models offline, with scripted
   replies and injected failures.
 - ``TRLClassifier`` (and ``BinaryTRLClassifier`` for two-class models): the scikit-learn base of every model; the
@@ -102,8 +110,7 @@ few parameters away, and every model is seeded with ``random_state=42``. See :do
   ``CorruptionError`` is removed. The library no longer reads ``.env``.
 - **Lighter install**: the Google and xAI SDKs, ``pydantic-settings``, ``orjson``, ``pyarrow`` and ``httpx`` are no
   longer needed; Anthropic (``[anthropic]``) and PyTorch (``[rl]``) are extras, and ``[all]`` installs both. The
-  ``genai-prices`` table is included, so costs and ``max_cost_usd`` work for every listed model; a capped run warns
-  about a model with no known price. pandas 3 is supported. License metadata uses an SPDX expression.
+  ``genai-prices`` table is included, so costs and ``max_cost_usd`` work for every listed model. pandas 3 is supported. License metadata uses an SPDX expression.
 - **Lambda features**: ``FeatureGenerator(schema, helpers, generator="openai:gpt-5-mini")`` with ``generate`` and
   ``agenerate``, on the new layer. ``GeneratedRule`` and ``GeneratedRules``, the writer's reply format, are no longer
   exported; rules are ``Rule``.

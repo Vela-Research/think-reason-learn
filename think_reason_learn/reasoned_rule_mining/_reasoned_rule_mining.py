@@ -298,13 +298,24 @@ class ReasonedRuleMining(BinaryTRLClassifier):
         texts: Sequence[str],
         session: LLMSession,
     ) -> npt.NDArray[np.float64]:
-        """Mean probability of yes over the ensemble (one draw for decision models)."""
+        """Mean probability of yes over the ensemble (one draw for decision models).
+
+        Draws keep the model's default temperature, so they differ; an unanswered
+        draw counts as NO.
+        """
+        draws = self._draws(models)
         runs = await asyncio.gather(
             *(
                 yes_probabilities(
-                    session, models, texts, [question], missing=0.5, draw=d
+                    session,
+                    models,
+                    texts,
+                    [question],
+                    missing=0.0,
+                    draw=d,
+                    ensemble=draws > 1,
                 )
-                for d in range(self._draws(models))
+                for d in range(draws)
             )
         )
         return np.mean([run[:, 0] for run in runs], axis=0)

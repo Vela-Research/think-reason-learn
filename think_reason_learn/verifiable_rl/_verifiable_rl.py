@@ -247,12 +247,11 @@ class VerifiableRL(Persistable, ClassifierMixin, BaseEstimator):
         _Trainer(
             self, features, positive, self._supervisor(session, slot_texts), rng
         ).run()
-        proba = self._final_proba(features, slot_texts)
-        self.threshold_ = (
-            self.threshold
-            if self.threshold is not None
-            else best_threshold(proba, positive == 1, self.beta)
-        )
+        if self.threshold is not None:
+            self.threshold_ = self.threshold
+            return
+        proba = self._final_proba(features, slot_texts, session)
+        self.threshold_ = best_threshold(proba, positive == 1, self.beta)
 
     def predict_proba(
         self, X: SlotFeatures, *, slot_texts: SlotTexts | None = None
@@ -278,18 +277,29 @@ class VerifiableRL(Persistable, ClassifierMixin, BaseEstimator):
         return [[self.slot_names_[s] for s in path] for path in paths]
 
     def _final_proba(
-        self, features: npt.NDArray[np.float32], slot_texts: SlotTexts | None
+        self,
+        features: npt.NDArray[np.float32],
+        slot_texts: SlotTexts | None,
+        session: LLMSession | None = None,
     ) -> npt.NDArray[np.float64]:
-        masks, _ = self._reveal(features, slot_texts)
+        masks, _ = self._reveal(features, slot_texts, session)
         with torch.no_grad():
             logits = self.classifier_(self._states(features, masks))
         return torch.sigmoid(logits).cpu().numpy().astype(np.float64)
 
     def _reveal(
-        self, features: npt.NDArray[np.float32], slot_texts: SlotTexts | None
+        self,
+        features: npt.NDArray[np.float32],
+        slot_texts: SlotTexts | None,
+        session: LLMSession | None = None,
     ) -> tuple[npt.NDArray[np.bool_], list[list[int]]]:
-        """Reveal slots greedily for every sample at once; never a slot already seen."""
-        supervisor = self._supervisor(LLMSession(usage=self.usage_), slot_texts)
+        """Reveal slots greedily for every sample at once; never a slot already seen.
+
+        ``session`` is the fit's, so its budget covers this too; by default a new
+        one for this run.
+        """
+        session = session or LLMSession(usage=self.usage_)
+        supervisor = self._supervisor(session, slot_texts)
         n, n_slots = len(features), len(self.slot_names_)
         masks = np.zeros((n, n_slots), dtype=bool)
         paths: list[list[int]] = [[] for _ in range(n)]

@@ -25,11 +25,8 @@ _COGNITIVE_SECTIONS: Final[dict[CognitiveMode, str]] = {
     CognitiveMode.SUBGOAL_DECOMPOSITION: (
         "## SUBGOAL DECOMPOSITION\n\n"
         "Organise your feature exploration into NO MORE THAN 4 high-level "
-        "subgoals, such as:\n"
-        "- Capability formation\n"
-        "- Team coordination and complementarity\n"
-        "- Market structure and constraints\n"
-        "- Early execution dynamics\n\n"
+        "subgoals, chosen from the data: each a distinct mechanism that could "
+        "drive the outcome.\n\n"
         "For each subgoal:\n"
         "- List candidate mechanisms\n"
         "- Maintain the hierarchy: system behaviour -> mechanism -> "
@@ -43,7 +40,7 @@ _COGNITIVE_SECTIONS: Final[dict[CognitiveMode, str]] = {
         "For each rule you propose, verify:\n"
         "- It captures a signal observable before the outcome\n"
         "- It encodes a plausible causal mechanism\n"
-        "- It is not a prestige-based, descriptive, or post-outcome proxy\n\n"
+        "- It is not a merely descriptive or post-outcome proxy\n\n"
         "For each rule, list:\n"
         "- Potential bias sources\n"
         "- Uncertainty or ambiguity\n\n"
@@ -140,8 +137,10 @@ def build_user_prompt(
             "\n---\n",
         ]
     parts += [
-        f"Data samples to analyse:\n\n{samples_text}",
-        f"\nGenerate exactly {n_rules} binary rules as Python lambda expressions.",
+        f"Data samples to analyse, each tagged positive or negative with its "
+        f"label:\n\n{samples_text}",
+        f"\nGenerate exactly {n_rules} binary rules as Python lambda expressions, "
+        "each True for samples like the positive ones and False for the others.",
     ]
     return "\n".join(parts)
 
@@ -172,7 +171,7 @@ def format_samples(
     selected = rng.sample(positives, n_pos) + rng.sample(negatives, n_neg)
     rng.shuffle(selected)
     return "\n".join(
-        f"{'[SUCCESS]' if label == positive else '[FAIL]'}\n"
+        f"[{'positive' if label == positive else 'negative'}: {label}]\n"
         f"{json.dumps(record, default=str, ensure_ascii=False)}\n---"
         for record, label in selected
     )

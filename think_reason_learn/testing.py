@@ -2,7 +2,7 @@
 
 Example:
     >>> from think_reason_learn.testing import FakeLLM, fake_llms
-    >>> writer = FakeLLM(generate=lambda request: "Is the founder technical?")
+    >>> writer = FakeLLM(generate=lambda request: "Is the review positive?")
     >>> judge = FakeLLM(answer=lambda sample, question: 0.9, kind="decision")
     >>> with fake_llms(writer=writer, judge=judge):
     ...     pass  # models now accept "fake:writer" and "fake:judge"

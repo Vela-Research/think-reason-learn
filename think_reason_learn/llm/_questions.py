@@ -17,7 +17,7 @@ class YesNoQuestion:
     """A yes/no question about a sample.
 
     Args:
-        text: The question, e.g. ``"Has the founder exited a company before?"``.
+        text: The question, e.g. ``"Does the email ask for a password?"``.
     """
 
     text: str

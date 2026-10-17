@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import random
+import time
 from collections.abc import Awaitable, Callable
 from typing import Final
 
 from ._adapters._base import ProviderError, Reply
+from ._config import Config
 from ._limiter import Limiter, Outcome, limiter_for
 from ._loop import on_fork
 from ._spec import Endpoint
@@ -36,21 +39,23 @@ async def send[T](
     call: Callable[[frozenset[str]], Awaitable[Reply[T]]],
     *,
     estimated_tokens: int,
-    max_retries: int,
+    config: Config,
     stopped: Callable[[], bool] = lambda: False,
 ) -> Reply[T]:
     """Run ``call`` under the endpoint's limiter.
 
     Rate limits, server errors and timeouts are retried with backoff, waiting at
-    least what the provider asked. A setting the model rejects is dropped for
-    this endpoint and the call resent at once.
+    least what the provider asked: at most ``config.max_retries`` times, and only
+    while a retry can finish within ``config.max_retry_time`` of the first
+    failure. A setting the model rejects is dropped for this endpoint and the
+    call resent at once.
 
     Raises:
         ProviderError: The call failed and retrying cannot help.
         Skipped: ``stopped()`` turned true before the call was sent.
     """
     limiter = limiter_for(endpoint)
-    retries = 0
+    retries, deadline = 0, math.inf
     while True:
         dropped = _dropped.get(endpoint.key, frozenset())
         try:
@@ -58,10 +63,17 @@ async def send[T](
         except ProviderError as error:
             if _drop(endpoint, error, dropped):
                 continue
-            if error.failure not in _RETRIED or retries >= max_retries:
+            if deadline == math.inf:
+                deadline = time.monotonic() + config.max_retry_time
+            wait = _backoff(retries + 1, error.retry_after)
+            if (
+                error.failure not in _RETRIED
+                or retries >= config.max_retries
+                or time.monotonic() + wait + config.timeout > deadline
+            ):
                 raise
             retries += 1
-            await asyncio.sleep(_backoff(retries, error.retry_after))
+            await asyncio.sleep(wait)
 
 
 def _drop(endpoint: Endpoint, error: ProviderError, dropped: frozenset[str]) -> bool:

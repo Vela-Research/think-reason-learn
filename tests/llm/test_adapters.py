@@ -105,7 +105,7 @@ class TestOpenAICompatible:
         _, user = body["messages"]
         assert user["content"].startswith("Sample:\nAn engineer.")
         assert user["content"].endswith("Answer with exactly one of: YES, NO.")
-        assert "temperature" not in body and body["prompt_cache_key"]
+        assert body["temperature"] == 0 and body["prompt_cache_key"]  # answers repeat
         assert body["response_format"]["type"] == "json_schema"
         assert _label(result, "tech") == "YES"
         [record] = list(session.usage)
@@ -134,6 +134,30 @@ class TestOpenAICompatible:
             False,
             False,
         ]
+
+    def test_writing_and_votes_keep_the_models_temperature(self, wire: Wire) -> None:
+        sent = wire(lambda r: _chat('{"a1": "YES"}'))
+        models = resolve_models(
+            LLM("openai:gpt-5-mini", api_key="k"), param="answerer", task="answer"
+        )
+        session = LLMSession()
+        run_sync(
+            session.answer(models, ["An engineer."], TECH, role="a", ensemble=True)
+        )
+        run_sync(session.generate(models, "Write.", role="generator"))
+        _answer(LLM("openai:gpt-5-mini", api_key="k", temperature=0.7))
+        sent_temperatures = [json.loads(r.content).get("temperature") for r in sent]
+        assert sent_temperatures == [None, None, 0.7]
+
+    def test_a_custom_server_never_gets_the_providers_key(
+        self, wire: Wire, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-from-env")
+        sent = wire(lambda r: _error(401, "Incorrect API key provided"))
+        proxy = LLM("openai:gpt-5-mini", base_url="https://proxy.example/v1")
+        with pytest.raises(ProviderAuthError, match="No key was sent"):
+            _answer(proxy)
+        assert "sk-from-env" not in sent[0].headers["authorization"]
 
     def test_rate_limit_waits_and_retries(self, wire: Wire) -> None:
         replies = iter([_error(429, "Rate limit reached", {"retry-after": "0"})])
@@ -275,7 +299,7 @@ class TestAnthropic:
         assert first["text"].startswith("Sample:") and second["text"].startswith(
             "Question:"
         )
-        assert "temperature" not in body and body["output_config"]["format"]
+        assert body["temperature"] == 0 and body["output_config"]["format"]
         assert _label(result, "tech") == "YES"
         [record] = list(session.usage)
         assert (

@@ -15,7 +15,7 @@ from sklearn.exceptions import NotFittedError
 
 from think_reason_learn.core._sklearn import check_constructor, clone_estimator
 from think_reason_learn.exceptions import DataError, ProviderAuthError
-from think_reason_learn.llm import LLMSession, resolve_models
+from think_reason_learn.llm import LLMSession, Usage, resolve_models
 from think_reason_learn.testing import FakeLLM, GenerateRequest, fake_llms
 from think_reason_learn.verifiable_rl import VerifiableRL
 from think_reason_learn.verifiable_rl._episodes import Sample, Search, rollouts, targets
@@ -209,6 +209,25 @@ def test_supervisor_sees_only_revealed_slots() -> None:
         revealed, _, offered = prompt.partition("\n\nSlots you may reveal next: ")
         shown = {line.split(":")[0] for line in revealed.splitlines()[1:]}
         assert not shown & set(offered.split(", "))
+
+
+def test_a_fit_makes_every_call_in_one_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    import think_reason_learn.verifiable_rl._verifiable_rl as module
+
+    opened: list[LLMSession] = []
+
+    class Counted(LLMSession):
+        def __init__(self, *, usage: Usage | None = None) -> None:
+            super().__init__(usage=usage)
+            opened.append(self)
+
+    monkeypatch.setattr(module, "LLMSession", Counted)
+    texts = {name: [f"{name} text {i}" for i in range(20)] for name in SLOTS}
+    with fake_llms(advisor=FakeLLM(generate=lambda request: {"slot": "noise"})):
+        fast(supervisor="fake:advisor", uncertain_delta=1.0, threshold=None).fit(
+            X[:20], Y[:20], slot_texts=texts
+        )
+    assert len(opened) == 1  # one budget covers training and tuning the threshold
 
 
 def test_a_failed_refit_leaves_no_model() -> None:

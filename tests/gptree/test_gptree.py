@@ -334,8 +334,9 @@ def test_a_budget_stop_inside_the_tree_stops_the_fit(
     from think_reason_learn.llm import LLM, Price
 
     priced = LLM("fake:judge", price=Price(input=1e6))  # a dollar a token
+    writer = LLM("fake:writer", price=Price(input=0.0))
     with config_context(max_cost_usd=0.01), pytest.raises(BudgetExceededError):
-        tree(answerer=priced).fit(FOUNDERS, LABELS)
+        tree(generator=writer, answerer=priced).fit(FOUNDERS, LABELS)
 
 
 def test_the_plan_bounds_a_tree_that_peels_one_sample_a_level() -> None:

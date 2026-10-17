@@ -100,8 +100,8 @@ _caches_lock: Final = threading.Lock()
 def open_cache(path: Path) -> Cache | None:
     """The cache at ``path``, opened once per process; ``None`` if it cannot open.
 
-    A read-only folder or a corrupt file turns caching off for the run, with a
-    warning, instead of stopping it.
+    Opening it says where it is, once. A read-only folder or a corrupt file
+    turns caching off for the run, with a warning, instead of stopping it.
     """
     with _caches_lock:
         if path not in _caches:
@@ -110,6 +110,10 @@ def open_cache(path: Path) -> Cache | None:
             except (OSError, sqlite3.Error) as error:
                 logger.warning(f"Running without the reply cache at {path}: {error}")
                 return None
+            logger.warning(
+                f"Model replies are cached at {path}, so a rerun reuses them "
+                "instead of calling again. set_config(cache=False) turns it off."
+            )
         return _caches[path]
 
 

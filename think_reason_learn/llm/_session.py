@@ -12,7 +12,7 @@ import hashlib
 import logging
 import time
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
-from dataclasses import astuple, dataclass
+from dataclasses import astuple, dataclass, replace
 from functools import partial
 from typing import Final, TypeIs, overload
 
@@ -20,8 +20,10 @@ from pydantic import BaseModel, ValidationError
 
 from think_reason_learn.exceptions import (
     BudgetExceededError,
+    LLMError,
     NoOutputError,
     ProviderAuthError,
+    ProviderDownError,
 )
 
 from ._adapters import ADAPTERS, Answers, GenerateRequest, ProviderError, Reply
@@ -37,14 +39,23 @@ from ._estimate import (
 from ._limiter import apply_limits
 from ._questions import Answer, Question
 from ._spec import Endpoint
-from ._usage import Budget, TokenCounts, Usage, UsageRecord, call_cost, format_usd
+from ._usage import (
+    Budget,
+    TokenCounts,
+    Usage,
+    UsageRecord,
+    call_cost,
+    format_usd,
+    unpriced_message,
+)
 
 logger = logging.getLogger(__name__)
 
 _WINDOW: Final = 256
 """Answer requests scheduled at once; the limiter decides how many are sent."""
 _DEAD_AFTER: Final = 5
-"""Failed requests in a row, retries spent, after which the next model takes over."""
+"""Failed requests in a row, retries spent, after which the next model takes over,
+or the run stops if none is left."""
 
 
 class LLMSession:
@@ -160,10 +171,12 @@ class LLMSession:
         *,
         role: str,
         draw: int = 0,
+        ensemble: bool = False,
     ) -> list[Answers]:
         """Answer every question about every sample.
 
-        A question a model fails to answer goes to the next model.
+        A question a model fails to answer goes to the next model. A reasoning
+        model whose ``temperature`` is not set answers at 0, so answers repeat.
 
         Args:
             models: Models in fallback order, reasoning or decision.
@@ -171,6 +184,8 @@ class LLMSession:
             questions: Questions by id.
             role: Who is asking, recorded with usage, e.g. ``"answerer"``.
             draw: Different draws ask again; the same draw reuses answers.
+            ensemble: The answers are draws to average: a reasoning model keeps
+                its default temperature, so draws differ.
 
         Returns:
             Per sample, the answer to each question id; ``None`` if unanswered.
@@ -186,7 +201,7 @@ class LLMSession:
         for n, endpoint in enumerate(models, 1):
             pass_ = _AnswerPass(
                 self._engine,
-                endpoint,
+                endpoint if ensemble else _answering(endpoint),
                 samples,
                 digests,
                 questions,
@@ -235,7 +250,7 @@ class _Engine:
                 endpoint,
                 call,
                 estimated_tokens=estimate.input,
-                max_retries=self.config.max_retries,
+                config=self.config,
                 stopped=stopped,
             )
             cost = self._record(
@@ -251,21 +266,19 @@ class _Engine:
             if not isinstance(error, Skipped):  # nothing was sent
                 self._record(endpoint, role, TokenCounts(), start, error=str(error))
             if error.failure in ("auth", "quota"):
-                raise ProviderAuthError(f"{endpoint.name}: {error}") from error
+                raise ProviderAuthError(_auth_message(endpoint, error)) from error
             raise
         finally:
             self.budget.settle(held, cost)
 
     def _first_call(self, endpoint: Endpoint, estimate: TokenCounts) -> None:
-        apply_limits(endpoint)
-        self._configured.add(endpoint.key)
+        """Refuse a model the cap cannot count (each call, until one passes)."""
         if self.budget.max_cost_usd is not None and (
             call_cost(endpoint, estimate, None)[0] is None
         ):
-            logger.warning(
-                f"{endpoint.name} has no known price, so max_cost_usd does not "
-                "count its calls. Set one with LLM(..., price=Price(...))."
-            )
+            raise ValueError(unpriced_message([endpoint.name]))
+        apply_limits(endpoint)
+        self._configured.add(endpoint.key)
 
     def _record(
         self,
@@ -364,7 +377,7 @@ class _AnswerPass:
     can_hand_over: bool = False
     unavailable: bool = False
     failed_in_a_row: int = 0
-    fatal: ProviderAuthError | BudgetExceededError | None = None
+    fatal: LLMError | None = None
 
     async def run(self, results: list[Answers], errors: list[str]) -> bool:
         """Fill what this model can. Returns whether anything was left to ask."""
@@ -452,8 +465,9 @@ class _AnswerPass:
         """Ask, unless the run is stopping; calls in flight finish and are kept.
 
         A model that is gone, or fails ``_DEAD_AFTER`` times in a row, hands the
-        rest to the next model; the last model keeps trying. A bad request is
-        one sample's problem and does not count.
+        rest to the next model; the last one stops the run instead, its answers
+        so far in the cache. A bad request is one sample's problem and does not
+        count.
         """
         if self.fatal is not None or self.unavailable:
             return
@@ -467,6 +481,9 @@ class _AnswerPass:
                 self.failed_in_a_row += 1
             gone = error.failure == "unavailable" or self.failed_in_a_row >= _DEAD_AFTER
             self.unavailable = self.can_hand_over and gone
+            down = self.failed_in_a_row >= _DEAD_AFTER and not self.can_hand_over
+            if down and self.fatal is None:
+                self.fatal = ProviderDownError(_down_message(self.endpoint, error))
         except (ProviderAuthError, BudgetExceededError) as error:
             self.fatal = error
         else:
@@ -539,11 +556,13 @@ def _report(
         raise NoOutputError(
             f"No answers from {[m.name for m in models]}. First error: {first}"
         )
-    if errors:
-        logger.warning(
-            f"{len(errors)} answer calls failed and {answers.count(None)} answers "
-            f"are missing; the first error: {errors[0]}"
+    if missing := answers.count(None):
+        why = (
+            f"{len(errors)} calls failed, the first: {errors[0]}"
+            if errors
+            else "replies were refused, cut off or gave no allowed label"
         )
+        logger.warning(f"{missing} of {len(answers)} answers are missing ({why}).")
 
 
 def _endpoint_identity(endpoint: Endpoint) -> dict[str, JSON]:
@@ -596,3 +615,27 @@ def _load_answer(stored: JSON, question: Question) -> Answer | None:
         {k: float(v) for k, v in probabilities.items() if isinstance(v, (int, float))},
     )
     return answer if answer.is_valid else None
+
+
+def _answering(endpoint: Endpoint) -> Endpoint:
+    """A reasoning model with no temperature set answers at 0."""
+    if endpoint.kind != "reasoning" or endpoint.settings.temperature is not None:
+        return endpoint
+    return replace(endpoint, settings=replace(endpoint.settings, temperature=0.0))
+
+
+def _auth_message(endpoint: Endpoint, error: ProviderError) -> str:
+    hint = (
+        ""
+        if endpoint.api_key
+        else f' No key was sent: pass LLM("{endpoint.name}", api_key=...).'
+    )
+    return f"{endpoint.name}: {error}{hint}"
+
+
+def _down_message(endpoint: Endpoint, error: ProviderError) -> str:
+    return (
+        f"{endpoint.name} keeps failing and no fallback model is left, so the run "
+        "stops. Answers so far are in the cache, so a rerun continues from them. "
+        f"Last error: {error}"
+    )

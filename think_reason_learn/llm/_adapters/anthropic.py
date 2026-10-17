@@ -91,7 +91,7 @@ def _client(endpoint: Endpoint) -> anthropic.AsyncAnthropic:
 
     def build() -> anthropic.AsyncAnthropic:
         return anthropic.AsyncAnthropic(
-            api_key=endpoint.api_key,
+            api_key=endpoint.api_key or "not-needed",  # never the SDK's own lookup
             base_url=endpoint.base_url,
             max_retries=0,
             http_client=http_client(endpoint.client_key),

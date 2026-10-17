@@ -164,6 +164,19 @@ def test_a_tampered_catalog_file_is_ignored(monkeypatch: pytest.MonkeyPatch) -> 
     assert endpoint.settings.price == Price(0.042, 0.0)  # downloaded again
 
 
+def test_only_a_key_passed_goes_to_a_custom_base_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-env")
+    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "az-env")
+    proxy = "https://proxy.example/v1"
+    assert resolve(LLM("openai:gpt-5-mini")).api_key == "sk-env"
+    assert resolve(LLM("openai:gpt-5-mini", base_url=proxy)).api_key is None
+    assert resolve(LLM("openai:gpt-5-mini", base_url=proxy, api_key="k")).api_key == "k"
+    azure = LLM("azure:my-deployment", base_url="https://me.openai.azure.com/v1")
+    assert resolve(azure).api_key == "az-env"  # Azure's endpoint is always yours
+
+
 def test_planning_needs_no_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("OPENAI_API_KEY")
     with keys_optional():

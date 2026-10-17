@@ -7,7 +7,8 @@ so every prediction comes with the questions or rules behind it. Think of it as 
 every model is a scikit-learn classifier.
 
 TRL is developed by Vela Research with the University of Oxford. Our first applications are in venture capital, but
-the library is domain-agnostic.
+the library is domain-agnostic: the [phishing example](examples/phishing.ipynb) learns which questions flag
+phishing emails, with one OpenAI key.
 
 ## Think, reason, learn
 

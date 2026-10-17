@@ -1,4 +1,4 @@
-"""Typed doors into scikit-learn and joblib, whose own annotations are partial.
+"""Typed doors into scikit-learn, whose own annotations are partial.
 
 Each function states the types this library relies on. The few ``pyright:
 ignore`` comments that scikit-learn's partial annotations need sit here, so the
@@ -11,10 +11,8 @@ from __future__ import annotations
 import inspect
 import re
 from collections.abc import Callable
-from pathlib import Path
 from typing import Final
 
-import joblib
 import numpy as np
 import numpy.typing as npt
 import sklearn
@@ -129,14 +127,3 @@ def chosen(
     c = np.asarray(search.C_, dtype=float).ravel()[0]  # pyright: ignore[reportUnknownMemberType]  # partial annotation
     l1_ratio = np.asarray(search.l1_ratio_, dtype=float).ravel()[0]  # pyright: ignore[reportUnknownMemberType]  # partial annotation
     return float(c), float(l1_ratio)
-
-
-def dump(value: object, path: Path) -> None:
-    """Write ``value`` to ``path`` with joblib."""
-    joblib.dump(value, path)  # pyright: ignore[reportUnknownMemberType]  # joblib has no annotations
-
-
-def load(path: Path) -> object:
-    """Read a value written by ``dump``. Only load files you trust."""
-    value: object = joblib.load(path)  # pyright: ignore[reportUnknownMemberType]  # joblib has no annotations
-    return value

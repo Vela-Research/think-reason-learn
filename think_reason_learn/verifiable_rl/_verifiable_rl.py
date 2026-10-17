@@ -16,7 +16,8 @@ import copy
 import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, fields
-from typing import Self
+from pathlib import Path
+from typing import ClassVar, Self
 
 import numpy as np
 import numpy.typing as npt
@@ -47,7 +48,13 @@ from ._episodes import (
 )
 from ._networks import Classifier, PolicyNet
 from ._supervisor import Supervisor
-from ._torch import private_cpu_rng, shuffled_batches, tensor
+from ._torch import (
+    load_weights,
+    private_cpu_rng,
+    save_weights,
+    shuffled_batches,
+    tensor,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -383,6 +390,28 @@ class VerifiableRL(Persistable, ClassifierMixin, BaseEstimator):
             self.uncertain_delta,
             self.llm_bias,
         )
+
+    _saved_apart: ClassVar[tuple[str, ...]] = ("policy_", "classifier_")
+
+    def _save_apart(self, folder: Path) -> None:
+        """The networks' weights, in ``weights.pt``."""
+        if hasattr(self, "policy_"):
+            save_weights(
+                folder / "weights.pt",
+                {
+                    "policy": self.policy_.state_dict(),
+                    "classifier": self.classifier_.state_dict(),
+                },
+            )
+
+    def _load_apart(self, folder: Path) -> None:
+        """Rebuild the networks and read their weights from ``weights.pt``."""
+        if not hasattr(self, "columns_"):
+            return
+        self._build_networks(np.random.default_rng(0))  # the weights replace these
+        weights = load_weights(folder / "weights.pt", self.device)
+        self.policy_.load_state_dict(weights["policy"])
+        self.classifier_.load_state_dict(weights["classifier"])
 
     def _build_networks(self, rng: np.random.Generator) -> None:
         state_dim = len(self.columns_)

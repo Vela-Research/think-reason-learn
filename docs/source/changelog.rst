@@ -38,7 +38,9 @@ few parameters away, and every model is seeded with ``random_state=42``. See :do
   old ``TRLModel`` is removed. ``fit``, ``predict`` and ``predict_proba`` work in
   scripts and notebooks, with ``afit``, ``apredict`` and ``apredict_proba`` for async code; settings are stored
   untouched so ``clone``, ``get_params`` and grid search work; any labels; ``usage_`` records every call;
-  ``save``/``load`` write ``model.joblib`` plus a readable ``model.json`` and never store API keys.
+  ``save``/``load`` write one readable ``model.json`` (VerifiableRL adds ``weights.pt``) with the save format and
+  library version; loading rebuilds the model without running code from the file (no pickle), and API keys are
+  never stored. A folder saved by 0.2 gives an error that says to refit.
   ``think_reason_learn.testing.check_classifier`` checks a model against this contract offline.
 - **GPTree, rebuilt** on ``TRLClassifier``: ``GPTree(task=..., generator=..., answerer="jev")`` with ``fit``,
   ``predict``, ``predict_proba``, ``apply``, ``plot``, ``export_graphviz``, ``prune`` and ``write_instructions``.

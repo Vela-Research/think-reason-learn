@@ -98,8 +98,16 @@ def test_rounds_and_batches_set_the_refinements() -> None:
 
 def test_expert_policy_skips_the_first_draft(fakes: tuple[FakeLLM, FakeLLM]) -> None:
     write, _ = fakes
-    policy_induction(initial_policy=GOOD, n_rounds=0).fit(FOUNDERS, LABELS)
-    assert not any(c.schema is not None for c in write.calls)
+    policy_induction(initial_policy=GOOD).fit(FOUNDERS, LABELS)
+    assert not any("Current policy" not in (c.prompt or "") for c in write.calls[1:])
+
+
+def test_a_given_policy_used_as_is_needs_no_generator(
+    fakes: tuple[FakeLLM, FakeLLM],
+) -> None:
+    write, _ = fakes
+    model = policy_induction(generator=None, initial_policy=GOOD, n_rounds=0)
+    assert model.fit(FOUNDERS, LABELS).policy_ == GOOD and write.n_calls == 0
 
 
 def test_rules_predictor_weighs_each_rule(fakes: tuple[FakeLLM, FakeLLM]) -> None:

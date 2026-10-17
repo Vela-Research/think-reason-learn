@@ -73,7 +73,8 @@ class RRF(BinaryTRLClassifier):
         instructions: Instructions for writing questions; written from ``task``
             during ``fit`` when not given (see ``write_instructions``).
         expert_questions: Questions of your own, scored like the written ones.
-        n_prompts: Question-writing prompts; the paper uses 25.
+        n_prompts: Question-writing prompts; the paper uses 25. 0 writes none,
+            scoring only ``expert_questions``, and needs no generator.
         questions_per_prompt: Questions per prompt; the paper uses 10.
         n_examples: Labelled samples shown per prompt; the paper uses 20.
         example_class_ratio: Class shares among them; the paper balances them.
@@ -172,11 +173,17 @@ class RRF(BinaryTRLClassifier):
 
     async def _afit(self, texts: list[str], y: Labels, session: LLMSession) -> None:
         positive = self._positive(y)
-        writer = self._models("generator", "generate")
+        if not (self.n_prompts or self.expert_questions):
+            raise ValueError("n_prompts=0 needs expert_questions=(...) to score.")
+        writer = self._writer()
         self._models("answerer", "answer")  # fail before paying for questions
         rng = np.random.default_rng(self.random_state)
         generation, scoring = self._split_generation(y, len(self.classes_), rng)
-        self.instructions_ = await self._instructions(session, writer)
+        self.instructions_ = (
+            await self._instructions(session, writer)
+            if writer
+            else self.instructions or ""
+        )
         questions = await self._write(texts, y, generation, writer, session, rng)
         if not questions:
             raise NoOutputError("The generator wrote no usable questions.")
@@ -201,7 +208,7 @@ class RRF(BinaryTRLClassifier):
     def _fit_plan(
         self, texts: list[str], y: Labels, classes: Classes
     ) -> list[UsageRecord]:
-        writer = self._models("generator", "generate")
+        writer = self._writer()
         answerer = self._models("answerer", "answer")
         rng = np.random.default_rng(self.random_state)
         _, scoring = self._split_generation(y, len(classes), rng)
@@ -209,10 +216,14 @@ class RRF(BinaryTRLClassifier):
         written = self.n_prompts * self.questions_per_prompt
         n_questions = written + len(self.expert_questions)
         prompt = self.n_examples * mean_tokens(texts) + self._instructions_tokens()
-        planned = [
-            *self._instructions_plan(),
-            estimate_generations(writer, prompt, calls=self.n_prompts),
-        ]
+        planned = (
+            [
+                *self._instructions_plan(),
+                estimate_generations(writer, prompt, calls=self.n_prompts),
+            ]
+            if writer
+            else []
+        )
         if self.screening_size is None or n_questions <= self.screened_questions:
             return [
                 *planned,
@@ -230,6 +241,10 @@ class RRF(BinaryTRLClassifier):
     def _predict_plan(self, texts: list[str]) -> list[UsageRecord]:
         answerer = self._models("answerer", "answer")
         return [estimate_answers(answerer, texts, list(self.rules_))]
+
+    def _writer(self) -> tuple[Endpoint, ...]:
+        """The generator, if questions are written: ``n_prompts=0`` needs none."""
+        return self._models("generator", "generate") if self.n_prompts else ()
 
     def _check_classes(self, classes: Classes) -> None:
         super()._check_classes(classes)

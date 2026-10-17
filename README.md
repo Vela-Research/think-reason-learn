@@ -140,8 +140,8 @@ f1 = make_scorer(f1_score, pos_label="successful")
 cross_val_score(RRF(task=task, generator="openai:gpt-5-mini"), X, y, cv=2, scoring=f1)
 ```
 
-Every model supports `clone`, `get_params`, `GridSearchCV`, `Pipeline`, pickling, and `save`/`load` (API keys are
-never saved). `think_reason_learn.testing` fits and checks models offline with scripted fake models.
+Every model supports `clone`, `get_params`, `GridSearchCV`, `Pipeline`, pickling, and `save`/`load` (one readable
+`model.json`, safe to load; API keys are never saved). `think_reason_learn.testing` fits and checks models offline with scripted fake models.
 
 ## Contributing
 

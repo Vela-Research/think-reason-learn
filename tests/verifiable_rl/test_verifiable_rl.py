@@ -59,7 +59,9 @@ def test_contract(tmp_path: Path) -> None:
     predicted = model.predict(X)
     assert set(predicted) <= {"hit", "miss"}
     assert (pickle.loads(pickle.dumps(model)).predict(X) == predicted).all()
-    assert (VerifiableRL.load(model.save(tmp_path / "m")).predict(X) == predicted).all()
+    folder = model.save(tmp_path / "m")
+    assert sorted(p.name for p in folder.iterdir()) == ["model.json", "weights.pt"]
+    assert (VerifiableRL.load(folder).predict(X) == predicted).all()
 
 
 def test_learns_from_the_informative_slot() -> None:

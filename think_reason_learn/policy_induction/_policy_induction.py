@@ -92,7 +92,8 @@ class PolicyInduction(BinaryTRLClassifier):
         instructions: Instructions for writing the policy; written from
             ``task`` during ``fit`` when not given.
         initial_policy: Rules to start from, e.g. an expert's. When empty, the
-            generator writes them from ``n_examples`` labelled samples.
+            generator writes them from ``n_examples`` labelled samples. With
+            ``n_rounds=0`` the policy is used as given, and no generator is needed.
         n_examples: Labelled samples shown to write the first policy; the paper
             uses 40 (20 of each class).
         n_samples: Training cases used to refine (and with ``memory`` to judge
@@ -167,10 +168,14 @@ class PolicyInduction(BinaryTRLClassifier):
 
     async def _afit(self, texts: list[str], y: Labels, session: LLMSession) -> None:
         positive = self._positive(y)
-        writer = self._models("generator", "generate")
+        writer = self._writer()
         self._models("answerer", "answer")  # fail before paying for the policy
         rng = np.random.default_rng(self.random_state)
-        self.instructions_ = await self._instructions(session, writer)
+        self.instructions_ = (
+            await self._instructions(session, writer)
+            if writer
+            else self.instructions or ""
+        )
         cases = balanced_subset(y, 2, self.n_samples, rng)
         policy = await self._induce(texts, y, cases, writer, session, rng)
         self.policy_, self.combiner_, self.weighted_rules_ = policy, None, ()
@@ -254,19 +259,20 @@ class PolicyInduction(BinaryTRLClassifier):
     def _fit_plan(
         self, texts: list[str], y: Labels, classes: Classes
     ) -> list[UsageRecord]:
-        writer = self._models("generator", "generate")
+        writer = self._writer()
         answerer = self._models("answerer", "answer")
         rng = np.random.default_rng(self.random_state)
         cases = balanced_subset(y, 2, self.n_samples, rng)
         refinements = self.n_rounds * math.ceil(len(cases) / self.batch_size)
         policy, example = self.max_rules * QUESTION_TOKENS, mean_tokens(texts)
         instructions = self._instructions_tokens()  # every prompt carries them
-        planned = self._instructions_plan()
+        planned = self._instructions_plan() if writer else []
         if not self.initial_policy:
             first = instructions + self.n_examples * example
             planned.append(estimate_generations(writer, first))
-        refine = instructions + policy + self.batch_size * example
-        planned.append(estimate_generations(writer, refine, calls=refinements))
+        if refinements:
+            refine = instructions + policy + self.batch_size * example
+            planned.append(estimate_generations(writer, refine, calls=refinements))
         if self.memory:
             judged = take(texts, cases)
             planned.append(
@@ -278,6 +284,12 @@ class PolicyInduction(BinaryTRLClassifier):
             rules = [QUESTION_TOKENS] * self.max_rules
             planned.append(estimate_answers(answerer, rows, rules))
         return planned
+
+    def _writer(self) -> tuple[Endpoint, ...]:
+        """The generator, unless nothing is written: a given policy, not refined."""
+        if self.initial_policy and not self.n_rounds:
+            return ()
+        return self._models("generator", "generate")
 
     def _predict_plan(self, texts: list[str]) -> list[UsageRecord]:
         answerer = self._models("answerer", "answer")

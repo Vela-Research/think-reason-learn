@@ -13,7 +13,7 @@ Every model
 ``OpenAIChoice(model="gpt-4.1-nano")`` and the like             ``"openai:gpt-4.1-nano"``, or ``LLM(...)`` with settings
 a list of choices (fallbacks)                                   a tuple of models
 ``qgen_llmc``, ``gen_llmc``, ``reason_llmc``, ``extract_llmc``  ``generator=``
-``qanswer_llmc``, ``predict_llmc``                              ``answerer=`` (default ``"jev"``)
+``qanswer_llmc``, ``predict_llmc``                              ``answerer=`` (default ``"jev"``, which needs ``TYPESAFE_API_KEY``)
 ``*_temperature``                                               ``LLM(model, temperature=...)``
 ``qanswer_batch_size``, ``policy_batch_size``                   ``LLM(model, questions_per_call=...)``
 ``llm_semaphore_limit``                                         ``set_limits(model, max_concurrency=, rpm=, tpm=)``
@@ -26,7 +26,7 @@ labels ``"YES"`` / ``"NO"`` only                                any labels; ``po
 ``class_ratio``                                                 ``example_class_ratio`` (GPTree, RRF); Policy Induction always balances
 ``*_update_interval`` (progress logs)                           ``verbose=1`` (a progress bar)
 ``token_usage``                                                 ``usage_`` (tokens and cost per call)
-``save_path=``, ``name=``, ``save(dir_path)``                   ``save(path)``, ``Model.load(path)``
+``save_path=``, ``name=``, ``save(dir_path)``                   ``save(path)``, ``Model.load(path)``; 0.2 saves do not load (below)
 ``JevChoice(max_cost_usd=...)``, $10 by default                 ``config_context(max_cost_usd=...)``, no cap unless set
 ``JevChoice(cache=False)``                                      ``config_context(cache=False)``
 ``JevAuthError``                                                ``ProviderAuthError`` (any provider)
@@ -151,3 +151,33 @@ Lambda features
 ``await generator.generate(...)``      ``generate(...)``, or ``await agenerate(...)``
 ``GeneratedRule``, ``GeneratedRules``  not exported (the writer's reply format); rules are ``Rule``
 =====================================  =================================================================
+
+Saved models
+~~~~~~~~~~~~
+
+0.3 cannot load a folder saved by 0.2: ``load`` says so, and the model has to be fitted again. 0.2 stays on PyPI
+for its saves. A 0.3 save is one ``model.json`` (VerifiableRL adds its network weights in ``weights.pt``). It records
+the save format and the library version, so a later version can read it or say why not, and loading it never runs
+code from the file.
+
+Refitting need not pay for the questions again. 0.2's RRF kept its questions in ``questions.parquet``, and Policy
+Induction kept its policy in ``policies.parquet``; pass them in, and only the answers are paid for. Reading parquet
+needs ``pip install pyarrow``.
+
+.. code-block:: python
+
+    import pandas as pd
+
+    from think_reason_learn.policy_induction import PolicyInduction
+    from think_reason_learn.rrf import RRF
+
+    questions = pd.read_parquet("my_0.2_rrf/questions.parquet")["question"]
+    rrf = RRF(task="...", n_prompts=0, expert_questions=tuple(questions)).fit(X, y)
+
+    policy = pd.read_parquet("my_0.2_policy_induction/policies.parquet")["policy"]
+    policy_induction = PolicyInduction(
+        task="...", initial_policy=tuple(policy), n_rounds=0
+    ).fit(X, y)
+
+With ``n_prompts=0`` RRF writes no questions, and with ``initial_policy`` and ``n_rounds=0`` Policy Induction uses
+the policy as it is; neither needs a generator.

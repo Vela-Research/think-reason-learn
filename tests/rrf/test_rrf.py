@@ -146,6 +146,18 @@ def test_screening_answers_fewer_questions(fakes: tuple[FakeLLM, FakeLLM]) -> No
     assert len(model.questions_) == 1
 
 
+def test_expert_questions_alone_need_no_generator(
+    fakes: tuple[FakeLLM, FakeLLM],
+) -> None:
+    writer, _ = fakes
+    kept = ("Is the founder an engineer?", "Is the founder a chef?")  # e.g. 0.2's
+    model = rrf(generator=None, n_prompts=0, expert_questions=kept)
+    assert set(model.fit(FOUNDERS, LABELS).questions_["question"]) == set(kept)
+    assert writer.n_calls == 0
+    with pytest.raises(ValueError, match="needs expert_questions"):
+        rrf(n_prompts=0).fit(FOUNDERS, LABELS)
+
+
 def test_expert_questions_are_scored_too(fakes: tuple[FakeLLM, FakeLLM]) -> None:
     model = rrf(
         expert_questions=("Did the founder exit a company?", "Is the founder a chef?")

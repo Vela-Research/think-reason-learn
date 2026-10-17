@@ -1,15 +1,17 @@
-"""Random Rule Forest (RRF): a vote of YES/NO questions written by a language model.
+"""Random Rule Forest (RRF): YES/NO questions written by a language model, weighed.
 
 Griffin, Yin, Vidaurre, Koyluoglu, Ternasky, Alican and Ihlamur, "Random Rule
 Forest: Interpretable Ensembles of LLM-Generated Questions for Predicting
 Startup Success" (2025), https://arxiv.org/abs/2505.24622.
 
-The generator writes questions from small class-balanced batches of a held-out
-generation set. The answerer answers every question for the other training
-samples. Questions are ranked by F-beta (F0.5 by default), weak and redundant
-ones dropped, and the prediction is positive when at least T of the top N
-questions say YES, with (N, T) tuned by cross-validation. With
-``combiner="elasticnet"`` a regularised logistic regression weighs the answers.
+The generator writes questions from small class-balanced batches of training
+samples, and the answerer answers every question for them. As in 0.2, an elastic
+net weighs every question's answers (Jev's probabilities by default), and its
+threshold is tuned for F1 by cross-validation. The paper's vote is
+``combiner="vote"``: questions are ranked by F-beta, weak and redundant ones
+dropped, and the prediction is positive when at least T of the top N questions
+say YES, with (N, T) tuned by cross-validation; the paper also writes questions
+from a held-out generation set (``generation_size=500``) and uses ``beta=0.5``.
 """
 
 from __future__ import annotations
@@ -125,7 +127,7 @@ class RRF(BinaryTRLClassifier):
         screening_size: int | float | None = None,
         screened_questions: int = 20,
         pos_label: str | int | None = None,
-        random_state: int | None = None,
+        random_state: int | None = 42,
         verbose: int = 0,
     ) -> None:
         self.task = task

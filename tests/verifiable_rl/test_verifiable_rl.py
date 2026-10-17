@@ -176,14 +176,19 @@ def test_targets_are_two_part() -> None:
     assert finals.shape == (3 * SEARCH.n_rollouts, 6)
 
 
-def test_supervisor_boost_is_multiplicative_and_keeps_stop() -> None:
+def test_supervisor_boost_adds_to_the_pick_and_keeps_stop() -> None:
     probs = np.array([0.3, 0.3, 0.2, 0.2])
-    boosted = boost(probs, 3, 1, 0.5)
+    boosted = boost(probs, 3, 1, 0.05)
     assert boosted[3] == 0.2 and math.isclose(boosted[:3].sum(), 0.8)
-    assert math.isclose(boosted[1] / boosted[0], 1.5)
+    assert math.isclose(boosted[1] / boosted[0], 0.35 / 0.3)
     assert is_uncertain(probs, 3, 0.01) and not is_uncertain(
         np.array([0.6, 0.1, 0.1, 0.2]), 3, 0.01
     )
+
+
+def test_the_defaults_are_0_2s() -> None:
+    model = VerifiableRL()
+    assert (model.threshold, model.llm_bias, model.random_state) == (0.3, 0.05, 42)
 
 
 def test_supervisor_sees_only_revealed_slots() -> None:

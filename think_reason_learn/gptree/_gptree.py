@@ -6,7 +6,9 @@ LLM-powered Decision Trees" (2024), https://arxiv.org/abs/2411.08257.
 At each node the generator writes candidate questions from class-balanced
 examples, the path so far and insights about each class; the answerer answers
 them for the node's samples; and the question that most decreases impurity
-splits the node. Nodes of one level grow concurrently.
+splits the node. Nodes of one level grow concurrently. As in 0.2 the tree grows
+until its leaves are pure and each leaf predicts its most common class; the
+paper's tree is ``max_depth=18, min_samples_leaf=0.005, max_choices=2, beta=0.5``.
 """
 
 from __future__ import annotations
@@ -98,16 +100,16 @@ class GPTree(TRLClassifier):
             during ``fit`` when not given; see ``write_instructions``.
         expert_advice: Guidance added to every question-writing prompt.
         criterion: Impurity to minimise: ``"gini"`` or ``"entropy"``.
-        max_depth: Deepest level; the paper uses 18. ``None`` for no limit.
+        max_depth: Deepest level; ``None`` (0.2's) for no limit. The paper uses 18.
         min_samples_split: Fewest samples a node needs to split (int), or that
             fraction of the training samples (float).
         min_samples_leaf: Fewest samples in each child (int), or that fraction
-            of the training samples (float). The paper uses 0.5%.
+            of the training samples (float). 0.2 uses 1; the paper uses 0.5%.
         min_impurity_decrease: Smallest weighted impurity decrease a split needs.
         max_leaf_nodes: Most leaves; the best splits of each level go first.
         max_questions: Candidate questions written per node.
         max_choices: Answers per question: 2 for yes/no only, more to allow
-            questions with that many options.
+            questions with that many options. 0.2 allows 3; the paper uses 2.
         n_examples: Labelled examples shown when writing a node's questions.
         example_class_ratio: Class shares among those examples.
         class_weight: Class weights in the impurity: ``"balanced"``, or a
@@ -116,9 +118,10 @@ class GPTree(TRLClassifier):
         insight_batch_size: Samples per insight prompt.
         pos_label: For two classes, the positive one (by default the second
             sorted label).
-        beta: For two classes, leaves are called positive above the share of
-            positives that maximises F-beta on the training samples, as the
-            paper does (F0.5). More classes take the most likely class.
+        beta: ``None`` (0.2's): each leaf predicts its most likely class. A
+            number, for two classes: leaves are called positive above the
+            share of positives that maximises F-beta on the training samples,
+            as the paper does with 0.5.
         random_state: Seed for the examples shown.
         verbose: Show progress when above 0.
     """
@@ -134,21 +137,21 @@ class GPTree(TRLClassifier):
         instructions: str | None = None,
         expert_advice: str | None = None,
         criterion: Criterion = "gini",
-        max_depth: int | None = 18,
+        max_depth: int | None = None,
         min_samples_split: int | float = 2,
-        min_samples_leaf: int | float = 0.005,
+        min_samples_leaf: int | float = 1,
         min_impurity_decrease: float = 0.0,
         max_leaf_nodes: int | None = None,
         max_questions: int = 10,
-        max_choices: int = 2,
+        max_choices: int = 3,
         n_examples: int = 30,
         example_class_ratio: ClassRatio = "balanced",
         class_weight: ClassWeight = None,
         insights: bool = True,
         insight_batch_size: int = 250,
         pos_label: str | int | None = None,
-        beta: float = 0.5,
-        random_state: int | None = None,
+        beta: float | None = None,
+        random_state: int | None = 42,
         verbose: int = 0,
     ) -> None:
         self.task = task
@@ -219,9 +222,11 @@ class GPTree(TRLClassifier):
     ) -> list[UsageRecord]:
         """Insights, then each level's questions, answered by every sample.
 
-        Every sample is answered at each level the tree can reach, as if each
-        split peeled off just ``min_samples_leaf`` samples; the questions are
-        written for as many nodes as a tree whose splits halve has.
+        Questions are written for as many nodes as a tree whose splits halve
+        has. With ``max_depth`` or ``max_leaf_nodes`` every sample is answered at
+        each level the tree can reach, an upper bound. Without either no useful
+        bound exists (a split may peel off one sample), so the levels are those
+        of a tree whose splits halve, and a lopsided tree costs more.
         """
         writer = self._models("generator", "generate")
         n, example = len(texts), mean_tokens(texts)
@@ -244,7 +249,11 @@ class GPTree(TRLClassifier):
             )
         questions = [QUESTION_TOKENS] * self.max_questions
         answerer = self._models("answerer", "answer")
-        levels = self._most_levels(n, smallest, min_leaf)
+        levels = (
+            self._levels(n, smallest)
+            if self.max_depth is None and self.max_leaf_nodes is None
+            else self._most_levels(n, smallest, min_leaf)
+        )
         return [*planned, estimate_answers(answerer, texts, questions, times=levels)]
 
     def _predict_plan(self, texts: list[str]) -> list[UsageRecord]:
@@ -659,12 +668,18 @@ class _Grower:
         return children
 
     def threshold(self) -> float | None:
-        """For two classes, the leaf share of positives that maximises F-beta."""
-        if len(self.model.classes_) != 2:
+        """With ``beta``, for two classes, the leaf share that maximises F-beta.
+
+        ``None`` (each leaf predicts its most likely class) without ``beta``, or
+        when every sample is in leaves of one share, e.g. a tree that never split.
+        """
+        if (beta := self.model.beta) is None or len(self.model.classes_) != 2:
             return None
         pos = positive_index(self.model.classes_, self.model.pos_label)
         shares = np.array([self.tree.proba(int(leaf))[pos] for leaf in self.leaf_of])
-        return best_threshold(shares, self.y == pos, self.model.beta)
+        if len(np.unique(shares)) < 2:
+            return None
+        return best_threshold(shares, self.y == pos, beta)
 
     def _value(self, idx: npt.NDArray[np.intp]) -> tuple[float, ...]:
         counts = np.bincount(

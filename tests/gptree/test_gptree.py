@@ -78,13 +78,10 @@ def test_splits_on_the_question_that_separates_the_classes(
     assert model.tree_.to_frame(list(model.classes_)).loc[0, "n_samples"] == 8
 
 
-def test_paper_defaults() -> None:
+def test_the_defaults_are_0_2s() -> None:
     model = GPTree()
-    assert (model.max_depth, model.min_samples_leaf, model.max_choices) == (
-        18,
-        0.005,
-        2,
-    )
+    assert (model.max_depth, model.min_samples_leaf, model.max_choices) == (None, 1, 3)
+    assert (model.beta, model.random_state) == (None, 42)
     assert model.insights and model.answerer == "jev"
 
 
@@ -249,13 +246,20 @@ def test_a_node_without_answers_does_not_fail(fakes: tuple[FakeLLM, FakeLLM]) ->
         assert len(model.predict(["someone new"])) == 1
 
 
-def test_two_classes_use_the_papers_leaf_threshold(
+def test_beta_tunes_the_papers_leaf_threshold(fakes: tuple[FakeLLM, FakeLLM]) -> None:
+    assert tree().fit(FOUNDERS, LABELS).threshold_ is None  # 0.2: the majority
+    assert tree(beta=0.5).fit(FOUNDERS, LABELS).threshold_ is not None
+    three = tree(beta=0.5).fit(FOUNDERS, [*LABELS[:7], "other"])
+    assert three.threshold_ is None
+
+
+def test_a_tree_that_never_splits_predicts_the_majority(
     fakes: tuple[FakeLLM, FakeLLM],
 ) -> None:
-    model = tree().fit(FOUNDERS, LABELS)
-    assert model.threshold_ is not None
-    three = tree().fit(FOUNDERS, [*LABELS[:7], "other"])
-    assert three.threshold_ is None
+    labels = ["miss", *LABELS[1:]]  # 3 hits of 8
+    model = tree(beta=0.5, max_depth=0).fit(FOUNDERS, labels)
+    assert model.threshold_ is None
+    assert set(model.predict(["an engineer", "a poet"])) == {"miss"}
 
 
 def test_leaf_budget_stops_growth_early(fakes: tuple[FakeLLM, FakeLLM]) -> None:
@@ -347,7 +351,7 @@ def test_the_plan_bounds_a_tree_that_peels_one_sample_a_level() -> None:
         return "YES" if question.text == f"Is this {sample}?" else "NO"
 
     judge = FakeLLM(answer=is_it)
-    model = tree(max_questions=12, min_samples_leaf=1, insights=False)
+    model = tree(max_questions=12, max_depth=18, insights=False)
     with (
         fake_llms(writer=FakeLLM(generate=ask_each), judge=judge),
         config_context(cache=False),

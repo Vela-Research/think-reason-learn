@@ -4,7 +4,8 @@ Changelog
 0.3.0
 -----
 The redesign: one way to call every model, on one provider layer, as scikit-learn classifiers, with each model
-checked against its paper. See :doc:`getting_started/migration` for every rename. 0.2.0 was never published to PyPI;
+checked against its paper. The defaults stay 0.2's, tuned in practice since the papers; each paper's settings are a
+few parameters away, and every model is seeded with ``random_state=42``. See :doc:`getting_started/migration` for every rename. 0.2.0 was never published to PyPI;
 0.3.0 is the first release there.
 
 - ``think_reason_learn.llm``: one interface to every model. A model is a ``"provider:model"`` string
@@ -33,14 +34,18 @@ checked against its paper. See :doc:`getting_started/migration` for every rename
   ``think_reason_learn.testing.check_classifier`` checks a model against this contract offline.
 - **GPTree, rebuilt** on ``TRLClassifier``: ``GPTree(task=..., generator=..., answerer="jev")`` with ``fit``,
   ``predict``, ``predict_proba``, ``apply``, ``plot``, ``export_graphviz``, ``prune`` and ``write_instructions``.
-  Closer to the paper: insights per class before growing, defaults ``max_depth=18`` and ``min_samples_leaf=0.005``
-  (a fraction of the samples, as in scikit-learn), yes/no splits unless ``max_choices`` allows more. Fixes: earlier
+  Closer to the paper: insights per class before growing. The defaults stay 0.2's: the tree grows until its
+  leaves are pure, a question may have up to 3 answers (``max_choices=3``) and each leaf predicts its most likely
+  class; the paper's tree is ``max_depth=18, min_samples_leaf=0.005`` (a fraction of the samples, as in
+  scikit-learn), ``max_choices=2`` and ``beta=0.5``. Fixes: earlier
   answers no longer leak into prompts, a sample whose answer fails follows the largest branch instead of
   vanishing, an empty branch no longer disqualifies a question, and a split must decrease impurity. Faster: the
   nodes of a level grow at once and answers are reused across nodes and between fit and predict. New
   ``min_samples_split``, ``min_impurity_decrease``, ``max_leaf_nodes`` and ``criterion="entropy"``; the critic is
-  ``use_critic=True``, with ``critic=`` defaulting to the generator. For two classes, leaves are called positive
-  above a share tuned for F-beta (``beta``, F0.5 as in the paper; ``threshold_``), replacing ``decision_threshold``. Removed: ``qgen_instr_llmc`` (unused),
+  ``use_critic=True``, with ``critic=`` defaulting to the generator. ``beta`` replaces ``decision_threshold``: for
+  two classes, leaves are then called positive above the share of positives tuned for F-beta on the training
+  samples (``threshold_``), as the paper does; a tree that never split keeps the majority. Without a depth limit
+  ``estimate_cost`` counts a tree whose splits halve its nodes. Removed: ``qgen_instr_llmc`` (unused),
   ``fit_iter``, ``resume_fit``, ``stop`` and the code question type.
 - **RRF, rebuilt** on ``TRLClassifier``, keeping 0.2's tuned defaults: 10 prompts of 30 examples and 10 questions,
   written from the samples that score them, and an elastic net on the answerer's probabilities (C of 1, L1 ratio 0.1
@@ -51,20 +56,27 @@ checked against its paper. See :doc:`getting_started/migration` for every rename
   ``generation_size=500`` writes questions from a held-out set, never scored, with ``n_prompts=25`` and
   ``n_examples=20``. Prediction answers only the questions used. Fixes: large datasets no longer
   get zero questions, ranking and tuning use one ``beta``, and fit and predict ask questions the same way.
-  ``screening_size`` keeps the cost-saving screening step; ``answers(X)`` shows each rule's answers. Removed:
+  ``screening_size`` keeps the cost-saving screening step; ``answers(X)`` shows each rule's answers. Question
+  writing changed from 0.2 in two ways: prompts no longer pass notes to each other (they run at once), and they show
+  300 samples in all (10 prompts of 30) rather than every sample, which is what left 0.2 asking each prompt for no
+  questions above about 3,000 rows. Removed:
   ``predict_founder_level`` (use ``predict``/``predict_proba``), ``cross_validate_aggregation`` (refitting reuses
   cached questions and answers, and scikit-learn's ``cross_val_score`` works), prompt presets, cumulative memory and
   embedding-based filtering.
-- **Policy Induction, rebuilt** on the new base, following the paper by default: a first policy written from 40
-  balanced examples (or ``initial_policy`` from an expert), refined with 240 balanced cases over 4 rounds, and a
-  refinement kept only when it raises precision on those cases (the paper's memory step, missing before). The
-  answerer judges each sample under the whole policy; ``predictor="rules"`` keeps the per-rule L1 logistic
-  regression. ``batch_size`` trades fidelity for fewer calls. Removed: ``confirm_requests`` (it called
-  ``input()``), checkpoints (the cache resumes), ``WeightTrainerConfig`` (plain parameters).
+- **Policy Induction, rebuilt** on the new base, keeping 0.2's defaults: a first policy written from 40 balanced
+  examples (or ``initial_policy`` from an expert) is refined with batches of 10 of 240 balanced cases, and each
+  answerer answers every rule for a sample; an L1 logistic regression weighs the rules, with its F0.5 threshold
+  tuned by cross-validation on samples the policy was not written from. The answerer's question is 0.2's again:
+  the task and one rule, "guidance, not a strict rule". The paper's method is a few parameters away:
+  ``memory=True`` keeps a refinement only when it scores a higher F-beta on the cases (the paper's memory step;
+  it judges every case after each refinement), ``predictor="policy"`` judges each sample under the whole policy,
+  and the paper refines one case at a time over 4 rounds (``batch_size=1, n_rounds=4``). Removed:
+  ``confirm_requests`` (it called ``input()``), checkpoints (the cache resumes), ``WeightTrainerConfig`` (plain
+  parameters).
 - **Reasoned Rule Mining, rebuilt** on the new base. It mines one IF-THEN rule per labelled sample (reasoning and
   rule in one call instead of two), compiles them into a policy, and applies the paper's cascade: the answerer
-  judges each sample under the policy, and samples it rates at or above ``harsh_gate=0.95`` get a harsh second
-  look, by ``harsh_answerer`` if given (the paper's cheap-then-strong cascade, which could not be configured before).
+  judges the task under the policy for each sample, and samples it rates at or above ``harsh_gate=0.8`` (0.2's
+  confidence threshold; the paper uses 0.95) get a harsh second look, by ``harsh_answerer`` if given (the paper's cheap-then-strong cascade, which could not be configured before).
   Probabilities come from decision models or an ensemble's vote share instead of token log probabilities, so every
   provider works (OpenAI and Anthropic could not fit before). One logistic regression, fitted on samples the miner
   never saw, calibrates and weighs both stages, replacing Platt scaling plus a weight grid that was 95% redundant.
@@ -72,9 +84,9 @@ checked against its paper. See :doc:`getting_started/migration` for every rename
 - **VerifiableRL, rebuilt** as a scikit-learn classifier: ``VerifiableRL(slots={"education": 384, ...})`` takes a
   2-D array (or one array per slot) and any two labels. Fixes from the audit: prediction never re-asks a slot it has
   seen (paths repeated one slot before), the policy has the paper's two-part head (softmax over slots, sigmoid for
-  STOP), the supervisor sees only revealed slots' text and boosts its pick multiplicatively, training no longer
-  touches torch's global random state, ``min_queries`` holds in training as well as prediction, and the decision
-  threshold is tuned for F0.5 instead of fixed at 0.3. The supervisor is asked only when its pick could change the
+  STOP), the supervisor sees only revealed slots' text (its pick still gets 0.2's added 0.05), training no longer
+  touches torch's global random state, and ``min_queries`` holds in training as well as prediction. The decision
+  threshold stays 0.2's 0.3; ``threshold=None`` tunes it for F-beta on the training samples. The supervisor is asked only when its pick could change the
   action, and a step's questions go out together. New ``slot_costs`` make the reward cost-aware per slot. Rollouts
   run batched: fitting is about 5 times faster (15 ms per sample at 6 slots of 384 features, from 81), and runs on
   CUDA and MPS devices. Classifier pretraining is part of ``fit``

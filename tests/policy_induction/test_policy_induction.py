@@ -1,4 +1,4 @@
-"""Policy Induction offline: the memory step, rounds, both predictors, the contract."""
+"""Policy Induction offline: 0.2's refinement, the memory step, both predictors."""
 
 from __future__ import annotations
 
@@ -48,11 +48,14 @@ policy_induction = partial(
     generator="fake:writer",
     answerer="fake:judge",
     n_samples=12,
+    memory=True,
     n_rounds=1,
     batch_size=4,
+    predictor="policy",
     cv=3,
     pos_label="hit",
 )
+"""The paper's method, on a small sample."""
 
 
 @pytest.fixture
@@ -120,15 +123,33 @@ def test_rules_predictor_warns_when_it_weighs_no_rule(
     assert model.weighted_rules_ == () and "Every weight is zero" in caplog.text
 
 
-def test_paper_defaults() -> None:
+def test_the_defaults_are_0_2s() -> None:
     model = PolicyInduction()
-    assert (model.n_rounds, model.n_samples, model.batch_size, model.n_examples) == (
-        4,
-        240,
-        1,
-        40,
-    )
-    assert (model.max_rules, model.predictor, model.beta) == (20, "policy", 0.5)
+    assert (model.memory, model.n_rounds, model.batch_size) == (False, 1, 10)
+    assert (model.predictor, model.beta, model.cv) == ("rules", 0.5, 5)
+    assert (model.max_rules, model.n_samples, model.random_state) == (20, 240, 42)
+
+
+def test_without_memory_every_rewrite_is_kept_unjudged() -> None:
+    write = FakeLLM(generate=writer(BAD))
+    judge = FakeLLM(answer=judge_answer, kind="decision")
+    with fake_llms(writer=write, judge=judge):
+        model = policy_induction(
+            initial_policy=GOOD, memory=False, predictor="rules"
+        ).fit(FOUNDERS, LABELS)
+    assert model.policy_ == BAD
+    assert model.history_["kept"].tolist() == [True, False, False]
+    assert not any("engineers" in q for c in judge.calls for q in c.questions)
+
+
+def test_the_answerer_sees_the_task_and_0_2s_wording(
+    fakes: tuple[FakeLLM, FakeLLM],
+) -> None:
+    _, judge = fakes
+    policy_induction(initial_policy=GOOD, n_rounds=0).fit(FOUNDERS, LABELS)
+    [question] = judge.calls[0].questions
+    assert "Task: Will the founder succeed?" in question
+    assert "guidance, not a strict rule" in question
 
 
 def test_policy_predictor_takes_the_answerers_call(
@@ -146,7 +167,7 @@ def test_each_round_asks_for_fresh_refinements() -> None:
     assert sum(c.schema is not None for c in write.calls) == 2 * 12
 
 
-def test_a_perfectly_precise_policy_stops_refining(
+def test_a_perfect_policy_stops_refining(
     fakes: tuple[FakeLLM, FakeLLM],
 ) -> None:
     write, _ = fakes
@@ -201,3 +222,25 @@ def test_a_refinement_that_cannot_be_judged_keeps_the_policy() -> None:
     ):
         model = policy_induction(initial_policy=BAD).fit(FOUNDERS, LABELS)
     assert model.policy_ == BAD and not any(model.history_["kept"])
+
+
+def test_memory_weighs_recall_so_a_narrow_rule_does_not_end_refining() -> None:
+    narrow = ("Founders with an exit succeed.",)
+    rewrites = iter([narrow, GOOD, GOOD])
+
+    def rewrite(request: GenerateRequest) -> str | dict[str, object]:
+        if request.schema is None:
+            return "Judge the founder."
+        return {"rules": list(next(rewrites))}
+
+    def judge(sample: str, question: Question) -> float:
+        if "exit" in question.text:
+            return 0.9 if "exit" in sample else 0.1
+        return judge_answer(sample, question)
+
+    with fake_llms(
+        writer=FakeLLM(generate=rewrite), judge=FakeLLM(answer=judge, kind="decision")
+    ):
+        model = policy_induction(initial_policy=BAD).fit(FOUNDERS, LABELS)
+    assert model.policy_ == GOOD  # precision alone would have stopped at narrow
+    assert model.history_["kept"].tolist()[:2] == [True, True]

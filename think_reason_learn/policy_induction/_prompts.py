@@ -40,11 +40,10 @@ def update_prompt(task: str, instructions: str, policy: str, cases: str) -> str:
     )
 
 
-def policy_question(policy: str, positive: str) -> str:
-    """The question the answerer judges a sample with, under the whole policy."""
-    return f"Policy:\n{policy}\n\nFollowing this policy, is this sample {positive}?"
-
-
-def rule_question(rule: str) -> str:
-    """The question for one rule, when rules are weighed separately."""
-    return f"Does this rule hold for the sample? Rule: {rule}"
+def policy_question(task: str, policy: str) -> str:
+    """0.2's question: the task's answer for a sample, guided by a policy or rule."""
+    return (
+        f"Task: {task}\nPolicy (guidance, not a strict rule): {policy}\n"
+        "Considering this policy along with the sample's full content, is the "
+        "answer to the task YES?"
+    )

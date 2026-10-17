@@ -2,7 +2,7 @@
 
 When the policy's top two information actions are nearly tied, a reasoning model
 is shown only what has been revealed so far and asked which slot to reveal next.
-Its pick gets a multiplicative boost; STOP is never changed.
+Its pick gets a small added probability, as in 0.2; STOP is never changed.
 """
 
 from __future__ import annotations
@@ -36,12 +36,12 @@ def is_uncertain(probs: npt.NDArray[np.float64], n_slots: int, delta: float) -> 
 
 
 def boost(
-    probs: npt.NDArray[np.float64], n_slots: int, slot: int, factor: float
+    probs: npt.NDArray[np.float64], n_slots: int, slot: int, bias: float
 ) -> npt.NDArray[np.float64]:
-    """Multiply one information action by ``1 + factor``, keeping STOP's share."""
+    """Add ``bias`` to one information action, keeping STOP's share."""
     boosted = probs.copy()
     info_mass = boosted[:n_slots].sum()
-    boosted[slot] *= 1 + factor
+    boosted[slot] += bias
     boosted[:n_slots] *= info_mass / boosted[:n_slots].sum()
     return boosted
 
@@ -55,7 +55,7 @@ class Supervisor:
         slot_names: Slot names, in column order.
         slot_texts: Per slot, one text per sample.
         delta: Gap between the top two slots below which the model is asked.
-        bias: The pick is multiplied by ``1 + bias``.
+        bias: Probability added to the pick before the slots are rescaled.
     """
 
     def __init__(

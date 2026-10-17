@@ -103,9 +103,17 @@ def test_reasoning_answerers_vote_in_an_ensemble() -> None:
     assert voter.n_calls == 3 * (len(FOUNDERS) - 12)
 
 
-def test_paper_defaults() -> None:
+def test_the_defaults_are_0_2s() -> None:
     model = ReasonedRuleMining()
-    assert (model.harsh_gate, model.harsh_level, model.beta) == (0.95, "strict", 0.5)
+    assert (model.harsh_gate, model.harsh_level, model.beta) == (0.8, "strict", 0.5)
+    assert (model.ensemble_size, model.random_state) == (3, 42)
+
+
+def test_the_vote_question_carries_the_task(fakes: tuple[FakeLLM, FakeLLM]) -> None:
+    _, answerer = fakes
+    rule_mining().fit(FOUNDERS, LABELS)
+    asked = {q for c in answerer.calls for q in c.questions}
+    assert asked and all(q.count("Task: Will the founder succeed?") == 1 for q in asked)
 
 
 def test_rare_positives_still_calibrate_on_unmined_samples() -> None:

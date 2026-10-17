@@ -83,7 +83,7 @@ class ReasonedRuleMining(BinaryTRLClassifier):
             A decision model gives a probability in one call.
         use_harsh: Run the second look.
         harsh_gate: First-pass probability at which a sample gets the second
-            look; the paper uses 0.95.
+            look: 0.2's 0.80; the paper uses 0.95.
         harsh_level: How severe the second look is.
         beta: F-beta for the threshold; the paper uses 0.5.
         cv: Folds for the calibration.
@@ -102,12 +102,12 @@ class ReasonedRuleMining(BinaryTRLClassifier):
         n_samples: int | None = 500,
         ensemble_size: int = 3,
         use_harsh: bool = True,
-        harsh_gate: float = 0.95,
+        harsh_gate: float = 0.8,
         harsh_level: HarshLevel = "strict",
         beta: float = 0.5,
         cv: int = 5,
         pos_label: str | int | None = None,
-        random_state: int | None = None,
+        random_state: int | None = 42,
         verbose: int = 0,
     ) -> None:
         self.task = task
@@ -173,13 +173,12 @@ class ReasonedRuleMining(BinaryTRLClassifier):
         ]
 
     def _predict_plan(self, texts: list[str]) -> list[UsageRecord]:
-        positive = self._positive_label()
-        share = self.harsh_share_ if self._harsh_counts() else 0.0
+        task, share = self._task(), self.harsh_share_ if self._harsh_counts() else 0.0
         return self._judging_plan(
             texts,
             texts[: round(len(texts) * share)],
-            vote_question(self.policy_, positive),
-            harsh_question(self.policy_, positive, self.harsh_level),
+            vote_question(task, self.policy_),
+            harsh_question(task, self.policy_, self.harsh_level),
         )
 
     def _judging_plan(
@@ -269,17 +268,17 @@ class ReasonedRuleMining(BinaryTRLClassifier):
 
         With ``harsh=False`` no sample gets the second look.
         """
-        positive = self._positive_label()
+        task = self._task()
         first = await self._judge(
             self._models("answerer", "answer"),
-            vote_question(self.policy_, positive),
+            vote_question(task, self.policy_),
             texts,
             session,
         )
         second = np.full(len(texts), 0.5)
         promoted = first >= self.harsh_gate if harsh else np.zeros(len(texts), bool)
         if promoted.any():
-            question = harsh_question(self.policy_, positive, self.harsh_level)
+            question = harsh_question(task, self.policy_, self.harsh_level)
             reviewed = take(texts, np.flatnonzero(promoted))
             second[promoted] = await self._judge(
                 self._harsh_models(), question, reviewed, session

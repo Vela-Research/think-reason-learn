@@ -10,7 +10,11 @@ import pytest
 from think_reason_learn.testing import FakeLLM
 
 EXAMPLES = sorted((Path(__file__).parents[1] / "examples").glob("*.ipynb"))
-MODELS = {'"openai:gpt-5-mini"': '"fake:writer"', '"openai:gpt-5"': '"fake:judge"'}
+MODELS = {
+    '"openai:gpt-5-mini"': '"fake:writer"',
+    '"openai:gpt-5-nano"': '"fake:judge"',
+    '"openai:gpt-5"': '"fake:judge"',
+}
 
 
 @pytest.mark.parametrize("path", EXAMPLES, ids=lambda p: p.stem)

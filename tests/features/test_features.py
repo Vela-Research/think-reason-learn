@@ -447,8 +447,8 @@ class TestPromptBuilder:
     def test_format_samples_contains_tags(self) -> None:
         founders = SAMPLE_FOUNDERS
         text = format_samples(founders, SAMPLE_LABELS, n_samples=4, random_state=42)
-        assert "[SUCCESS]" in text
-        assert "[FAIL]" in text
+        assert "[positive: 1]" in text
+        assert "[negative: 0]" in text
 
     def test_format_samples_different_seeds(self) -> None:
         founders = SAMPLE_FOUNDERS
@@ -456,8 +456,8 @@ class TestPromptBuilder:
         text2 = format_samples(founders, SAMPLE_LABELS, n_samples=4, random_state=2)
         # Different seeds should produce different orderings
         # (with only 5 samples the content is the same but order differs)
-        assert "[SUCCESS]" in text1
-        assert "[SUCCESS]" in text2
+        assert "[positive: 1]" in text1
+        assert "[positive: 1]" in text2
 
 
 # ---------------------------------------------------------------------------
@@ -666,7 +666,7 @@ class TestReviewedSandbox:
 def test_the_positive_label_is_chosen(writer: FakeLLM) -> None:
     labels = ["YES" if label else "NO" for label in SAMPLE_LABELS]
     _generator().generate(samples=SAMPLE_FOUNDERS, labels=labels, pos_label="YES")
-    assert "[SUCCESS]" in (writer.calls[0].prompt or "")
+    assert "[positive: YES]" in (writer.calls[0].prompt or "")
     with pytest.raises(DataError, match="pos_label="):
         _generator().generate(samples=SAMPLE_FOUNDERS, labels=labels)
 

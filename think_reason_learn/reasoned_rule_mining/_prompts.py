@@ -19,10 +19,11 @@ that a reader could apply to a new sample. Keep the conditions that recur, drop
 those tied to single samples, and reply with the policy only."""
 
 HARSH: Final[dict[HarshLevel, str]] = {
-    "light": "Re-examine the sample with a balanced view of strengths and weaknesses.",
+    "light": "Re-examine the sample with a balanced view of the evidence for and "
+    "against.",
     "moderate": "Re-examine the sample carefully; when in doubt, lean towards no.",
-    "strict": "Re-examine the sample with maximum scrutiny: say yes only if it is "
-    "exceptional, with no significant weakness.",
+    "strict": "Re-examine the sample with maximum scrutiny: say yes only if the "
+    "evidence for it is clear and strong, with nothing significant against it.",
 }
 
 

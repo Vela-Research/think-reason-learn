@@ -9,7 +9,7 @@ from enum import StrEnum
 from pydantic import BaseModel, Field
 
 type Record = Mapping[str, object]
-"""One structured sample, e.g. a founder's profile as a dict."""
+"""One structured sample as a dict, e.g. a customer's or a patient's record."""
 
 
 class CognitiveMode(StrEnum):
@@ -32,7 +32,7 @@ class GeneratedRule(BaseModel):
     name: str = Field(
         ...,
         description=(
-            "Snake_case identifier for the rule, e.g. 'has_phd' or 'prior_exit'."
+            "Snake_case identifier for the rule, e.g. 'has_email' or 'over_limit'."
         ),
     )
     description: str = Field(
@@ -63,7 +63,7 @@ class Rule:
 
     name: str
     description: str
-    expression: str  # e.g. "lambda founder: len(founder.get('ipos', [])) > 0"
+    expression: str  # e.g. "lambda record: len(record.get('orders', [])) > 3"
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,7 +94,7 @@ class DataSchema:
         description: Plain-English description of the record type.
         schema_text: A Python-like schema definition inserted verbatim into the
             system prompt (e.g. the dict structure with types).
-        param_name: The lambda parameter name (e.g. ``"founder"``).
+        param_name: The lambda parameter name (e.g. ``"record"``).
         example_rules: A few hand-written :class:`Rule` instances that
             demonstrate the expected lambda style.
     """

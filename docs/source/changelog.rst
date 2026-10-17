@@ -94,7 +94,8 @@ few parameters away, and every model is seeded with ``random_state=42``. See :do
   Probabilities come from decision models or an ensemble's vote share instead of token log probabilities, so every
   provider works (OpenAI and Anthropic could not fit before). One logistic regression, fitted on samples the miner
   never saw, calibrates and weighs both stages, replacing Platt scaling plus a weight grid that was 95% redundant.
-  Removed: ``RRMConfig`` (plain parameters), the perplexity filter and the rolling memory.
+  The harsh look's instructions weigh the evidence for and against, for any domain, instead of strengths, weaknesses
+  and being "exceptional". Removed: ``RRMConfig`` (plain parameters), the perplexity filter and the rolling memory.
 - **VerifiableRL, rebuilt** as a scikit-learn classifier: ``VerifiableRL(slots={"education": 384, ...})`` takes a
   2-D array (or one array per slot) and any two labels. Fixes from the audit: prediction never re-asks a slot it has
   seen (paths repeated one slot before), the policy has the paper's two-part head (softmax over slots, sigmoid for
@@ -119,7 +120,9 @@ few parameters away, and every model is seeded with ``random_state=42``. See :do
   ``genai-prices`` table is included, so costs and ``max_cost_usd`` work for every listed model. pandas 3 is supported. License metadata uses an SPDX expression.
 - **Lambda features**: ``FeatureGenerator(schema, helpers, generator="openai:gpt-5-mini")`` with ``generate`` and
   ``agenerate``, on the new layer. Model-written rules may only read a record: methods that change a list, dict or
-  set are refused, like attributes outside built-in data types. ``GeneratedRule`` and ``GeneratedRules``, the writer's reply format, are no longer
+  set are refused, like attributes outside built-in data types. The prompt is domain-neutral: samples are tagged
+  positive or negative with their own label instead of ``[SUCCESS]`` and ``[FAIL]``, and the reasoning modes no
+  longer suggest startup themes. ``GeneratedRule`` and ``GeneratedRules``, the writer's reply format, are no longer
   exported; rules are ``Rule``.
 - Docs: new quick start, installation guide and a migration guide; the API reference covers the new modules and
   builds without warnings (enforced in CI). Examples: one notebook per model, run by the test suite with fake

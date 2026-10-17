@@ -361,3 +361,21 @@ def test_the_plan_bounds_a_tree_that_peels_one_sample_a_level() -> None:
         model.fit(founders, labels)
     assert model.tree_.n_leaves > 3  # one hit peeled off per level
     assert judge.n_calls <= sum(r.calls for r in planned if r.role == "answerer")
+
+
+def test_written_text_cannot_add_attributes_to_the_graph() -> None:
+    import re
+
+    from think_reason_learn.gptree._tree import Tree
+    from think_reason_learn.llm import YesNoQuestion
+
+    hostile = 'Bad"]; 9 [image="/etc/passwd"]; x [label="\\'
+    tree = Tree()
+    root = tree.add(depth=0, value=(1.0, 1.0), n_samples=2)
+    root.question = YesNoQuestion(hostile)
+    for answer in (hostile, "NO"):
+        root.children[answer] = tree.add(depth=1, value=(1.0, 0.0), n_samples=1).id
+    dot = tree.export_graphviz(["a", 'b"'])
+    quoted = r'"(?:[^"\\]|\\.)*"'
+    for line in dot.splitlines()[2:-1]:
+        assert re.fullmatch(rf"  \d+( -> \d+)? \[label={quoted}\];", line), line

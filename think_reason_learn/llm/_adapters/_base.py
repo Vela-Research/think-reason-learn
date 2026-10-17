@@ -151,9 +151,15 @@ async def read_reply[T, R](
 def classify(
     status: int | None, message: str, headers: Mapping[str, str]
 ) -> ProviderError:
-    """Name a failed call by its HTTP status (``None``: no response) and message."""
+    """Name a failed call by its HTTP status (``None``: no response) and message.
+
+    The message is cut to ``_MESSAGE_CHARS``: a proxy's error page can be long,
+    and every failed call keeps it in usage.
+    """
     retry_after = retry_after_seconds(headers)
     lowered = message.lower()
+    if len(message) > _MESSAGE_CHARS:
+        message = f"{message[:_MESSAGE_CHARS]}..."
     if status is None or status in _TRANSIENT:
         return ProviderError("transient", message, retry_after=retry_after)
     if _mentions(lowered, _FLAGGED_WORDS):  # one sample's problem, on a 403
@@ -187,6 +193,7 @@ def retry_after_seconds(headers: Mapping[str, str]) -> float | None:
         return None
 
 
+_MESSAGE_CHARS: Final = 500
 _TRANSIENT: Final = frozenset({408, 409, 500, 502, 503, 504, 520, 522, 524, 529})
 _AUTH_WORDS: Final = (
     "valid api key",

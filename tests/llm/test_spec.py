@@ -177,6 +177,15 @@ def test_only_a_key_passed_goes_to_a_custom_base_url(
     assert resolve(azure).api_key == "az-env"  # Azure's endpoint is always yours
 
 
+def test_a_key_sent_over_plain_http_is_warned_of(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    resolve(LLM("my-model", base_url="http://models.example.com/v1", api_key="k"))
+    resolve(LLM("my-model", base_url="http://localhost:8000/v1", api_key="k"))
+    resolve(LLM("my-model", base_url="https://models.example.com/v1", api_key="k"))
+    assert caplog.text.count("plain http") == 1 and "models.example.com" in caplog.text
+
+
 def test_planning_needs_no_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("OPENAI_API_KEY")
     with keys_optional():

@@ -86,14 +86,25 @@ class Persistable:
     def load(cls, path: str | PathLike[str]) -> Self:
         """Load a model saved with ``save``, by this version or another of format 1.
 
+        Loading runs no code from the file. The file does name the models the
+        model calls and their servers: check ``get_params()`` before predicting
+        with a file from someone else, since your samples go to them.
+
         Raises:
-            DataError: The folder was saved by 0.2, or in another format.
+            DataError: The folder was saved by 0.2, in another format, or the
+                file is damaged.
             TypeError: It holds another kind of model.
         """
         folder = Path(path)
         document = _document(folder, cls.__name__)
-        model = construct(cls, _named(decode(document["params"])))
-        for name, value in _named(decode(document["fitted"])).items():
+        try:
+            model = construct(cls, _named(decode(document["params"])))
+            fitted = _named(decode(document["fitted"]))
+        except (KeyError, TypeError, ValueError) as error:
+            raise DataError(f"model.json is damaged: {error!r}") from error
+        for name, value in fitted.items():
+            if not _is_fitted(name):
+                raise DataError(f"model.json is damaged: {name} is not learned.")
             setattr(model, name, value)
         model._load_apart(folder)
         return model
@@ -138,7 +149,7 @@ def encode(value: object) -> JSON:
             split = value.to_dict(orient="split")
             return {_TAG: "frame", **{k: encode(v) for k, v in split.items()}}
         case Usage():
-            return {_TAG: "usage", "records": [encode(r) for r in value]}
+            return _encode_usage(value)
         case _ if _is_own_data(value):
             return _encode_data(value)
         case _:
@@ -229,7 +240,7 @@ def _encode_data(value: object) -> JSON:
     fields = {
         field.name: encode(getattr(value, field.name))
         for field in dataclasses.fields(value)  # pyright: ignore[reportArgumentType]  # checked to be a data class
-        if not (isinstance(value, LLM) and field.name == "api_key")
+        if field.name != "api_key"  # never saved, whatever holds it
     }
     return {
         _TAG: "data",
@@ -245,7 +256,7 @@ def _decode_tagged(value: dict[str, JSON]) -> object:
         case "pairs":
             return {_key(pair): _value(pair) for pair in _items(value)}
         case "array":
-            return np.array(_items(value), dtype=np.dtype(str(value["dtype"])))
+            return np.array(_items(value), dtype=_dtype(value["dtype"]))
         case "frame":
             return pd.DataFrame(  # pyright: ignore[reportCallIssue]  # rows and labels from the file
                 decode(value["data"]),  # pyright: ignore[reportArgumentType]  # rows from the file
@@ -253,8 +264,12 @@ def _decode_tagged(value: dict[str, JSON]) -> object:
                 columns=_listed(value["columns"]),
             )
         case "usage":
-            records = decode(value["records"])
-            return Usage(r for r in _listed(records) if isinstance(r, UsageRecord))
+            names = [str(name) for name in _listed(decode(value["fields"]))]
+            rows = _listed(decode(value["rows"]))
+            return Usage(
+                construct(UsageRecord, dict(zip(names, _listed(row), strict=True)))
+                for row in rows
+            )
         case "data":
             return _decode_data(str(value["class"]), value["fields"])
         case tag:
@@ -264,12 +279,30 @@ def _decode_tagged(value: dict[str, JSON]) -> object:
 def _decode_data(path: str, fields: JSON) -> object:
     """An instance of this library's data class at ``path`` (``module:Class``)."""
     module, _, name = path.partition(":")
-    if not module.startswith("think_reason_learn") or "." in name:
+    own = module == "think_reason_learn" or module.startswith("think_reason_learn.")
+    if not own or "." in name:
         raise DataError(f"model.json names {path!r}, not one of this library's.")
     cls: object = getattr(importlib.import_module(module), name, None)
     if not isinstance(cls, type) or not dataclasses.is_dataclass(cls):
         raise DataError(f"model.json names {path!r}, not one of this library's.")
     return construct(cls, _named(decode(fields)))
+
+
+def _encode_usage(usage: Usage) -> JSON:
+    """Usage as one row per call, in columns: a large run has many calls."""
+    names = [field.name for field in dataclasses.fields(UsageRecord)]
+    rows: list[JSON] = [
+        [encode(getattr(record, name)) for name in names] for record in usage
+    ]
+    return {_TAG: "usage", "fields": list[JSON](names), "rows": rows}
+
+
+def _dtype(name: JSON) -> np.dtype[np.generic]:
+    """An array's dtype: numbers, booleans, text or Python objects only."""
+    dtype = np.dtype(str(name))
+    if dtype.kind not in "biufUO":
+        raise DataError(f"model.json is damaged: arrays of {dtype} are not saved.")
+    return dtype
 
 
 def _items(value: dict[str, JSON]) -> list[object]:

@@ -287,7 +287,7 @@ class TestCache:
         path = tmp_path / "c.sqlite"
         keys = [cache_key(n=i) for i in range(1200)]
         Cache(path).put_many({key: {"i": i} for i, key in enumerate(keys)})
-        found = Cache(path).get_many(keys + ["missing"])
+        found = Cache(path).get_many([*keys, cache_key(n="never stored")])
         assert len(found) == 1200 and found[keys[7]] == {"i": 7}
 
     def test_only_its_owner_can_read_it(self, tmp_path: Path) -> None:

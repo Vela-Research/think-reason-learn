@@ -129,17 +129,27 @@ class Tree:
         return pd.DataFrame(rows).set_index("node")
 
     def export_graphviz(self, classes: Sequence[object]) -> str:
-        """The tree in Graphviz DOT, for ``graphviz.Source`` or ``dot``."""
+        """The tree in Graphviz DOT, for ``graphviz.Source`` or ``dot``.
+
+        Every label is a quoted, escaped string: text a model wrote cannot add
+        attributes (such as ``image``, which reads a file) or end the graph.
+        """
         lines = ["digraph GPTree {", '  node [shape=box, fontname="Helvetica"];']
         for n in self.nodes:
             shares = ", ".join(
                 f"{c}: {p:.0%}" for c, p in zip(classes, self.proba(n.id), strict=True)
             )
             head = n.question.text if n.question else "leaf"
-            label = f"{head}\\nsamples: {n.n_samples}\\n{shares}".replace('"', "'")
+            label = "\\n".join(map(_dot, [head, f"samples: {n.n_samples}", shares]))
             lines.append(f'  {n.id} [label="{label}"];')
             lines.extend(
-                f'  {n.id} -> {child} [label="{answer}"];'
+                f'  {n.id} -> {child} [label="{_dot(answer)}"];'
                 for answer, child in n.children.items()
             )
         return "\n".join([*lines, "}"])
+
+
+def _dot(text: str) -> str:
+    """``text`` escaped for a quoted DOT string, on one line."""
+    one_line = " ".join(text.splitlines())
+    return one_line.replace("\\", "\\\\").replace('"', '\\"')

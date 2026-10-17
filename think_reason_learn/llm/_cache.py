@@ -4,6 +4,10 @@ Keys are hashes of everything that changes a reply: the endpoint, the model's
 settings, the request and a draw number for intentional repeats. Values are
 JSON. One SQLite file in WAL mode is safe across threads and processes, and a
 rerun after a crash or a budget stop replays what was already paid for.
+
+Each answer is one row, so a large run writes millions: keys are 16 bytes and the
+table is stored by key (``WITHOUT ROWID``), which halves the file and the time
+each write blocks the event loop.
 """
 
 from __future__ import annotations
@@ -25,14 +29,14 @@ logger = logging.getLogger(__name__)
 
 type JSON = str | int | float | bool | None | list[JSON] | dict[str, JSON]
 
-_VERSION: Final = 1
+_VERSION: Final = 2
 _BATCH: Final = 500
 
 
 def cache_key(**parts: JSON) -> str:
-    """A stable hash of ``parts``."""
+    """A stable hash of ``parts``: 128 bits, as hex."""
     canonical = json.dumps({"v": _VERSION, **parts}, sort_keys=True, ensure_ascii=False)
-    return hashlib.sha256(canonical.encode()).hexdigest()
+    return hashlib.sha256(canonical.encode()).hexdigest()[:32]
 
 
 class Cache:
@@ -51,16 +55,18 @@ class Cache:
         )
         self._db.execute("PRAGMA journal_mode=WAL")
         self._db.execute("PRAGMA synchronous=NORMAL")
+        self._db.execute("PRAGMA wal_autocheckpoint=4000")  # 16 MB between syncs
         self._db.execute(
-            "CREATE TABLE IF NOT EXISTS replies "
-            "(key TEXT PRIMARY KEY, value TEXT NOT NULL, created REAL NOT NULL)"
+            "CREATE TABLE IF NOT EXISTS replies (key BLOB PRIMARY KEY, "
+            "value TEXT NOT NULL, created REAL NOT NULL) WITHOUT ROWID"
         )
         self._lock = threading.Lock()
 
     def get_many(self, keys: Iterable[str]) -> dict[str, JSON]:
         """The stored replies among ``keys``; an unreadable one counts as missing."""
         found: dict[str, JSON] = {}
-        for batch in itertools.batched(dict.fromkeys(keys), _BATCH, strict=False):
+        for keyed in itertools.batched(dict.fromkeys(keys), _BATCH, strict=False):
+            batch = [bytes.fromhex(key) for key in keyed]
             marks = ",".join("?" * len(batch))
             try:
                 with self._lock:
@@ -79,7 +85,7 @@ class Cache:
         """Store ``replies``; a failure to write is logged, not raised."""
         now = time.time()
         rows = [
-            (key, json.dumps(value, ensure_ascii=False), now)
+            (bytes.fromhex(key), json.dumps(value, ensure_ascii=False), now)
             for key, value in replies.items()
         ]
         try:
@@ -120,9 +126,9 @@ def open_cache(path: Path) -> Cache | None:
 on_fork(_caches.clear)
 
 
-def _decoded(row: tuple[str, str]) -> tuple[str | None, JSON]:
+def _decoded(row: tuple[bytes, str]) -> tuple[str | None, JSON]:
     key, value = row
     try:
-        return key, json.loads(value)
+        return key.hex(), json.loads(value)
     except ValueError:
         return None, None

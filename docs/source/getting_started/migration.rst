@@ -2,7 +2,7 @@ Migrating from 0.2
 ------------------
 
 0.3 is a redesign: one way to call every model, on one provider layer, as scikit-learn classifiers. Most changes are
-renames; this page lists them.
+renames; this page lists them. The defaults are 0.2's, except where a row says otherwise.
 
 Every model
 ~~~~~~~~~~~
@@ -35,6 +35,7 @@ labels ``"YES"`` / ``"NO"`` only                                any labels; ``po
 ``think_reason_learn.core.llms``                                ``think_reason_learn.llm``
 ``think_reason_learn.core.exceptions``                          ``think_reason_learn.exceptions``
 ``TRLModel``                                                    ``TRLClassifier``
+``random_state``: 42 (RRF, Rule Mining), 0 (Policy Induction)   42 for every model, GPTree and VerifiableRL too
 ==============================================================  =======================================================================
 
 VerifiableRL has ``fit``, ``predict`` and ``predict_proba`` but no async versions, and no ``verbose``. Reasoned Rule
@@ -50,16 +51,15 @@ GPTree
 ``critic_llmc`` and ``use_critic``                        ``critic=`` (the generator by default) and ``use_critic``
 ``qgen_instr_llmc``                                       removed (never used)
 ``min_question_candidates``, ``max_question_candidates``  ``max_questions``
-``max_node_width``                                        ``max_choices``
+``max_node_width``                                        ``max_choices`` (3, as before; the paper uses 2)
 ``advice()``, ``expert_advice()``                         ``expert_advice=``
-``decision_threshold``                                    ``threshold_``, tuned for F-beta (``beta``) on two classes
+``decision_threshold``                                    ``beta``: a number tunes the paper's leaf cut
 ``fit_iter``, ``resume_fit``, ``stop``                    removed; reruns resume from the answer cache
 ``view_node``, ``get_node()``, ``get_root_id()``          ``plot()``, ``export_graphviz()``, ``tree_``
 ``get_questions()``, ``get_training_data()``              ``tree_.to_frame(classes_)``
 ``get_leaf_proba()``, ``get_leaf_prediction()``           ``apply(X)``, ``predict_proba(X)``
 ``classes``                                               ``classes_``
 ``prune_tree(node_id)``                                   ``prune(node_id)``
-defaults: depth unlimited, 1 sample per leaf              the paper's: ``max_depth=18``, ``min_samples_leaf=0.005``
 ========================================================  ==========================================================
 
 Random Rule Forest
@@ -91,10 +91,11 @@ Policy Induction
 ==================================================  ==========================================================================
 0.2                                                 0.3
 ==================================================  ==========================================================================
-``config=WeightTrainerConfig(...)``                 ``predictor="rules"`` with ``beta`` and ``cv``
-predicting with per-rule logistic weights (always)  ``predictor="rules"``; the default ``"policy"`` is the paper's
+``config=WeightTrainerConfig(...)``                 ``beta`` and ``cv``
+predicting with per-rule logistic weights (always)  ``predictor="rules"`` (the default); ``"policy"`` is the paper's
 ``max_policy_length``                               ``max_rules``
-``max_gen_batches``                                 ``n_samples``, ``n_rounds``, ``batch_size`` (refinement follows the paper)
+``max_gen_batches``                                 ``n_samples``, ``n_rounds``, ``batch_size``; ``memory=True`` for the paper's
+``max_samples_as_context``                          ``batch_size`` (10), and ``n_examples`` for the first policy
 ``get_memory()``                                    ``history_``
 ``lr``, ``threshold``                               ``combiner_`` (with ``predictor="rules"``)
 ``validation_result``                               removed
@@ -108,7 +109,8 @@ Reasoned Rule Mining
 0.2                                                            0.3
 =============================================================  =============================================================================
 ``config=RRMConfig(...)``                                      ``ensemble_size``, ``use_harsh``, ``harsh_level``, ``beta``, ``random_state``
-other ``RRMConfig`` fields (filters, floors, grids)            removed; one logistic regression calibrates both stages; ``harsh_gate`` is new
+``ensemble_confidence_threshold`` (0.80)                       ``harsh_gate`` (0.8): samples at or above it get the harsh pass
+other ``RRMConfig`` fields (filters, floors, grids)            removed; one logistic regression calibrates both stages
 token log probabilities                                        probabilities from decision models or the ensemble's votes
 ``policy``, ``rules``                                          ``policy_``, ``mined_rules_``
 ``threshold``, ``weights``                                     ``combiner_``
@@ -126,7 +128,7 @@ VerifiableRL
 ``profiles=``                                    ``slot_texts=`` (per slot, one text per sample)
 ``LLMActionSupervisor(...)``                     ``supervisor="provider:model"``
 ``clf_threshold``                                ``reward_threshold``
-``predict_threshold``                            ``threshold`` (``None`` tunes it for F-beta)
+``predict_threshold``                            ``threshold`` (0.3; ``None`` tunes it for F-beta)
 ``policy_replay_max``, ``clf_replay_max``        ``policy_replay``, ``clf_replay``
 ``predict_paths``                                ``decision_paths``
 ``pretrain_classifier``                          part of ``fit`` (``pretrain_epochs``)

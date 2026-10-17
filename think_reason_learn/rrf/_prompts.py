@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Final
 
 INSTRUCTIONS_PURPOSE: Final = (
-    "YES/NO questions about a sample whose answers, combined in a vote, predict "
+    "YES/NO questions about a sample whose answers, weighed together, predict "
     "its class: each question objective, specific and answerable from the "
     "sample's text alone"
 )

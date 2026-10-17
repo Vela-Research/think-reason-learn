@@ -68,6 +68,7 @@ _DEFAULTS_0_2 = {
     "questions_per_prompt": 10,
     "n_examples": 30,
     "generation_size": None,
+    "random_state": 42,
 }
 """RRF's defaults in 0.2, tuned in practice; the paper's differ."""
 

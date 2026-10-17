@@ -91,9 +91,9 @@ class VerifiableRL(Persistable, ClassifierMixin, BaseEstimator):
             0 to skip. Rewards depend on the classifier, so this helps.
         pretrain_lr, pretrain_batch: Its learning rate and batch size.
         uncertain_delta: Gap between the top two actions that asks the supervisor.
-        llm_bias: The supervisor's pick is multiplied by ``1 + llm_bias``.
-        threshold: Positive probability for a positive prediction. ``None`` tunes
-            it for F-beta on the training samples.
+        llm_bias: Probability added to the supervisor's pick, as in 0.2.
+        threshold: Positive probability for a positive prediction: 0.2's 0.3.
+            ``None`` tunes it for F-beta on the training samples.
         beta: F-beta for the tuned threshold.
         pos_label: The positive class; by default the second sorted label.
         device: Torch device.
@@ -142,11 +142,11 @@ class VerifiableRL(Persistable, ClassifierMixin, BaseEstimator):
         pretrain_batch: int = 16,
         uncertain_delta: float = 0.01,
         llm_bias: float = 0.05,
-        threshold: float | None = None,
+        threshold: float | None = 0.3,
         beta: float = 0.5,
         pos_label: str | int | None = None,
         device: str = "cpu",
-        random_state: int | None = None,
+        random_state: int | None = 42,
     ) -> None:
         self.slots = slots
         self.slot_costs = slot_costs

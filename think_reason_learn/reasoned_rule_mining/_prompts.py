@@ -40,13 +40,14 @@ def compile_prompt(task: str, rules_by_class: dict[str, list[str]]) -> str:
     return f"Task: {task}\n\n{blocks}"
 
 
-def vote_question(policy: str, positive: str) -> str:
-    """The cheap first-pass question, judged under the policy."""
+def vote_question(task: str, policy: str) -> str:
+    """The cheap first-pass question: the task's answer, with the policy as rubric."""
     return (
-        f"Decision policy:\n{policy}\n\nUnder this policy, is this sample {positive}?"
+        f"Task: {task}\n\nDecision policy:\n{policy}\n\n"
+        "Using the policy as the rubric, is the answer to the task YES?"
     )
 
 
-def harsh_question(policy: str, positive: str, level: HarshLevel) -> str:
+def harsh_question(task: str, policy: str, level: HarshLevel) -> str:
     """The second-pass question for samples the first pass rated highly."""
-    return f"{HARSH[level]}\n\n{vote_question(policy, positive)}"
+    return f"{HARSH[level]}\n\n{vote_question(task, policy)}"

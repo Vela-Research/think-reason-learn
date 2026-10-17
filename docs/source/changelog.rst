@@ -27,8 +27,11 @@ few parameters away, and every model is seeded with ``random_state=42``. See :do
   and each model counts it as NO (GPTree sends the sample down the largest branch). A reasoning model answers at
   temperature 0 unless one is set, and writes or casts votes to average at its default; a model that rejects a
   temperature is called without one, with a warning. A ``base_url`` you set gets only an ``api_key`` you pass, never
-  the provider's key from the environment (Azure excepted). Calls run on one event loop owned by the library, so
-  sync code works in notebooks too.
+  the provider's key from the environment (Azure excepted), a key sent over plain http to another host is warned
+  of, and a key or URL password a server echoes in an error is scrubbed before it is logged or kept. Large runs are
+  answered in chunks of about 200,000 answers, so memory stays bounded, and replies reach the cache in batches
+  (always before a pass returns or stops), each answer a row with a 16-byte key. Calls run on one event loop owned
+  by the library, so sync code works in notebooks too.
 - ``estimate_cost(X, y)`` on every LLM model counts the calls, tokens and dollars of ``fit(X, y)``, or of
   ``predict(X)`` without ``y``, without calling a model or needing its API key, priced like real calls. Each
   ``fit`` and ``predict`` logs this estimate first, as a warning above $1.
@@ -40,7 +43,7 @@ few parameters away, and every model is seeded with ``random_state=42``. See :do
   untouched so ``clone``, ``get_params`` and grid search work; any labels; ``usage_`` records every call;
   ``save``/``load`` write one readable ``model.json`` (VerifiableRL adds ``weights.pt``) with the save format and
   library version; loading rebuilds the model without running code from the file (no pickle), and API keys are
-  never stored. A folder saved by 0.2 gives an error that says to refit.
+  never stored. A folder saved by 0.2 gives an error that says to refit; a damaged or altered file is refused.
   ``think_reason_learn.testing.check_classifier`` checks a model against this contract offline.
 - **GPTree, rebuilt** on ``TRLClassifier``: ``GPTree(task=..., generator=..., answerer="jev")`` with ``fit``,
   ``predict``, ``predict_proba``, ``apply``, ``plot``, ``export_graphviz``, ``prune`` and ``write_instructions``.
@@ -50,7 +53,8 @@ few parameters away, and every model is seeded with ``random_state=42``. See :do
   scikit-learn), ``max_choices=2`` and ``beta=0.5``. Fixes: earlier
   answers no longer leak into prompts, a sample whose answer fails follows the largest branch instead of
   vanishing, an empty branch no longer disqualifies a question, and a split must decrease impurity. Faster: the
-  nodes of a level grow at once and answers are reused across nodes and between fit and predict. New
+  nodes of a level grow at once and answers are reused across nodes and between fit and predict. ``export_graphviz``
+  escapes every label, so written text cannot add Graphviz attributes. New
   ``min_samples_split``, ``min_impurity_decrease``, ``max_leaf_nodes`` and ``criterion="entropy"``; the critic is
   ``use_critic=True``, with ``critic=`` defaulting to the generator. ``beta`` replaces ``decision_threshold``: for
   two classes, leaves are then called positive above the share of positives tuned for F-beta on the training
@@ -114,7 +118,8 @@ few parameters away, and every model is seeded with ``random_state=42``. See :do
   longer needed; Anthropic (``[anthropic]``) and PyTorch (``[rl]``) are extras, and ``[all]`` installs both. The
   ``genai-prices`` table is included, so costs and ``max_cost_usd`` work for every listed model. pandas 3 is supported. License metadata uses an SPDX expression.
 - **Lambda features**: ``FeatureGenerator(schema, helpers, generator="openai:gpt-5-mini")`` with ``generate`` and
-  ``agenerate``, on the new layer. ``GeneratedRule`` and ``GeneratedRules``, the writer's reply format, are no longer
+  ``agenerate``, on the new layer. Model-written rules may only read a record: methods that change a list, dict or
+  set are refused, like attributes outside built-in data types. ``GeneratedRule`` and ``GeneratedRules``, the writer's reply format, are no longer
   exported; rules are ``Rule``.
 - Docs: new quick start, installation guide and a migration guide; the API reference covers the new modules and
   builds without warnings (enforced in CI). Examples: one notebook per model, run by the test suite with fake

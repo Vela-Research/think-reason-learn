@@ -637,6 +637,21 @@ class TestReviewedSandbox:
         assert "bad" in evaluator.compilation_errors
         assert evaluator.evaluate({}) == {"bad": 0}
 
+    def test_a_rule_cannot_change_the_records_others_read(self) -> None:
+        record: dict[str, object] = {"tags": ["ai"], "name": "Ada"}
+        rules = [
+            Rule("wipe", "", "lambda r: r.clear() or r['tags'].pop()"),
+            Rule("has_tags", "", "lambda r: len(r['tags']) > 0"),
+        ]
+        evaluator = FeatureEvaluator(rules=rules)
+        assert "wipe" in evaluator.compilation_errors
+        assert evaluator.evaluate(record) == {"wipe": 0, "has_tags": 1}
+        assert record == {"tags": ["ai"], "name": "Ada"}
+
+    def test_a_rule_too_deep_to_parse_is_refused(self) -> None:
+        deep = Rule("deep", "", "lambda r: " + "-" * 100_000 + "1")
+        assert "deep" in FeatureEvaluator(rules=[deep]).compilation_errors
+
     def test_endless_recursion_gives_zero(self) -> None:
         rule = Rule("deep", "", "lambda r: (f := lambda x: f(x)) and f(1)")
         assert FeatureEvaluator(rules=[rule]).evaluate({}) == {"deep": 0}

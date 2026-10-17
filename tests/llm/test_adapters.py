@@ -159,6 +159,19 @@ class TestOpenAICompatible:
             _answer(proxy)
         assert "sk-from-env" not in sent[0].headers["authorization"]
 
+    def test_a_key_a_server_echoes_is_never_kept(self, wire: Wire) -> None:
+        key = "sk-test-0123456789abcdef"
+        wire(lambda r: _error(401, f"Invalid API key {key}: rejected " + "x" * 9000))
+        session = LLMSession()
+        models = resolve_models(
+            LLM("openai:gpt-5-mini", api_key=key), param="a", task="answer"
+        )
+        with pytest.raises(ProviderAuthError) as raised:
+            run_sync(session.answer(models, ["An engineer."], TECH, role="a"))
+        kept = [record.error or "" for record in session.usage]
+        assert key not in str(raised.value) and raised.value.__cause__ is None
+        assert kept and all(key not in e and len(e) < 1000 for e in kept)
+
     def test_rate_limit_waits_and_retries(self, wire: Wire) -> None:
         replies = iter([_error(429, "Rate limit reached", {"retry-after": "0"})])
         sent = wire(lambda r: next(replies, None) or _chat('{"a1": "YES"}'))

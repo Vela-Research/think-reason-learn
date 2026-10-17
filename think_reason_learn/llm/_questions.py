@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 from dataclasses import dataclass
 from typing import Final
 
@@ -67,8 +68,12 @@ class Answer:
 
     @classmethod
     def certain(cls, label: str, labels: tuple[str, ...]) -> Answer:
-        """An answer given without probabilities, as reasoning models give."""
-        return cls(label, {option: float(option == label) for option in labels})
+        """An answer given without probabilities, as reasoning models give.
+
+        One shared instance per label and labels: a large run holds millions.
+        Its ``probabilities`` must not be changed.
+        """
+        return _certain(label, labels)
 
     @classmethod
     def yes_probability(cls, probability: float) -> Answer:
@@ -86,3 +91,8 @@ class Answer:
     def probability(self, label: str = YES) -> float:
         """The probability of ``label`` (of yes, by default)."""
         return self.probabilities.get(label, 0.0)
+
+
+@functools.lru_cache(maxsize=4096)
+def _certain(label: str, labels: tuple[str, ...]) -> Answer:
+    return Answer(label, {option: float(option == label) for option in labels})

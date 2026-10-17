@@ -99,3 +99,42 @@ def test_another_format_is_refused_and_another_version_warned(
 def _saved_rrf(founders: tuple[list[str], list[str]], tmp_path: Path) -> Path:
     model = RRF(task="t", generator="fake:writer", answerer="fake:judge", cv=2)
     return model.fit(*founders).save(tmp_path / "rrf")
+
+
+@pytest.mark.parametrize(
+    ("where", "planted"),
+    [
+        ("fitted", {"answerer": "openai:gpt-5"}),  # a setting, not something learned
+        (
+            "fitted",
+            {"x_": {"__trl__": "data", "class": "think_reason_learnx:A", "fields": {}}},
+        ),
+        ("fitted", {"x_": {"__trl__": "data", "class": "x:A", "fields": {}}}),
+        ("params", {"no_such_setting": 1}),
+        ("fitted", {"x_": {"__trl__": "array", "dtype": "V9999", "items": [0]}}),
+    ],
+)
+def test_a_damaged_file_is_refused(
+    generic_fakes: tuple[FakeLLM, FakeLLM],
+    founders: tuple[list[str], list[str]],
+    tmp_path: Path,
+    where: str,
+    planted: dict[str, object],
+) -> None:
+    folder = _saved_rrf(founders, tmp_path)
+    document = json.loads((folder / "model.json").read_text())
+    document[where].update(planted)
+    (folder / "model.json").write_text(json.dumps(document))
+    with pytest.raises(DataError):
+        RRF.load(folder)
+
+
+def test_usage_is_saved_compactly(
+    generic_fakes: tuple[FakeLLM, FakeLLM],
+    founders: tuple[list[str], list[str]],
+    tmp_path: Path,
+) -> None:
+    folder = _saved_rrf(founders, tmp_path)
+    usage = json.loads((folder / "model.json").read_text())["fitted"]["usage_"]
+    size = len(json.dumps(usage["rows"])) / len(usage["rows"])
+    assert size < 150  # bytes per call, so a large run's file stays small

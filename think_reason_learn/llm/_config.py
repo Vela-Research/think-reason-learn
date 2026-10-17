@@ -52,7 +52,7 @@ class Config:
             or Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache")
             / "think_reason_learn"
         )
-        return base / "llm-cache-v1.sqlite"
+        return base / "llm-cache-v2.sqlite"
 
 
 @dataclass(frozen=True, slots=True)

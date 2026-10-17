@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import ipaddress
+import logging
 import os
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
@@ -17,6 +18,8 @@ from think_reason_learn.exceptions import MissingAPIKeyError
 from ._catalog import Catalog, openrouter_decisions
 from ._config import MODEL_ALIASES
 from ._usage import Price
+
+logger = logging.getLogger(__name__)
 
 type ModelName = str
 """A model as ``"provider:model"``, e.g. ``"openai:gpt-5-mini"``, or ``"jev"``."""
@@ -162,18 +165,22 @@ def resolve(model: Model) -> Endpoint:
         )
     kind, price = _kind(spec, provider, model_id)
     protocol, base_url = _route(provider, provider_name, kind)
-    return Endpoint(
-        name=name,
-        provider=provider_name,
-        model_id=model_id,
-        protocol=protocol,
-        kind=kind,
-        base_url=_base_url(spec, provider, base_url, name),
-        api_key=_api_key(spec, provider, name),
-        settings=spec if spec.price or price is None else replace(spec, price=price),
-        local=provider.local,
-        json_object_only=provider.json_object_only,
-        api_key_header=provider.api_key_header,
+    return _checked_transport(
+        Endpoint(
+            name=name,
+            provider=provider_name,
+            model_id=model_id,
+            protocol=protocol,
+            kind=kind,
+            base_url=_base_url(spec, provider, base_url, name),
+            api_key=_api_key(spec, provider, name),
+            settings=spec
+            if spec.price or price is None
+            else replace(spec, price=price),
+            local=provider.local,
+            json_object_only=provider.json_object_only,
+            api_key_header=provider.api_key_header,
+        )
     )
 
 
@@ -280,6 +287,8 @@ _PROVIDERS: Final[dict[str, _Provider]] = {
 
 
 _keys_needed: Final[ContextVar[bool]] = ContextVar("trl_keys_needed", default=True)
+_warned_plain: Final[set[str]] = set()
+"""Plain-http URLs already warned about."""
 
 
 @contextmanager
@@ -359,17 +368,32 @@ def _custom_endpoint(spec: LLM, name: str) -> Endpoint:
             '"openai:gpt-5-mini", or pass base_url= for an OpenAI-compatible server.'
         )
     kind = spec.kind or "reasoning"
-    return Endpoint(
-        name=name,
-        provider="custom",
-        model_id=name,
-        protocol="systemone" if kind == "decision" else "openai",
-        kind=kind,
-        base_url=spec.base_url,
-        api_key=spec.api_key,
-        settings=spec,
-        local=_is_local(spec.base_url),
+    return _checked_transport(
+        Endpoint(
+            name=name,
+            provider="custom",
+            model_id=name,
+            protocol="systemone" if kind == "decision" else "openai",
+            kind=kind,
+            base_url=spec.base_url,
+            api_key=spec.api_key,
+            settings=spec,
+            local=_is_local(spec.base_url),
+        )
     )
+
+
+def _checked_transport(endpoint: Endpoint) -> Endpoint:
+    """``endpoint``; a key it would send unencrypted off this network is warned of."""
+    url = endpoint.base_url or ""
+    plain = url.startswith("http://") and not _is_local(url)
+    if plain and endpoint.api_key and url not in _warned_plain:
+        _warned_plain.add(url)
+        logger.warning(
+            f"{endpoint.name} sends its API key over plain http to {url}; "
+            "use https, or anyone on the way can read the key."
+        )
+    return endpoint
 
 
 def _is_local(url: str) -> bool:

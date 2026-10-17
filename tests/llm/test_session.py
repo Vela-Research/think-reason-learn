@@ -184,7 +184,7 @@ def test_unreadable_cache_entries_are_asked_again(tmp_path: Path) -> None:
         cache = open_cache(get_config().cache_path)
         assert cache is not None
         rows = cache._db.execute("SELECT key FROM replies").fetchall()
-        cache.put_many({key: {"label": "corrupt"} for (key,) in rows})
+        cache.put_many({key.hex(): {"label": "corrupt"} for (key,) in rows})
         [result] = run_sync(LLMSession().answer(models, ["x"], QUESTIONS, role="a"))
     assert all(answer is not None for answer in result.values())
     assert judge.n_calls == 4
@@ -487,3 +487,33 @@ def test_fakes_never_answer_from_an_earlier_block() -> None:
             )
         answer = result["tech"]
         assert answer is not None and answer.label == expected
+
+
+def test_large_runs_go_in_chunks_without_retrying_a_dead_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from think_reason_learn.llm import _session
+
+    monkeypatch.setattr(_session, "_CHUNK_CELLS", 10)  # 5 samples of 2 questions
+    dead = FakeLLM(answer=_answer, failures=["unavailable"] * 100)
+    good = FakeLLM(answer=_answer)
+    samples = [f"engineer {i}" for i in range(30)]
+    with fake_llms(dead=dead, good=good):
+        results = run_sync(
+            LLMSession().answer(_resolved("dead", "good"), samples, QUESTIONS, role="a")
+        )
+    assert all(a is not None for r in results for a in r.values())
+    assert dead.n_calls == 1 and good.n_calls == 60
+
+
+def test_answers_paid_for_reach_the_cache_when_a_run_stops() -> None:
+    judge = FakeLLM(answer=_answer, tokens=(1_000_000, 0))
+    priced = LLM("fake:judge", price=Price(input=1.0))  # a dollar a call
+    samples = [f"engineer {i}" for i in range(20)]
+    with fake_llms(judge=judge):
+        models = resolve_models(priced, param="a", task="answer")
+        with config_context(max_cost_usd=5.5), pytest.raises(BudgetExceededError):
+            run_sync(LLMSession().answer(models, samples, QUESTIONS, role="a"))
+        paid = judge.n_calls
+        run_sync(LLMSession().answer(models, samples, QUESTIONS, role="a"))
+    assert 0 < paid < 40 and judge.n_calls == 40  # none asked twice

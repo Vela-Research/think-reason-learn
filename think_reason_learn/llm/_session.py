@@ -15,6 +15,7 @@ from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import astuple, dataclass, replace
 from functools import partial
 from typing import Final, TypeIs, overload
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, ValidationError
 
@@ -53,6 +54,12 @@ logger = logging.getLogger(__name__)
 
 _WINDOW: Final = 256
 """Answer requests scheduled at once; the limiter decides how many are sent."""
+_CHUNK_CELLS: Final = 200_000
+"""Answers (samples times questions) looked up and asked per chunk, so memory
+stays bounded on large runs."""
+_FLUSH_ROWS: Final = 2_000
+_FLUSH_SECONDS: Final = 2.0
+"""Replies are written to the cache in batches of this many, or this often."""
 _DEAD_AFTER: Final = 5
 """Failed requests in a row, retries spent, after which the next model takes over,
 or the run stops if none is left."""
@@ -155,7 +162,7 @@ class LLMSession:
                 errors.append(f"{endpoint.name}: {error}")
                 continue
             if _usable(reply.output, schema):
-                self._engine.store({key: _dump(reply.output)})
+                self._engine.store({key: _dump(reply.output)}, now=True)
                 self._engine.budget.check()
                 return reply.output
             errors.append(f"{endpoint.name}: no usable output")
@@ -198,8 +205,8 @@ class LLMSession:
         results: list[Answers] = [dict.fromkeys(questions) for _ in samples]
         errors: list[str] = []
         digests = [hashlib.sha256(sample.encode()).hexdigest() for sample in samples]
-        for n, endpoint in enumerate(models, 1):
-            pass_ = _AnswerPass(
+        passes = [
+            _AnswerPass(
                 self._engine,
                 endpoint if ensemble else _answering(endpoint),
                 samples,
@@ -209,8 +216,12 @@ class LLMSession:
                 draw,
                 can_hand_over=n < len(models),
             )
-            if not await pass_.run(results, errors):
-                break
+            for n, endpoint in enumerate(models, 1)
+        ]
+        for rows in _chunks(len(samples), len(questions)):
+            for pass_ in passes:
+                if not await pass_.run(results, errors, rows):
+                    break
         _report(results, errors, models)
         return results
 
@@ -231,6 +242,8 @@ class _Engine:
         )
         self._configured: set[str] = set()
         self._served: dict[str, set[str]] = {}
+        self._pending: dict[str, JSON] = {}
+        self._flushed = time.monotonic()
 
     async def call[T](
         self,
@@ -262,12 +275,17 @@ class _Engine:
                 provider_cost=reply.provider_cost,
             )
             return reply
-        except ProviderError as error:
+        except ProviderError as raised:
+            error = _scrubbed(endpoint, raised)
             if not isinstance(error, Skipped):  # nothing was sent
                 self._record(endpoint, role, TokenCounts(), start, error=str(error))
+            # A scrubbed error drops the provider's exception, which holds the key.
+            cause = raised if error is raised else None
             if error.failure in ("auth", "quota"):
-                raise ProviderAuthError(_auth_message(endpoint, error)) from error
-            raise
+                raise ProviderAuthError(_auth_message(endpoint, error)) from cause
+            if error is raised:
+                raise
+            raise error from None
         finally:
             self.budget.settle(held, cost)
 
@@ -356,11 +374,36 @@ class _Engine:
             return None
 
     def cached(self, keys: Iterable[str]) -> dict[str, JSON]:
-        return self._cache.get_many(keys) if self._cache is not None else {}
+        """The stored replies among ``keys``, those not yet written included."""
+        if self._cache is None:
+            return {}
+        wanted = list(keys)
+        found = {key: self._pending[key] for key in wanted if key in self._pending}
+        found.update(self._cache.get_many(key for key in wanted if key not in found))
+        return found
 
-    def store(self, replies: Mapping[str, JSON]) -> None:
-        if self._cache is not None and replies:
-            self._cache.put_many(replies)
+    def store(self, replies: Mapping[str, JSON], *, now: bool = False) -> None:
+        """Keep ``replies``, written in batches: each write blocks the event loop.
+
+        They are written at once with ``now``, else every ``_FLUSH_ROWS`` replies
+        or ``_FLUSH_SECONDS``, and when an answer pass ends.
+        """
+        if self._cache is None or not replies:
+            return
+        self._pending.update(replies)
+        if (
+            now
+            or len(self._pending) >= _FLUSH_ROWS
+            or time.monotonic() - self._flushed >= _FLUSH_SECONDS
+        ):
+            self.flush()
+
+    def flush(self) -> None:
+        """Write the replies kept so far."""
+        if self._cache is not None and self._pending:
+            self._cache.put_many(self._pending)
+            self._pending = {}
+        self._flushed = time.monotonic()
 
 
 @dataclass(slots=True)
@@ -379,34 +422,46 @@ class _AnswerPass:
     failed_in_a_row: int = 0
     fatal: LLMError | None = None
 
-    async def run(self, results: list[Answers], errors: list[str]) -> bool:
-        """Fill what this model can. Returns whether anything was left to ask."""
-        cells = [
-            (i, qid) for i, r in enumerate(results) for qid, a in r.items() if a is None
-        ]
+    async def run(self, results: list[Answers], errors: list[str], rows: range) -> bool:
+        """Fill what this model can for ``rows``; whether anything was left to ask.
+
+        Replies are written to the cache before it returns or raises.
+        """
+        cells = [(i, qid) for i in rows for qid, a in results[i].items() if a is None]
         if not cells:
             return False
-        keys = {cell: self._key(*cell) for cell in cells}
-        stored = self.engine.cached(keys.values())
-        missing: list[tuple[int, str]] = []
-        for (i, qid), key in keys.items():
-            answer = _load_answer(stored.get(key), self.questions[qid])
-            if answer is None:
-                missing.append((i, qid))
-            else:
-                results[i][qid] = answer
-        if hits := len(cells) - len(missing):
-            self.engine.record_hits(self.endpoint, self.role, hits)
-            self._advance(hits)
-        requests = self._requests(missing, keys)
+        keys = self._from_cache(cells, results)
+        if self.unavailable:  # handed over in an earlier chunk
+            return True
+        requests = self._requests(list(keys), keys)
         self._check_estimate(requests)
         try:
             await _bounded(requests, lambda r: self._send(r, results, errors), _WINDOW)
         except BaseExceptionGroup as group:
             raise group.exceptions[0] from None  # tasks do not nest groups
+        finally:
+            self.engine.flush()
         if self.fatal is not None:
             raise self.fatal
         return True
+
+    def _from_cache(
+        self, cells: Sequence[tuple[int, str]], results: list[Answers]
+    ) -> dict[tuple[int, str], str]:
+        """Fill ``cells`` from the cache; the cache key of each one still missing."""
+        keys = {cell: self._key(*cell) for cell in cells}
+        stored = self.engine.cached(keys.values())
+        missing: dict[tuple[int, str], str] = {}
+        for (i, qid), key in keys.items():
+            answer = _load_answer(stored.get(key), self.questions[qid])
+            if answer is None:
+                missing[i, qid] = key
+            else:
+                results[i][qid] = answer
+        if hits := len(cells) - len(missing):
+            self.engine.record_hits(self.endpoint, self.role, hits)
+            self._advance(hits)
+        return missing
 
     def _key(self, i: int, qid: str) -> str:
         question = self.questions[qid]
@@ -546,6 +601,15 @@ async def _bounded[X](
             group.create_task(guarded(item))
 
 
+def _chunks(n_samples: int, n_questions: int) -> list[range]:
+    """Sample rows in chunks of about ``_CHUNK_CELLS`` answers."""
+    size = max(1, _CHUNK_CELLS // max(1, n_questions))
+    return [
+        range(start, min(start + size, n_samples))
+        for start in range(0, n_samples, size)
+    ]
+
+
 def _report(
     results: Sequence[Answers], errors: Sequence[str], models: Sequence[Endpoint]
 ) -> None:
@@ -614,7 +678,10 @@ def _load_answer(stored: JSON, question: Question) -> Answer | None:
         label,
         {k: float(v) for k, v in probabilities.items() if isinstance(v, (int, float))},
     )
-    return answer if answer.is_valid else None
+    if not answer.is_valid:
+        return None
+    certain = Answer.certain(label, question.labels)
+    return certain if answer == certain else answer  # shared, like a fresh one
 
 
 def _answering(endpoint: Endpoint) -> Endpoint:
@@ -638,4 +705,22 @@ def _down_message(endpoint: Endpoint, error: ProviderError) -> str:
         f"{endpoint.name} keeps failing and no fallback model is left, so the run "
         "stops. Answers so far are in the cache, so a rerun continues from them. "
         f"Last error: {error}"
+    )
+
+
+def _scrubbed(endpoint: Endpoint, error: ProviderError) -> ProviderError:
+    """``error`` without the endpoint's key or URL password, should they show.
+
+    Error text is logged and kept in usage (and saved models), so a secret in it
+    would leak.
+    """
+    message = str(error)
+    password = urlparse(endpoint.base_url or "").password
+    secrets = [s for s in (endpoint.api_key, password) if s and s in message]
+    if not secrets:
+        return error
+    for secret in secrets:
+        message = message.replace(secret, "***")
+    return ProviderError(
+        error.failure, message, retry_after=error.retry_after, param=error.param
     )

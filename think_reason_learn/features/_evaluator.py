@@ -1,9 +1,11 @@
 """Safe evaluation of model-written lambda rules on structured records.
 
 Each rule is checked before it runs: it must be one lambda of one argument, it
-may use only the attributes of built-in data types (``.get``, ``.lower``...), and
-no name that starts with two underscores (``__import__``). Any other attribute,
-such as a generator's ``gi_frame``, could walk out of the sandbox. It then runs
+may use only the attributes of built-in data types (``.get``, ``.lower``...) that
+change nothing, and no name that starts with two underscores (``__import__``).
+Any other attribute, such as a generator's ``gi_frame``, could walk out of the
+sandbox, and a method such as ``.clear()`` could change the records the next
+rules read. It then runs
 with only the built-ins in ``SAFE_BUILTINS`` and the helpers given, so
 ``import``, ``open``, ``eval``, ``getattr`` and the like are out of reach. Rules
 come from a model that read your data: treat them as untrusted code, and keep
@@ -62,12 +64,50 @@ SAFE_BUILTINS: Final[Mapping[str, object]] = {
 }
 """Built-ins available inside rules; everything else is absent."""
 
-_ATTRIBUTES: Final = frozenset(
-    name
-    for kind in (str, bytes, int, float, bool, list, tuple, dict, set, frozenset, range)
-    for name in dir(kind)
-    if not name.startswith("_")
-) - {"format", "format_map"}
+_MUTATORS: Final = frozenset(
+    {
+        "add",
+        "append",
+        "clear",
+        "difference_update",
+        "discard",
+        "extend",
+        "insert",
+        "intersection_update",
+        "pop",
+        "popitem",
+        "remove",
+        "reverse",
+        "setdefault",
+        "sort",
+        "symmetric_difference_update",
+        "update",
+    }
+)
+"""Methods that change a list, dict or set: a rule may only read a record."""
+
+_ATTRIBUTES: Final = (
+    frozenset(
+        name
+        for kind in (
+            str,
+            bytes,
+            int,
+            float,
+            bool,
+            list,
+            tuple,
+            dict,
+            set,
+            frozenset,
+            range,
+        )
+        for name in dir(kind)
+        if not name.startswith("_")
+    )
+    - {"format", "format_map"}
+    - _MUTATORS
+)
 """Attributes rules may use; ``format`` reaches any, as ``"{0.__class__}"``."""
 
 _RULE_ERRORS: Final = (
@@ -153,7 +193,8 @@ def _compile(rule: Rule, scope: dict[str, object]) -> _Compiled:
     try:
         tree = _checked(rule.expression)
         function = eval(compile(tree, f"<rule {rule.name}>", "eval"), scope)  # noqa: S307  # checked, restricted builtins
-    except (SyntaxError, ValueError) as error:
+    except (SyntaxError, ValueError, RecursionError, MemoryError) as error:
+        # Too deeply nested a rule overflows the parser or the compiler.
         logger.warning(f"Rule {rule.name} does not compile: {error}")
         return _Compiled(rule, None, str(error))
     return _Compiled(rule, function, None)

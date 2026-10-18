@@ -109,8 +109,9 @@ few parameters away, and every model is seeded with ``random_state=42``. See :do
   ``VerifiableRLConfig`` (plain parameters), ``pretrain_classifier``, ``from_state_dicts``, ``predict_paths``
   (``decision_paths``) and non-greedy prediction.
 - ``core._combine``: one logistic combiner and F-beta threshold search shared by the models. ``C`` is chosen by
-  log loss (average precision ties on separable data and picked an over-regularised model), and thresholds are tuned
-  on out-of-fold scores of the final model's settings, midway between scores so they are not knife-edged.
+  log loss (average precision ties on separable data and picked an over-regularised model) over three shuffles of
+  the folds, since one split of a small dataset can make every weight look useless, and thresholds are tuned on
+  out-of-fold scores of the final model's settings, midway between scores so they are not knife-edged.
 - **Removed the old provider layer** (``think_reason_learn.core.llms``, the ``*Choice`` classes, ``TRLModel``,
   ``core.exceptions``; exceptions live in ``think_reason_learn.exceptions``). ``JevAuthError`` and
   ``JevCostCapError`` are now ``ProviderAuthError`` and ``BudgetExceededError`` for every provider;

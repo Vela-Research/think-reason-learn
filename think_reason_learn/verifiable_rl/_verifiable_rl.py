@@ -84,7 +84,8 @@ class VerifiableRL(Persistable, ClassifierMixin, BaseEstimator):
         tau_info, tau_stop: Temperatures of the policy targets.
         n_iterations: Passes over the training samples.
         update_every: Samples between network updates.
-        policy_lr, clf_lr: Learning rates.
+        policy_lr, clf_lr: Learning rates. The defaults (0.2's) suit thousands of
+            samples; for a few dozen, about 1e-3 learns, with batches of 16.
         policy_batch, clf_batch: Batch sizes.
         train_epochs: Passes over the replay sample per update.
         grad_clip: Gradient-norm clip; 0 to turn off.
@@ -96,7 +97,8 @@ class VerifiableRL(Persistable, ClassifierMixin, BaseEstimator):
             the rollouts use; 0 to use the live one.
         pretrain_epochs: Epochs of classifier pretraining on random reveals;
             0 to skip. Rewards depend on the classifier, so this helps.
-        pretrain_lr, pretrain_batch: Its learning rate and batch size.
+        pretrain_lr, pretrain_batch: Its learning rate and batch size; for a few
+            dozen samples, a learning rate of about 1e-2.
         uncertain_delta: Gap between the top two actions that asks the supervisor.
         llm_bias: Probability added to the supervisor's pick, as in 0.2.
         threshold: Positive probability for a positive prediction: 0.2's 0.3.

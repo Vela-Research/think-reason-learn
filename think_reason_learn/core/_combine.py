@@ -16,7 +16,7 @@ from typing import Final, TypedDict
 import numpy as np
 import numpy.typing as npt
 from sklearn.linear_model import LogisticRegression, LogisticRegressionCV
-from sklearn.model_selection import StratifiedKFold
+from sklearn.model_selection import RepeatedStratifiedKFold, StratifiedKFold
 
 from think_reason_learn.core._sklearn import (
     Bools,
@@ -92,8 +92,9 @@ def fit_logistic(
     """Fit a regularised logistic regression and tune its F-beta threshold.
 
     ``C`` (one of ``cs``, or of that many on a log grid) and ``l1_ratio`` (1 for
-    L1, 0 for L2, between for elastic net) are chosen by inner cross-validation;
-    the threshold maximises F-beta on out-of-fold probabilities. With too few
+    L1, 0 for L2, between for elastic net) are chosen by inner cross-validation,
+    repeated over ``_REPEATS`` shuffles; the threshold maximises F-beta on
+    out-of-fold probabilities. With too few
     samples of a class for folds, the model is fitted once and the threshold
     tuned on its own scores.
     """
@@ -105,7 +106,7 @@ def fit_logistic(
         scores = positive_proba(model, features)
         return LinearCombiner.from_model(model, best_threshold(scores, y, beta))
     splitter = StratifiedKFold(folds, shuffle=True, random_state=random_state)
-    model = _chosen(features, y, splitter, l1_ratios, cs, class_weight, random_state)
+    model = _chosen(features, y, folds, l1_ratios, cs, class_weight, random_state)
     # The threshold is tuned on out-of-fold scores of the model actually used,
     # with the chosen C and l1_ratio, so the scales match.
     out_of_fold = out_of_fold_proba(model, features, y, splitter)
@@ -178,17 +179,20 @@ def held_out_rows(
 def _chosen(
     features: Floats,
     y: Bools,
-    splitter: StratifiedKFold,
+    folds: int,
     l1_ratios: tuple[float, ...],
     cs: int | tuple[float, ...],
     class_weight: str | None,
     random_state: int | None,
 ) -> LogisticRegression:
     """An unfitted model with the C and l1_ratio inner cross-validation chose."""
+    splits = RepeatedStratifiedKFold(
+        n_splits=folds, n_repeats=_REPEATS, random_state=random_state
+    )
     search = LogisticRegressionCV(
         Cs=cs if isinstance(cs, int) else list(cs),  # pyright: ignore[reportArgumentType]  # a list of Cs works; pyright reads int from the default
         l1_ratios=list(l1_ratios),
-        cv=splitter,
+        cv=splits,
         scoring="neg_log_loss",
         class_weight=class_weight,
         random_state=random_state,
@@ -218,3 +222,8 @@ class _Solver(TypedDict):
 
 _SOLVER: Final = _Solver(solver="saga", max_iter=5000, penalty=penalty())
 """Solver settings shared by the cross-validated search and the final model."""
+
+_REPEATS: Final = 3
+"""Shuffles of the folds that choose C. On a small dataset one split can make
+every weight look useless; Policy Induction on 24 samples then zeroed a rule
+that was right on 6 of the 7 positives."""

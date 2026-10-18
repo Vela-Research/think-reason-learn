@@ -29,3 +29,36 @@ class TestCombine:
         )
         assert fitted.coef[0] > abs(fitted.coef[1])
         assert ((fitted.scores(features) >= fitted.threshold) == y).mean() == 1.0
+
+
+# A local model's answers to five rules for 24 loan applicants (7 defaulted): the
+# first rule is right on 6 of the 7. One 2-fold split made every weight look
+# useless, so Policy Induction weighed no rule and flagged everyone.
+RULE_ANSWERS = np.array(
+    [
+        [0, 0, 0, 0, 1], [0, 0, 0, 0, 1], [0, 0, 0, 0, 1], [0, 0, 0, 0, 1],
+        [0, 0, 0, 0, 1], [1, 0, 1, 1, 0], [0, 0, 0, 0, 1], [0, 0, 0, 0, 1],
+        [1, 0, 0, 0, 0], [0, 0, 0, 0, 1], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0], [1, 0, 0, 0, 0], [0, 0, 0, 0, 1], [0, 0, 0, 0, 1],
+        [1, 0, 0, 0, 0], [0, 0, 0, 0, 1], [1, 0, 0, 0, 0], [0, 0, 0, 0, 1],
+        [1, 1, 1, 1, 0], [0, 0, 0, 0, 1], [1, 0, 0, 0, 0], [0, 0, 0, 0, 1],
+    ],
+    dtype=float,
+)  # fmt: skip
+DEFAULTED = np.array(
+    [0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0],
+    dtype=bool,
+)
+
+
+def test_a_small_dataset_keeps_its_one_good_rule() -> None:
+    combiner = fit_logistic(
+        RULE_ANSWERS,
+        DEFAULTED,
+        l1_ratios=(1.0,),
+        cv=2,
+        beta=0.5,
+        class_weight=None,
+        random_state=42,
+    )
+    assert combiner.coef[0] > 1

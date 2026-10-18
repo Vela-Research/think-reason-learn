@@ -35,6 +35,9 @@ How the code is laid out
   share (rendering samples, labels, example batches, prompts, logistic combiners and thresholds).
 - One package per model (``gptree``, ``rrf``, ``policy_induction``, ``reasoned_rule_mining``, ``verifiable_rl``).
 - ``tests/`` mirrors the packages.
+- ``examples/``: one notebook per model for users, run offline by the tests with fake models.
+- ``lab/``: your own experiments (scripts, notebooks, data, real models). Git ignores it, so nothing there is shared
+  or tested; move what others should see into ``examples/``.
 
 Adding a provider
 -----------------

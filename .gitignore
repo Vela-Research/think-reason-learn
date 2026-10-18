@@ -50,6 +50,7 @@ llm_context.md
 poetry.toml
 lab.py
 lab.ipynb
+lab/
 .env
 gptrees
 experiment_vcbench/*

@@ -394,7 +394,6 @@ class _Grower:
     writer: tuple[Endpoint, ...]
     critic: tuple[Endpoint, ...] | None
     answerer: tuple[Endpoint, ...]
-    rng: np.random.Generator
     min_leaf: int
     min_split: int
     leaf_of: npt.NDArray[np.intp]
@@ -412,6 +411,7 @@ class _Grower:
         """A grower for ``model``, with its (writer, answerer) models."""
         writer, answerer = roles
         n = len(texts)
+        np.random.SeedSequence(model.random_state)  # a bad seed fails before any call
         return cls(
             model,
             texts,
@@ -421,7 +421,6 @@ class _Grower:
             writer,
             _critic(writer, use_critic=model.use_critic, critic=model.critic),
             answerer,
-            np.random.default_rng(model.random_state),
             max(1, count(model.min_samples_leaf, n)),
             max(2, count(model.min_samples_split, n)),
             np.zeros(n, dtype=np.intp),
@@ -470,8 +469,18 @@ class _Grower:
             logger.warning(f"No insights for class {label}; going on without: {error}")
             return ""
 
+    def _rng_for(self, *key: int) -> np.random.Generator:
+        """A generator for one draw, fixed by the seed and ``key``.
+
+        With one generator for the fit, a node's examples depended on every draw
+        before it, so turning insights on changed them.
+        """
+        return np.random.default_rng(
+            np.random.SeedSequence(self.model.random_state, spawn_key=key)
+        )
+
     async def _summarise(self, c: int) -> str:
-        members = self.rng.permutation(np.flatnonzero(self.y == c))
+        members = self._rng_for(0, c).permutation(np.flatnonzero(self.y == c))
         size = self.model.insight_batch_size
         batches = [members[i : i + size] for i in range(0, len(members), size)][
             :_MAX_INSIGHT_BATCHES
@@ -597,7 +606,7 @@ class _Grower:
             n_batches=1,
             batch_size=min(model.n_examples, len(idx)),
             class_ratio=model.example_class_ratio,
-            rng=self.rng,
+            rng=self._rng_for(1, node.id),
         )
         path = (
             "\n".join(f"- {q} -> {a}" for q, a in self.tree.path(node.id))

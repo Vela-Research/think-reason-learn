@@ -52,7 +52,9 @@ few parameters away, and every model is seeded with ``random_state=42``. See :do
   class; the paper's tree is ``max_depth=18, min_samples_leaf=0.005`` (a fraction of the samples, as in
   scikit-learn), ``max_choices=2`` and ``beta=0.5``. Fixes: earlier
   answers no longer leak into prompts, a sample whose answer fails follows the largest branch instead of
-  vanishing, an empty branch no longer disqualifies a question, and a split must decrease impurity. Faster: the
+  vanishing, an empty branch no longer disqualifies a question, a split must decrease impurity, and each random draw
+  has its own generator seeded from ``random_state``, so a node's examples no longer change when insights are
+  turned on or off (a seed shows different examples than before this fix). Faster: the
   nodes of a level grow at once and answers are reused across nodes and between fit and predict. ``export_graphviz``
   escapes every label, so written text cannot add Graphviz attributes. New
   ``min_samples_split``, ``min_impurity_decrease``, ``max_leaf_nodes`` and ``criterion="entropy"``; the critic is

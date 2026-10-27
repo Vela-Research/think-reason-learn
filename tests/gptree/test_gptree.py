@@ -379,3 +379,14 @@ def test_written_text_cannot_add_attributes_to_the_graph() -> None:
     quoted = r'"(?:[^"\\]|\\.)*"'
     for line in dot.splitlines()[2:-1]:
         assert re.fullmatch(rf"  \d+( -> \d+)? \[label={quoted}\];", line), line
+
+
+def test_node_examples_do_not_depend_on_other_draws() -> None:
+    def root_examples(*, insights: bool) -> str:
+        writer = FakeLLM(generate=write)
+        with fake_llms(writer=writer, judge=FakeLLM(answer=answer)):
+            tree(max_depth=1, n_examples=3, insights=insights).fit(FOUNDERS, LABELS)
+        prompts = [c.prompt or "" for c in writer.calls if c.schema is not None]
+        return prompts[0].split("Examples at this node")[1]
+
+    assert root_examples(insights=False) == root_examples(insights=True)

@@ -648,6 +648,48 @@ class TestReviewedSandbox:
         assert evaluator.evaluate(record) == {"wipe": 0, "has_tags": 1}
         assert record == {"tags": ["ai"], "name": "Ada"}
 
+    def test_a_rule_cannot_rebind_a_name_for_other_rules(self) -> None:
+        """A lambda's default is evaluated when ``eval`` builds it, in the scope
+        it compiles in, so this would otherwise make ``len`` return 0 for every
+        later rule.
+        """
+        record: dict[str, object] = {"tags": ["ai"]}
+        rules = [
+            Rule("poison", "", "lambda r=(len := lambda x: 0): False"),
+            Rule("has_tags", "", "lambda r: len(r['tags']) > 0"),
+        ]
+        evaluator = FeatureEvaluator(rules=rules)
+        assert "poison" in evaluator.compilation_errors
+        assert evaluator.evaluate(record) == {"poison": 0, "has_tags": 1}
+
+    def test_each_rule_compiles_in_its_own_scope(self) -> None:
+        """Even if a write into a rule's scope were ever possible, it reaches
+        only that rule.
+        """
+        rules = [Rule("a", "", "lambda r: 1"), Rule("b", "", "lambda r: 1")]
+        evaluator = FeatureEvaluator(rules=rules)
+        scopes = [e.function.__globals__ for e in evaluator._compiled if e.function]
+        assert scopes[0] is not scopes[1]
+
+    def test_rules_that_fail_on_the_data_are_counted_and_warned_of(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A rule that raises on every record scores 0 everywhere, which no
+        column tells apart from a rule that is never true.
+        """
+        rules = [
+            Rule("needs_number", "", "lambda r: r['v'] > 1_000_000"),
+            Rule("fine", "", "lambda r: len(r['v']) > 0"),
+        ]
+        records: list[dict[str, object]] = [{"v": "text"}, {"v": "more text"}]
+        evaluator = FeatureEvaluator(rules=rules)
+        with caplog.at_level("WARNING"):
+            frame = evaluator.evaluate_df(records)
+        assert list(frame["needs_number"]) == [0, 0]
+        assert list(frame["fine"]) == [1, 1]
+        assert evaluator.rule_failures == {"needs_number": 2}
+        assert "needs_number" in caplog.text
+
     def test_a_rule_too_deep_to_parse_is_refused(self) -> None:
         deep = Rule("deep", "", "lambda r: " + "-" * 100_000 + "1")
         assert "deep" in FeatureEvaluator(rules=[deep]).compilation_errors

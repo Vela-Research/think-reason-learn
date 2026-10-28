@@ -35,6 +35,7 @@ from think_reason_learn.core._classifier import (
 from think_reason_learn.core._combine import LinearCombiner, fit_combiner, held_out_rows
 from think_reason_learn.core._data import Classes, balanced_subset, take
 from think_reason_learn.core._prompts import most_written
+from think_reason_learn.exceptions import NoOutputError
 from think_reason_learn.llm import (
     GENERATE_OUTPUT_TOKENS,
     QUESTION_TOKENS,
@@ -248,7 +249,16 @@ class ReasonedRuleMining(BinaryTRLClassifier):
             return label, reply.rule.strip()
 
         rules = await most_written([mine(int(i)) for i in mined], "mined samples")
-        return tuple((label, rule) for label, rule in rules if rule)
+        usable = tuple((label, rule) for label, rule in rules if rule)
+        if not usable:
+            # The replies parsed, so most_written was satisfied, but every rule
+            # was empty. Compiling a policy from nothing gives one the model
+            # invented rather than one it mined, which reads as a real result.
+            raise NoOutputError(
+                f"No rule was mined from {len(mined)} samples: the generator "
+                "replied, but every rule was empty."
+            )
+        return usable
 
     async def _compile(self, writer: tuple[Endpoint, ...], session: LLMSession) -> str:
         by_class: dict[str, list[str]] = {}

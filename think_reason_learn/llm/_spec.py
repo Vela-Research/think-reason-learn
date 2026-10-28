@@ -57,7 +57,9 @@ class LLM:
             one sample. Decision models take every question in one call.
         base_url: Endpoint to call instead of the provider's. It gets only an
             ``api_key`` passed here, never the provider's key from the
-            environment (Azure, whose endpoint is always yours, excepted).
+            environment. That holds for Azure too: a ``base_url`` can arrive in
+            a saved model from someone else, so set ``AZURE_OPENAI_BASE_URL``
+            in your environment, or pass ``api_key`` with it.
         api_key: Key to use instead of the provider's environment variable.
         kind: ``"decision"`` to call the model's decision API, e.g. OpenAI's
             ``gpt-6-luna`` (also a chat model) or an Azure deployment of
@@ -421,8 +423,13 @@ def _base_url(
 def _api_key(spec: LLM, provider: _Provider, name: str) -> str | None:
     if spec.api_key:
         return spec.api_key
-    if spec.base_url is not None and not provider.needs_base_url:
-        return None  # the provider's key never goes to another server
+    if spec.base_url is not None:
+        # The provider's key never goes to a server named in code or in a file.
+        # A loaded model.json carries base_url, so a file from someone else
+        # would otherwise send your key to their host. An endpoint set through
+        # the provider's own environment variable still gets the key, since a
+        # file cannot set that.
+        return None
     found = next(
         (os.environ[env] for env in provider.key_env if os.environ.get(env)), None
     )

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 
 import httpx2
 import pytest
@@ -173,8 +174,14 @@ def test_only_a_key_passed_goes_to_a_custom_base_url(
     assert resolve(LLM("openai:gpt-5-mini")).api_key == "sk-env"
     assert resolve(LLM("openai:gpt-5-mini", base_url=proxy)).api_key is None
     assert resolve(LLM("openai:gpt-5-mini", base_url=proxy, api_key="k")).api_key == "k"
+    # A base_url written in code or carried in a saved model gets no environment
+    # key, Azure included: model.json holds base_url, so a file from someone else
+    # would otherwise send your Azure key to their host.
     azure = LLM("azure:my-deployment", base_url="https://me.openai.azure.com/v1")
-    assert resolve(azure).api_key == "az-env"  # Azure's endpoint is always yours
+    assert resolve(azure).api_key is None
+    assert resolve(replace(azure, api_key="k")).api_key == "k"
+    monkeypatch.setenv("AZURE_OPENAI_BASE_URL", "https://me.openai.azure.com/v1")
+    assert resolve(LLM("azure:my-deployment")).api_key == "az-env"
 
 
 def test_a_key_sent_over_plain_http_is_warned_of(

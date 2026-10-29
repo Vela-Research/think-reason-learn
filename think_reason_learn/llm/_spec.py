@@ -60,7 +60,9 @@ class LLM:
             environment. That holds for Azure too: a ``base_url`` can arrive in
             a saved model from someone else, so set ``AZURE_OPENAI_BASE_URL``
             in your environment, or pass ``api_key`` with it.
-        api_key: Key to use instead of the provider's environment variable.
+        api_key: Key to use instead of the provider's environment variable. A
+            pickle keeps it, so worker processes (``n_jobs``) can call the model;
+            ``save`` never stores it, so share saved folders, not pickles.
         kind: ``"decision"`` to call the model's decision API, e.g. OpenAI's
             ``gpt-6-luna`` (also a chat model) or an Azure deployment of
             Microsoft-Decision-1. By default Typesafe's models and those
@@ -98,17 +100,6 @@ class LLM:
     def __deepcopy__(self, memo: dict[int, object]) -> LLM:
         """Itself, so ``sklearn.clone`` and grid search keep the API key."""
         return self
-
-    def __getstate__(self) -> tuple[object, ...]:
-        """Pickle without the API key: saved models never hold secrets.
-
-        Workers that receive a model by pickle (``n_jobs`` in scikit-learn) read
-        keys from their environment.
-        """
-        return tuple(
-            None if name == "api_key" else getattr(self, name)
-            for name in self.__dataclass_fields__
-        )
 
 
 type Model = ModelName | LLM

@@ -60,6 +60,8 @@ stays bounded on large runs."""
 _FLUSH_ROWS: Final = 2_000
 _FLUSH_SECONDS: Final = 2.0
 """Replies are written to the cache in batches of this many, or this often."""
+_BAD_AFTER: Final = 20
+"""Bad requests in a row after which the model, not the samples, is at fault."""
 _DEAD_AFTER: Final = 5
 """Failed requests in a row, retries spent, after which the next model takes over,
 or the run stops if none is left."""
@@ -420,6 +422,7 @@ class _AnswerPass:
     can_hand_over: bool = False
     unavailable: bool = False
     failed_in_a_row: int = 0
+    bad_in_a_row: int = 0
     fatal: LLMError | None = None
 
     async def run(self, results: list[Answers], errors: list[str], rows: range) -> bool:
@@ -521,8 +524,8 @@ class _AnswerPass:
 
         A model that is gone, or fails ``_DEAD_AFTER`` times in a row, hands the
         rest to the next model; the last one stops the run instead, its answers
-        so far in the cache. A bad request is one sample's problem and does not
-        count.
+        so far in the cache. A bad request is usually one sample's problem, so it
+        counts only when ``_BAD_AFTER`` come in a row.
         """
         if self.fatal is not None or self.unavailable:
             return
@@ -532,8 +535,12 @@ class _AnswerPass:
             return
         except ProviderError as error:
             errors.append(f"{self.endpoint.name}: {error}")
-            if error.failure != "bad_request":
+            if error.failure == "bad_request":
+                self.bad_in_a_row += 1
+            else:
                 self.failed_in_a_row += 1
+            if self.bad_in_a_row >= _BAD_AFTER:
+                self.failed_in_a_row = _DEAD_AFTER
             gone = error.failure == "unavailable" or self.failed_in_a_row >= _DEAD_AFTER
             self.unavailable = self.can_hand_over and gone
             down = self.failed_in_a_row >= _DEAD_AFTER and not self.can_hand_over
@@ -542,7 +549,7 @@ class _AnswerPass:
         except (ProviderAuthError, BudgetExceededError) as error:
             self.fatal = error
         else:
-            self.failed_in_a_row = 0
+            self.failed_in_a_row = self.bad_in_a_row = 0
 
     async def _ask(self, request: _Request, results: list[Answers]) -> None:
         sample = self.samples[request.sample]

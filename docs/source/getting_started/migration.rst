@@ -94,13 +94,17 @@ Policy Induction
 ``config=WeightTrainerConfig(...)``                 ``beta`` and ``cv``
 predicting with per-rule logistic weights (always)  ``predictor="rules"`` (the default); ``"policy"`` is the paper's
 ``max_policy_length``                               ``max_rules``
-``max_gen_batches``                                 ``n_samples``, ``n_rounds``, ``batch_size``; ``memory=True`` for the paper's
+``max_gen_batches``                                 ``n_samples``, ``n_rounds``, ``batch_size`` (below); ``memory=True`` is the paper's
 ``max_samples_as_context``                          ``batch_size`` (10), and ``n_examples`` for the first policy
 ``get_memory()``                                    ``history_``
 ``lr``, ``threshold``                               ``combiner_`` (with ``predictor="rules"``)
 ``validation_result``                               removed
 ``confirm_requests``                                removed; set ``config_context(max_cost_usd=...)``
 ==================================================  ==========================================================================
+
+0.2 refined the policy with every sample, in batches, until a class ran out. 0.3 refines it with ``n_samples=240``
+balanced samples and weighs the rules on the rest, so the threshold is not tuned on samples the policy was written
+from. On a dataset above 240 rows a fit sees fewer samples while writing; raise ``n_samples`` to see more.
 
 Reasoned Rule Mining
 ~~~~~~~~~~~~~~~~~~~~

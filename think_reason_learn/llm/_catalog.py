@@ -1,8 +1,8 @@
 """Decision models read from a provider's public catalog, not hard-coded.
 
 OpenRouter lists its decision models, with prices, at ``_OPENROUTER_URL`` (no key
-needed). The list is kept on disk for a day, so new and renamed models work
-without a release of this library.
+needed). The list is kept for a day, on disk next to the reply cache unless the
+cache is off, so new and renamed models work without a release of this library.
 """
 
 from __future__ import annotations
@@ -49,8 +49,9 @@ def openrouter_decisions() -> Catalog:
     now = time.time()
     if _loaded is not None and now - _loaded[0] < _MAX_AGE:
         return _loaded[1]
-    path = get_config().cache_path.parent / "openrouter-decisions.json"
-    stored = _read(path)
+    config = get_config()
+    path = config.cache_path.parent / "openrouter-decisions.json"
+    stored = _read(path) if config.cache else None
     if stored is not None and 0 <= now - stored[0] < _MAX_AGE:
         _loaded = stored
         return stored[1]
@@ -65,7 +66,8 @@ def openrouter_decisions() -> Catalog:
         models: Catalog = stored[1] if stored is not None else {}
         _loaded = (now - _MAX_AGE + _RETRY_AFTER, models)  # try again soon
         return models
-    _write(path, now, models)
+    if config.cache:
+        _write(path, now, models)
     _loaded = (now, models)
     return models
 

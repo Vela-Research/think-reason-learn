@@ -59,7 +59,9 @@ async def send[T](
     while True:
         dropped = _dropped.get(endpoint.key, frozenset())
         try:
-            return await _attempt(limiter, call, dropped, estimated_tokens, stopped)
+            return await _attempt(
+                limiter, call, dropped, estimated_tokens, stopped, config.timeout
+            )
         except ProviderError as error:
             if _drop(endpoint, error, dropped):
                 continue
@@ -102,8 +104,13 @@ async def _attempt[T](
     dropped: frozenset[str],
     estimated: int,
     stopped: Callable[[], bool],
+    timeout: float,
 ) -> Reply[T]:
-    """One call in one limiter slot; the slot is returned whatever happens."""
+    """One call in one limiter slot; the slot is returned whatever happens.
+
+    ``timeout`` bounds the whole call: the SDKs' own timeout is per read, so a
+    server sending a byte at a time would never be cut off.
+    """
     if not await limiter.acquire(estimated, stopped):
         raise Skipped
     outcome: Outcome = "failed"
@@ -111,7 +118,11 @@ async def _attempt[T](
     headers: dict[str, str] = {}
     retry_after: float | None = None
     try:
-        reply = await call(dropped)
+        try:
+            async with asyncio.timeout(timeout):
+                reply = await call(dropped)
+        except TimeoutError as error:
+            raise ProviderError("transient", f"No reply within {timeout} s.") from error
         outcome, used = "ok", reply.tokens.input + reply.tokens.output
         headers = dict(reply.headers)
         return reply

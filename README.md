@@ -124,8 +124,10 @@ tree.usage_.by("role", "model")    # calls, tokens and dollars
 - `estimate_cost(X, y)` counts the calls, tokens and dollars of `fit(X, y)` (or of `predict(X)` without `y`)
   without calling a model, and without API keys. Each `fit` and `predict` logs its estimate first, as a warning
   above $1.
-- `max_cost_usd` refuses work estimated over the cap, stops when spending passes it, and refuses a model with no
-  known price, since it could not count it. Models on your own machine or network are free.
+- `max_cost_usd` refuses work estimated over the cap, stops starting calls once spending passes it, and refuses a
+  model with no known price, since it could not count it. Calls already sent finish, and one can cost more than
+  estimated (a reasoning model thinking long), so the bill can pass the cap by what those calls cost. Models on your
+  own machine or network are free.
 - A failed call is retried up to 5 times, within 5 minutes of its first failure. When the last model left fails 5
   calls in a row, the run stops; a rerun continues from the cache. Missing answers are counted in a warning.
 

@@ -377,3 +377,23 @@ def _ask_once() -> str | None:
         )
     answer = answers["q"]
     return answer.label if answer is not None else None
+
+
+def test_a_call_that_trickles_is_cut_off_at_the_timeout() -> None:
+    import asyncio
+
+    from think_reason_learn.llm import LLM, resolve_models
+    from think_reason_learn.llm._adapters._base import ProviderError, Reply
+    from think_reason_learn.llm._calls import send
+    from think_reason_learn.llm._config import get_config
+
+    async def trickle(dropped: frozenset[str]) -> Reply[str]:
+        await asyncio.sleep(5)
+        return Reply("late", TokenCounts())
+
+    model = LLM("my-model", base_url="http://localhost:1/v1")
+    [endpoint] = resolve_models(model, param="m", task="generate")
+    start = time.monotonic()
+    with config_context(timeout=0.2, max_retries=0), pytest.raises(ProviderError):
+        run_sync(send(endpoint, trickle, estimated_tokens=1, config=get_config()))
+    assert time.monotonic() - start < 2

@@ -124,7 +124,9 @@ class TRLClassifier(Persistable, ClassifierMixin, BaseEstimator, ABC):
     def estimate_cost(self, X: TextInput, y: LabelInput | None = None) -> Usage:
         """What ``fit(X, y)`` would spend, or with no ``y`` ``predict(X)``.
 
-        No model is called and no API key is needed. Calls are counted from
+        No model is called and no API key is needed (naming an OpenRouter model
+        may read its public list of decision models, once a day). Calls are
+        counted from
         the settings (and, for ``predict``, the fitted model) and tokens from
         the text lengths, then priced like real calls. Steps that depend on the
         answers, such as how deep a tree grows or how many refinements are

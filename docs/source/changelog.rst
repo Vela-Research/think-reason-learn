@@ -26,8 +26,10 @@ few parameters away, and every model is seeded with ``random_state=42``. See :do
   stops with ``ProviderDownError`` instead of failing every sample. Every missing answer is counted in a warning,
   and each model counts it as NO (GPTree sends the sample down the largest branch). A reasoning model answers at
   temperature 0 unless one is set, and writes or casts votes to average at its default; a model that rejects a
-  temperature is called without one, with a warning. A ``base_url`` you set gets only an ``api_key`` you pass, never
-  the provider's key from the environment (Azure excepted), a key sent over plain http to another host is warned
+  temperature (OpenAI's reasoning models, Claude with thinking) is called without one for the rest of the process,
+  with one warning, so it answers at its own default. A ``base_url`` you set gets only an ``api_key`` you pass,
+  never the provider's key from the environment, Azure's included (a saved model can carry a ``base_url``; set
+  ``AZURE_OPENAI_BASE_URL`` instead), a key sent over plain http to another host is warned
   of, and a key or URL password a server echoes in an error is scrubbed before it is logged or kept. Large runs are
   answered in chunks of about 200,000 answers, so memory stays bounded, and replies reach the cache in batches
   (always before a pass returns or stops), each answer a row with a 16-byte key. Calls run on one event loop owned
@@ -114,6 +116,12 @@ few parameters away, and every model is seeded with ``random_state=42``. See :do
   log loss (average precision ties on separable data and picked an over-regularised model) over three shuffles of
   the folds, since one split of a small dataset can make every weight look useless, and thresholds are tuned on
   out-of-fold scores of the final model's settings, midway between scores so they are not knife-edged.
+- Robustness: ``timeout`` bounds a whole call, not each read, so a server sending a byte at a time is cut off; 20
+  bad requests in a row mean the model, not the samples, is at fault; a reply reporting an absurd token count
+  delays later calls by seconds, not hours. A GPTree whose root gets no usable questions or answers raises instead
+  of returning a one-leaf tree. Reasoned Rule Mining raises when no rule is mined. VerifiableRL refuses missing
+  values and slots of the wrong width, and seeds its networks per fit, so fits at once agree. A pickle keeps an
+  ``LLM``'s key, so worker processes can call it; ``save`` never stores one.
 - **Removed the old provider layer** (``think_reason_learn.core.llms``, the ``*Choice`` classes, ``TRLModel``,
   ``core.exceptions``; exceptions live in ``think_reason_learn.exceptions``). ``JevAuthError`` and
   ``JevCostCapError`` are now ``ProviderAuthError`` and ``BudgetExceededError`` for every provider;

@@ -27,6 +27,7 @@ from think_reason_learn.core._classifier import TRLClassifier
 from think_reason_learn.core._data import LabelInput, TextInput
 from think_reason_learn.core._sklearn import check_constructor, clone_estimator
 from think_reason_learn.llm import (
+    LLM,
     NO,
     YES,
     YES_AT,
@@ -164,7 +165,8 @@ def check_classifier(
 
     It must behave as a scikit-learn classifier (settings stored untouched,
     ``clone``, ``get_params``, fitted attributes, prediction shapes), refit,
-    pickle, and save and load without API keys. Run it inside ``fake_llms``.
+    pickle, and save and load without storing the API key of any model in its
+    settings: give one a key to check that. Run it inside ``fake_llms``.
 
     Args:
         make: Builds the classifier with fake models.
@@ -188,7 +190,9 @@ def check_classifier(
     restored = pickle.loads(pickle.dumps(model))
     assert (restored.predict(X) == predicted).all(), "a pickle must predict the same"
     folder = model.save(tmp_dir / name)
-    assert "api_key" not in (folder / "model.json").read_text()
+    saved = (folder / "model.json").read_text()
+    keys = [m.api_key for m in _llms(model.get_params()) if m.api_key]
+    assert not any(key in saved for key in keys), "save must not store an API key"
     assert (type(model).load(folder).predict(X) == predicted).all()
     assert model.fit(X, y) is model, "a fitted model must refit"
 
@@ -292,3 +296,12 @@ def _answer(reply: AnswerReply, question: Question, *, decision: bool) -> Answer
     if isinstance(reply, str) and reply in question.labels:
         return Answer.certain(reply, question.labels)
     return None
+
+
+def _llms(params: Mapping[str, object]) -> list[LLM]:
+    """The ``LLM`` settings among ``params``, fallbacks included."""
+    found: list[LLM] = []
+    for value in params.values():
+        items: tuple[object, ...] = value if isinstance(value, tuple) else (value,)  # pyright: ignore[reportUnknownVariableType]  # any tuple
+        found += [item for item in items if isinstance(item, LLM)]
+    return found

@@ -517,3 +517,15 @@ def test_answers_paid_for_reach_the_cache_when_a_run_stops() -> None:
         paid = judge.n_calls
         run_sync(LLMSession().answer(models, samples, QUESTIONS, role="a"))
     assert 0 < paid < 40 and judge.n_calls == 40  # none asked twice
+
+
+def test_a_model_refusing_every_request_stops_the_run() -> None:
+    broken = FakeLLM(answer=_answer, failures=["bad_request"] * 1000)
+    samples = [f"engineer {i}" for i in range(300)]
+    with fake_llms(broken=broken), pytest.raises(ProviderDownError):
+        run_sync(
+            LLMSession().answer(
+                _resolved("broken"), samples, {"tech": QUESTIONS["tech"]}, role="a"
+            )
+        )
+    assert broken.n_calls < 300

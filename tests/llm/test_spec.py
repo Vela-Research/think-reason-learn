@@ -131,6 +131,15 @@ def test_the_catalog_is_read_once_a_day_and_kept_on_disk(
     assert len(downloads) == 1
 
 
+def test_with_the_cache_off_the_catalog_stays_off_disk() -> None:
+    from think_reason_learn.llm import config_context, get_config
+
+    with config_context(cache=False):
+        resolve(LLM("openrouter:typesafe/jev-1.14", api_key="k"))
+        folder = get_config().cache_path.parent
+    assert not (folder / "openrouter-decisions.json").exists()
+
+
 def test_an_unreachable_catalog_falls_back(monkeypatch: pytest.MonkeyPatch) -> None:
     def offline() -> object:
         raise httpx2.ConnectError("offline")
@@ -228,13 +237,13 @@ def test_api_key_is_hidden_from_repr() -> None:
     assert "secret" not in repr(LLM("openai:gpt-5-mini", api_key="secret"))
 
 
-def test_copies_keep_the_key_and_pickles_drop_it() -> None:
+def test_copies_and_pickles_keep_the_key_for_workers() -> None:
     import copy
     import pickle
 
     model = LLM("openai:gpt-5-mini", api_key="secret")
     assert copy.deepcopy(model).api_key == copy.copy(model).api_key == "secret"
-    assert pickle.loads(pickle.dumps(model)).api_key is None
+    assert pickle.loads(pickle.dumps(model)).api_key == "secret"  # n_jobs workers
 
 
 def test_custom_servers_keep_colons_and_only_nearby_ones_are_local() -> None:

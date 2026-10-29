@@ -534,17 +534,23 @@ class _Grower:
     ) -> tuple[dict[str, Question], dict[str, list[str | None]]] | None:
         """The node's candidate questions and each sample's answers.
 
-        ``None`` when none were written or answered: the node stays a leaf.
+        ``None`` when none were written or answered: the node stays a leaf. At
+        the root that is a failure, not a tree, so it raises.
+
+        Raises:
+            NoOutputError: The root got no usable questions or answers.
         """
         try:
             questions = await self._questions(node, idx)
             node.candidates = tuple(q.text for q in questions.values())
             if not questions:
-                return None
+                raise NoOutputError("no usable questions were written")
             answers = await self.session.answer(
                 self.answerer, take(self.texts, idx), questions, role="answerer"
             )
         except NoOutputError as error:
+            if node.parent is None:
+                raise NoOutputError(f"The tree could not start: {error}") from error
             logger.warning(f"Node {node.id} stays a leaf: {error}")
             return None
         return questions, {

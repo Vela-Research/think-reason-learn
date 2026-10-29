@@ -7,6 +7,7 @@ from functools import partial
 import numpy as np
 import pytest
 
+from think_reason_learn.exceptions import LLMError
 from think_reason_learn.gptree import GPTree
 from think_reason_learn.gptree._gptree import _sample_weights
 from think_reason_learn.gptree._split import Split, best_split, impurity
@@ -312,11 +313,27 @@ def test_yes_no_options_make_a_yes_no_question(fakes: tuple[FakeLLM, FakeLLM]) -
     assert question is not None and question.text == "Is the founder an engineer?"
 
 
-def test_a_node_whose_questions_fail_stays_a_leaf() -> None:
+def test_a_root_without_usable_questions_is_an_error_not_a_tree() -> None:
     writer = FakeLLM(generate=lambda r: None if r.schema else "Some guidance.")
-    with fake_llms(writer=writer, judge=FakeLLM(answer=answer)):
-        model = tree().fit(FOUNDERS, LABELS)  # no usable questions at the root
-    assert len(model.tree_.nodes) == 1 and model.tree_.nodes[0].is_leaf
+    with (
+        fake_llms(writer=writer, judge=FakeLLM(answer=answer)),
+        pytest.raises(LLMError, match="could not start"),
+    ):
+        tree().fit(FOUNDERS, LABELS)
+
+
+def test_a_deeper_node_whose_questions_fail_stays_a_leaf() -> None:
+    calls = iter(range(1000))
+
+    def write(request: GenerateRequest) -> str | dict[str, object] | None:
+        if request.schema is None:
+            return "Some guidance."
+        return QUESTIONS if next(calls) == 0 else None  # only the root's work
+
+    mixed = [*LABELS[:4], "miss", *LABELS[5:]]  # the YES child would split again
+    with fake_llms(writer=FakeLLM(generate=write), judge=FakeLLM(answer=answer)):
+        model = tree(insights=False).fit(FOUNDERS, mixed)
+    assert model.tree_.n_leaves == 2
 
 
 def test_class_weights_by_label_and_unknown_labels() -> None:

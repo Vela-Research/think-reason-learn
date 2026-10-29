@@ -31,9 +31,9 @@ type Handler = Callable[[httpx2.Request], httpx2.Response]
 type Make = Callable[[], TRLClassifier]
 
 _WRITER, _JUDGE = (
-    LLM("fake:writer", price=Price(1, 4)),
+    LLM("fake:writer", price=Price(1, 4), api_key="sk-contract-secret-writer"),
     LLM("fake:judge", price=Price(1)),
-)
+)  # the writer's key lets the contract check that save never stores one
 _X = [
     f"Founder {i} is {'good' if i % 2 else 'bad'} at building companies."
     for i in range(80)

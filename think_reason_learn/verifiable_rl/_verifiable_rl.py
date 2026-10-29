@@ -50,8 +50,8 @@ from ._networks import Classifier, PolicyNet
 from ._supervisor import Supervisor
 from ._torch import (
     load_weights,
-    private_cpu_rng,
     save_weights,
+    seeded,
     shuffled_batches,
     tensor,
 )
@@ -346,20 +346,9 @@ class VerifiableRL(Persistable, ClassifierMixin, BaseEstimator):
         if not self.slots:
             raise ValueError("VerifiableRL needs slots={name: n_columns, ...}.")
         names = list(self.slots)
-        matrix = (
-            np.hstack([np.asarray(X[s]) for s in names])
-            if isinstance(X, Mapping)
-            else np.asarray(X)
-        )
-        if (
-            matrix.ndim != 2
-            or matrix.shape[1] != sum(self.slots.values())
-            or not len(matrix)
-        ):
-            raise DataError(
-                f"X needs {sum(self.slots.values())} columns for the slots "
-                f"{dict(self.slots)}."
-            )
+        matrix = self._matrix(X, self.slots)
+        if not np.isfinite(matrix).all():
+            raise DataError("X has missing or infinite values; fill them first.")
         if fitting:
             self.slot_names_ = names
             self.columns_ = np.repeat(
@@ -368,6 +357,25 @@ class VerifiableRL(Persistable, ClassifierMixin, BaseEstimator):
             costs = self.slot_costs or {}
             self.costs_ = np.array([costs.get(s, 0.0) for s in names], dtype=float)
         return matrix.astype(np.float32)
+
+    def _matrix(
+        self, X: SlotFeatures, slots: Mapping[str, int]
+    ) -> npt.NDArray[np.float32]:
+        """``X`` as one 2-D float array, each slot checked for its own width."""
+        if isinstance(X, Mapping):
+            parts = [np.asarray(X[s], dtype=np.float32) for s in slots]
+            widths = list(slots.values())
+        else:
+            parts, widths = [np.asarray(X, dtype=np.float32)], [sum(slots.values())]
+        if any(
+            p.ndim != 2 or p.shape[1] != w or len(p) != len(parts[0]) or not len(p)
+            for p, w in zip(parts, widths, strict=True)
+        ):
+            raise DataError(
+                f"X needs {sum(slots.values())} columns for the slots {dict(slots)}, "
+                "each slot as wide as stated."
+            )
+        return np.hstack(parts)
 
     # ponytail: repeats BinaryTRLClassifier's two-class methods through the shared
     # functions, since VerifiableRL is not a TRLClassifier. Share a mixin if a
@@ -416,12 +424,16 @@ class VerifiableRL(Persistable, ClassifierMixin, BaseEstimator):
         self.classifier_.load_state_dict(weights["classifier"])
 
     def _build_networks(self, rng: np.random.Generator) -> None:
-        state_dim = len(self.columns_)
-        with private_cpu_rng(int(rng.integers(2**31))):
-            self.policy_ = PolicyNet(
-                state_dim, len(self.slot_names_), self.policy_hidden
-            ).to(self.device)
-            self.classifier_ = Classifier(state_dim, self.clf_hidden).to(self.device)
+        state_dim, n_slots = len(self.columns_), len(self.slot_names_)
+        policy_seed, classifier_seed = (int(s) for s in rng.integers(2**31, size=2))
+        self.policy_ = seeded(
+            lambda: PolicyNet(state_dim, n_slots, self.policy_hidden),
+            policy_seed,
+            self.device,
+        )
+        self.classifier_ = seeded(
+            lambda: Classifier(state_dim, self.clf_hidden), classifier_seed, self.device
+        )
 
     def _pretrain(
         self,

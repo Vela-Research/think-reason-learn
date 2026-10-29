@@ -10,13 +10,14 @@ arrays and pandas frames. Network weights go in a file of their own.
 from __future__ import annotations
 
 import dataclasses
-import importlib
 import json
 import logging
+import sys
 from collections.abc import Callable, Iterable, Mapping
 from os import PathLike
 from pathlib import Path
 from typing import ClassVar, Final, Self
+from urllib.parse import urlsplit
 
 import numpy as np
 import pandas as pd
@@ -238,7 +239,7 @@ def _is_own_data(value: object) -> bool:
 def _encode_data(value: object) -> JSON:
     cls = type(value)
     fields = {
-        field.name: encode(getattr(value, field.name))
+        field.name: encode(_without_password(getattr(value, field.name)))
         for field in dataclasses.fields(value)  # pyright: ignore[reportArgumentType]  # checked to be a data class
         if field.name != "api_key"  # never saved, whatever holds it
     }
@@ -247,6 +248,14 @@ def _encode_data(value: object) -> JSON:
         "class": f"{cls.__module__}:{cls.__qualname__}",
         "fields": fields,
     }
+
+
+def _without_password(value: object) -> object:
+    """A URL with credentials in it (``https://me:secret@host``) loses the password."""
+    if not isinstance(value, str) or "://" not in value:
+        return value
+    password = urlsplit(value).password
+    return value.replace(f":{password}@", "@", 1) if password else value
 
 
 def _decode_tagged(value: dict[str, JSON]) -> object:
@@ -277,12 +286,16 @@ def _decode_tagged(value: dict[str, JSON]) -> object:
 
 
 def _decode_data(path: str, fields: JSON) -> object:
-    """An instance of this library's data class at ``path`` (``module:Class``)."""
+    """An instance of this library's data class at ``path`` (``module:Class``).
+
+    Only modules already imported are looked in: the model's own classes always
+    are, and a file never makes ``load`` import anything.
+    """
     module, _, name = path.partition(":")
     own = module == "think_reason_learn" or module.startswith("think_reason_learn.")
-    if not own or "." in name:
+    if not own or "." in name or module not in sys.modules:
         raise DataError(f"model.json names {path!r}, not one of this library's.")
-    cls: object = getattr(importlib.import_module(module), name, None)
+    cls: object = getattr(sys.modules[module], name, None)
     if not isinstance(cls, type) or not dataclasses.is_dataclass(cls):
         raise DataError(f"model.json names {path!r}, not one of this library's.")
     return construct(cls, _named(decode(fields)))
@@ -298,11 +311,15 @@ def _encode_usage(usage: Usage) -> JSON:
 
 
 def _dtype(name: JSON) -> np.dtype[np.generic]:
-    """An array's dtype: numbers, booleans, text or Python objects only."""
+    """An array's dtype: numbers, booleans, text or Python objects only.
+
+    Text takes its width from the items, never the file, which could ask for
+    gigabytes per item.
+    """
     dtype = np.dtype(str(name))
-    if dtype.kind not in "biufUO":
+    if dtype.kind not in "biufUO" or (dtype.kind in "biuf" and dtype.itemsize > 16):
         raise DataError(f"model.json is damaged: arrays of {dtype} are not saved.")
-    return dtype
+    return np.dtype("U") if dtype.kind == "U" else dtype
 
 
 def _items(value: dict[str, JSON]) -> list[object]:

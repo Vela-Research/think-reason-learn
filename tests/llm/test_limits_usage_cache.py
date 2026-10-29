@@ -202,6 +202,14 @@ class TestLimiter:
         assert limits_for(resolve(LLM("jev", api_key="k"))) == Limits(rpm=10)
 
 
+def test_an_absurd_token_count_delays_later_calls_by_seconds() -> None:
+    from think_reason_learn.llm._limiter import _Bucket
+
+    bucket = _Bucket.per_minute(60_000)
+    bucket.take(10**12)  # one reply reporting a trillion tokens
+    assert bucket.wait(1_000, time.monotonic()) < 60
+
+
 class TestUsageAndPrices:
     def test_price_counts_cache_reads_cheaper(self) -> None:
         price = Price(input=2.0, output=8.0, cached_input=0.5)

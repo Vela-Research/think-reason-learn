@@ -1,4 +1,4 @@
-"""PyTorch helpers: tensors from arrays, shuffled batches, a private seed, weights.
+"""PyTorch helpers: tensors from arrays, shuffled batches, seeded networks, weights.
 
 Some wrap PyTorch functions whose annotations are partial, with the ``pyright:
 ignore`` comments they need.
@@ -6,13 +6,14 @@ ignore`` comments they need.
 
 from __future__ import annotations
 
-from collections.abc import Generator, Mapping
-from contextlib import contextmanager
+import math
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 import numpy as np
 import numpy.typing as npt
 import torch
+import torch.nn as nn
 
 
 def tensor(
@@ -31,12 +32,29 @@ def shuffled_batches(
     return tuple(order[start : start + size] for start in range(0, n, size))
 
 
-@contextmanager
-def private_cpu_rng(seed: int) -> Generator[None]:
-    """Seed torch's CPU generator inside the block, restoring it afterwards."""
-    with torch.random.fork_rng(devices=[]):  # pyright: ignore[reportUnknownMemberType]  # partial annotation
-        torch.default_generator.manual_seed(seed)
-        yield
+def seeded[M: nn.Module](build: Callable[[], M], seed: int, device: str) -> M:
+    """A network ``build`` makes, its weights drawn from its own seeded generator.
+
+    It is built on the meta device, so PyTorch's process-wide generator is
+    neither read nor changed: fits running at once cannot disturb each other.
+    Linear layers get PyTorch's default initialisation.
+    """
+    with torch.device("meta"):
+        network = build()
+    network = network.to_empty(device=device)
+    generator = torch.Generator().manual_seed(seed)
+    for layer in network.modules():
+        if isinstance(layer, nn.Linear):
+            weight = torch.empty(layer.weight.shape)
+            nn.init.kaiming_uniform_(weight, a=math.sqrt(5), generator=generator)
+            bound = 1 / math.sqrt(layer.in_features)
+            bias = torch.empty(layer.out_features).uniform_(
+                -bound, bound, generator=generator
+            )
+            with torch.no_grad():
+                layer.weight.copy_(weight)
+                layer.bias.copy_(bias)
+    return network
 
 
 type Weights = dict[str, dict[str, torch.Tensor]]

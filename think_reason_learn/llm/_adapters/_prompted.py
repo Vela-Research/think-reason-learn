@@ -86,7 +86,7 @@ def _prompt(questions: Sequence[Question]) -> str:
     )
 
 
-@functools.cache
+@functools.lru_cache(maxsize=1024)  # GPTree's written options make new ones
 def _schema(labels: tuple[tuple[str, ...], ...]) -> type[BaseModel]:
     fields = {
         f"a{i}": (str, Field(json_schema_extra={"enum": list(options)}))

@@ -138,3 +138,23 @@ def test_usage_is_saved_compactly(
     usage = json.loads((folder / "model.json").read_text())["fitted"]["usage_"]
     size = len(json.dumps(usage["rows"])) / len(usage["rows"])
     assert size < 150  # bytes per call, so a large run's file stays small
+
+
+def test_text_arrays_take_their_width_from_the_items() -> None:
+    labels = decode({"__trl__": "array", "dtype": "<U10000000", "items": ["a", "b"]})
+    assert isinstance(labels, np.ndarray) and labels.nbytes == 8
+
+
+def test_a_file_never_makes_load_import_a_module() -> None:
+    import sys
+
+    named = "think_reason_learn.no_such_module"
+    with pytest.raises(DataError, match="not one of this library's"):
+        decode({"__trl__": "data", "class": f"{named}:A", "fields": {}})
+    assert named not in sys.modules
+
+
+def test_a_password_in_a_base_url_is_not_saved() -> None:
+    llm = LLM("my-model", base_url="https://me:s3cret@llm.example.com/v1")
+    text = json.dumps(encode(llm))
+    assert "s3cret" not in text and "me@llm.example.com" in text

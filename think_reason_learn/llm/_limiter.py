@@ -257,4 +257,9 @@ class _Bucket:
         return max(missing, 0.0) / self.per_second
 
     def take(self, amount: float) -> None:
-        self.level -= amount
+        """Spend ``amount``, owing at most one bucket.
+
+        A reply that reports an absurd token count then delays later calls by
+        seconds, not hours.
+        """
+        self.level = max(self.level - amount, -self.capacity)

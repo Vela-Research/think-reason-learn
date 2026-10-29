@@ -262,3 +262,41 @@ def test_a_supervisor_without_slot_texts_is_reported(
 ) -> None:
     fast(supervisor="fake:advisor").fit(X[:20], Y[:20])
     assert "pass slot_texts=" in caplog.text
+
+
+def test_missing_values_and_wrong_slot_widths_are_refused() -> None:
+    with_nan = X.copy()
+    with_nan[0, 0] = np.nan
+    with pytest.raises(DataError, match="missing"):
+        fast().fit(with_nan, Y)
+    widths = list(SLOTS.values())
+    swapped = {  # right in total, wrong per slot
+        name: X[:, :1] if i == 0 else X[:, 1 : 1 + widths[0] + widths[1] - 1]
+        for i, name in enumerate(list(SLOTS)[:2])
+    }
+    swapped |= {
+        name: X[:, sum(widths[:i]) : sum(widths[: i + 1])]
+        for i, name in enumerate(SLOTS)
+        if i >= 2
+    }
+    with pytest.raises(DataError, match="as wide as stated"):
+        fast().fit(swapped, Y)
+
+
+def test_fits_at_once_build_the_same_networks() -> None:
+    import threading
+
+    def first_weights(out: list[torch.Tensor]) -> None:
+        for _ in range(20):
+            model = fast()
+            model.slot_names_, model.columns_ = list(SLOTS), np.arange(len(SLOTS))
+            model._build_networks(np.random.default_rng(0))
+            out.append(next(model.classifier_.parameters()).detach().clone())
+
+    runs: list[list[torch.Tensor]] = [[], []]
+    threads = [threading.Thread(target=first_weights, args=(r,)) for r in runs]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert all(torch.equal(runs[0][0], w) for run in runs for w in run)

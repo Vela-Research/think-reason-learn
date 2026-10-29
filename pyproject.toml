@@ -1,34 +1,34 @@
 [project]
 name = "think-reason-learn"
-version = "0.2.0"
+version = "0.3.0"
 description = "Interpretable tree/forest-style decision-making systems powered by LLMs"
 readme = "README.md"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "Vela Research", email = "research@vela.partners" }]
 keywords = ["decision-trees", "explainable-ai", "llm", "machine-learning", "research"]
 classifiers = [
     "Development Status :: 3 - Alpha",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 requires-python = ">=3.13,<4.0.0"
 dependencies = [
     "pydantic>=2.11.7,<3",
-    "pydantic-settings>=2.10.1,<3",
-    "google-genai>=1.33.0,<2",
-    "openai>=1.106.1,<2",
-    "anthropic>=0.67.0,<0.68",
-    "xai-sdk>=1.1.0,<2",
-    "pandas>=2.3.2,<3",
-    "orjson>=3.11.3,<4",
+    "openai>=3.31,<4",
+    "numpy>=2.1,<3",  # 2.1: the first with Python 3.13 wheels
+    "pandas>=2.3.2,<4",
     "graphviz>=0.21,<0.22",
     "scikit-learn (>=1.7.2,<2.0.0)",
-    "pyarrow (>=21.0.0,<22.0.0)",
     "tqdm (>=4.68.4,<5.0.0)",
-    "torch (>=2.2.0,<3.0.0)",
-    "httpx (>=0.28.1,<1.0.0)",
+    "httpx2>=2.13,<3",
+    "genai-prices>=0.1.13,<0.2",
 ]
+
+[project.optional-dependencies]
+anthropic = ["anthropic>=1.15,<2"]
+rl = ["torch>=2.5,<3.0.0"]  # 2.5: the first with Python 3.13 wheels
+all = ["anthropic>=1.15,<2", "torch>=2.5,<3.0.0"]
 
 [project.urls]
 Homepage = "https://thinkreasonlearn.com/"
@@ -44,7 +44,8 @@ include = ["think_reason_learn/py.typed"]
 pytest = "^8.4.2"
 pytest-asyncio = "^1.1.0"
 ruff = "^0.12.12"
-pyright = { version = "^1.1.405", extras = ["nodejs"] }
+pyright = { version = "^1.1.414", extras = ["nodejs"] }
+pandas-stubs = ">=2.3,<3"  # pyright strict needs pandas types
 sphinx = "^8.2.3"
 pre-commit = "^4.3.0"
 ipykernel = "^6.30.1"
@@ -59,9 +60,12 @@ sphinx-design = "^0.6.1"
 myst-parser = "^4.0.1"  # if you want Markdown docs
 
 [build-system]
-requires = ["poetry-core>=2.1.3"]
+requires = ["poetry-core>=2.2"]  # 2.2 writes License-Expression
 build-backend = "poetry.core.masonry.api"
 
+
+[tool.pytest.ini_options]
+addopts = "--import-mode=importlib"
 
 [tool.ruff]
 line-length = 88
@@ -70,13 +74,24 @@ target-version = "py313"
 [tool.pyright]
 venvPath = "."
 venv = ".venv"
+include = ["think_reason_learn", "tests", "docs/source/conf.py"]
+typeCheckingMode = "strict"
+reportMissingTypeStubs = false  # scikit-learn and graphviz ship none
+reportUnnecessaryTypeIgnoreComment = "error"
+executionEnvironments = [
+  # Tests are white-box: they may read private state.
+  { root = "tests", extraPaths = ["."], reportPrivateUsage = false },
+  { root = "." },
+]
 
 [tool.ruff.lint]
-select = ["E", "F", "D"]   # E/F for pyflakes + pycodestyle, D for docstrings
-ignore = ["D101"]
+select = ["E", "F", "D", "I", "UP", "B", "BLE", "SIM", "T20", "ERA", "FBT"]
+ignore = ["D101", "UP038"]  # UP038: isinstance with X | Y is slower than a tuple
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["D"]
+"examples/*.ipynb" = ["T201"]  # notebooks print their results
+"site/**" = ["T201"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

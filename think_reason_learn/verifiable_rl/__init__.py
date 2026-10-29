@@ -1,20 +1,15 @@
-"""Verifiable RL.
+"""VerifiableRL: decide which information to reveal, one slot at a time.
 
-An adaptive information-gathering binary classifier: a learned policy network
-decides, slot by slot, which information to reveal next (or to STOP), guided by
-Monte-Carlo tree-search targets and optional weak LLM supervision; a classifier
-then predicts the label from the accumulated partial state.
+Needs PyTorch: ``pip install 'think-reason-learn[rl]'``.
 """
 
-from ._supervisor import ActionSupervisor, LLMActionSupervisor
-from ._types import NextActionPreference, QueryResult, VerifiableRLConfig
-from ._verifiable_rl import VerifiableRL
+import importlib.util
 
-__all__ = [
-    "VerifiableRL",
-    "VerifiableRLConfig",
-    "QueryResult",
-    "NextActionPreference",
-    "LLMActionSupervisor",
-    "ActionSupervisor",
-]
+if importlib.util.find_spec("torch") is None:  # pragma: no cover - only without it
+    raise ImportError(
+        "VerifiableRL needs PyTorch: pip install 'think-reason-learn[rl]'."
+    )
+
+from ._verifiable_rl import SlotFeatures, SlotTexts, VerifiableRL
+
+__all__ = ["SlotFeatures", "SlotTexts", "VerifiableRL"]

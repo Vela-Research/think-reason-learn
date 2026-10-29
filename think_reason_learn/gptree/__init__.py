@@ -1,10 +1,7 @@
-"""A decision tree classifier employing LLMs for dynamic feature generation.
+"""GPTree: a decision tree whose splits are questions written by a language model."""
 
-Each node uses language models to generate contextual questions and evaluate
-answers, enabling adaptive tree construction for classification tasks.
-"""
+from ._gptree import GPTree
+from ._split import Criterion
+from ._tree import Node, Tree
 
-from ._gptree import GPTree, Node, NodeQuestion
-from ._types import QuestionType, Criterion
-
-__all__ = ["GPTree", "Node", "NodeQuestion", "QuestionType", "Criterion"]
+__all__ = ["Criterion", "GPTree", "Node", "Tree"]

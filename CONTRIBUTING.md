@@ -1,24 +1,51 @@
 # Contributing to Think Reason Learn
 
-Thank you for your interest in contributing to think-reason-learn! We welcome and appreciate community efforts to improve this open-source library.
+Thank you for helping. Fork the repository, work on a branch, and open a pull request against `main`.
 
-## How to Contribute
+## Set up
 
-1. **Fork the Repository**: Start by forking the repo on GitHub.
-2. **Clone Locally**: Clone your fork to your local machine.
-3. **Create a Branch**: Create a new branch for your feature or bug fix (e.g., `git checkout -b feature/new-module`).
-4. **Make Changes**: Implement your changes, following the project's coding standards (e.g., type hints, docstrings, async-first).
-5. **Test**: Add/update tests and ensure they pass with `pytest`.
-6. **Lint and Type Check**: Run `ruff` for linting and `pyright` for type checking.
-7. **Commit**: Write clear commit messages (e.g., "Add support for new LLM provider").
-8. **Push and PR**: Push your branch and open a Pull Request against the main repo. Describe your changes in the PR.
+```bash
+git clone https://github.com/<you>/think-reason-learn.git
+cd think-reason-learn
+poetry install --with dev,docs --all-extras
+poetry run pre-commit install
+```
 
-## Code of Conduct
+## Before you open a pull request
 
-Be respectful and inclusive. Report any unacceptable behavior to the maintainers.
+```bash
+poetry run ruff check . && poetry run ruff format --check .
+poetry run pyright
+poetry run pytest          # offline: no test calls a real provider
+```
 
-## Issues
+Add a line to `docs/source/changelog.rst` for anything a user would notice.
 
-Feel free to open issues for bugs, features, or questions.
+## How the code is laid out
 
-For more details, see the full guidelines in the docs.
+- `think_reason_learn/llm`: one interface to every model. A provider adapter turns a request into one call; the
+  session around it does fallbacks, retries, limits, the cache, usage and budgets for all of them.
+- `think_reason_learn/core`: `TRLClassifier`, the scikit-learn base every model builds on, and the helpers models
+  share (rendering samples, labels, example batches, prompts, logistic combiners and thresholds).
+- One package per model (`gptree`, `rrf`, `policy_induction`, `reasoned_rule_mining`, `verifiable_rl`).
+- `tests/` mirrors the packages.
+- `examples/`: one notebook per model for users, run offline by the tests with fake models.
+- `lab/`: your own experiments (scripts, notebooks, data, real models). Git ignores it, so nothing there is shared
+  or tested; move what others should see into `examples/`.
+
+## Adding a provider
+
+- If it speaks OpenAI's Chat Completions, add one entry to `_PROVIDERS` in `llm/_spec.py`.
+- Otherwise, write an adapter in `llm/_adapters/` with `generate` and/or `answer`, map its errors with
+  `classify`, and register it in `ADAPTERS`. Test it on the wire with the `wire` fixture (see
+  `tests/llm/test_adapters.py`).
+
+## Adding a model
+
+Subclass `TRLClassifier` (or `BinaryTRLClassifier`), store every constructor argument unchanged, and implement
+`_afit` and `_apredict_proba`. Make every model call through the `LLMSession` you are given. Test it offline with
+`think_reason_learn.testing`: `fake_llms` for scripted models, and `check_classifier` for the shared contract.
+
+## Code of conduct
+
+Be respectful and inclusive. Report unacceptable behaviour to the maintainers.

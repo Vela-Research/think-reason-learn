@@ -1,121 +1,168 @@
 """LLM-based generation of lambda feature rules.
 
-Uses the TRL :mod:`~think_reason_learn.core.llms` singleton and Pydantic
-structured output to generate binary classification rules as Python lambda
-expression strings.
+A reasoning model writes binary classification rules as Python lambda
+expression strings, returned as Pydantic structured output.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any, Sequence
+from collections.abc import Sequence
+from dataclasses import dataclass
 
-from think_reason_learn.core.llms import LLMChoice, llm
+from think_reason_learn.exceptions import DataError
+from think_reason_learn.llm import (
+    LLMSession,
+    Models,
+    Usage,
+    resolve_models,
+    run_async,
+    run_sync,
+)
 
 from ._prompts import build_system_prompt, build_user_prompt, format_samples
-from ._types import CognitiveMode, DataSchema, GeneratedRules, HelperFunction, Rule
+from ._types import (
+    CognitiveMode,
+    DataSchema,
+    GeneratedRule,
+    GeneratedRules,
+    HelperFunction,
+    Record,
+    Rule,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class FeatureGenerator:
-    """Generate binary classification rules via an LLM.
+    """Generate binary classification rules with a reasoning model.
 
-    Parameters
-    ----------
-    schema:
-        Describes the input data structure, the lambda parameter name, and
-        includes example rules for the prompt.
-    helpers:
-        Helper functions to advertise in the prompt (the LLM will reference
-        them inside the generated lambda expressions).
-    llm_priority:
-        LLM provider / model choices, tried in order (see
-        :class:`~think_reason_learn.core.llms.LLMChoice`).
-    temperature:
-        Sampling temperature for the LLM call.  Pass ``None`` to omit the
-        parameter (required for reasoning models like ``o3-mini``).
-    cognitive_modes:
-        Optional set of :class:`CognitiveMode` values that inject cognitive
-        reasoning constraints into the system prompt (CoFEE-style).  When
-        ``None`` or empty, the prompt is unchanged (baseline behaviour).
+    Args:
+        schema: The input data structure, the lambda parameter name, and
+            example rules for the prompt.
+        helpers: Helper functions to advertise in the prompt; generated
+            lambdas may call them.
+        generator: Model(s) that write the rules, e.g. ``"openai:gpt-5-mini"``;
+            set a temperature with ``LLM(..., temperature=0.7)``.
+        cognitive_modes: Cognitive reasoning constraints to add to the system
+            prompt (CoFEE-style); none keeps the baseline prompt.
+        random_state: Seed for the records shown; each call shows another
+            draw, so repeated calls give new rules. ``None`` for a random seed.
+
+    Attributes:
+        usage: Every call made, with tokens and cost.
     """
 
     def __init__(
         self,
         schema: DataSchema,
         helpers: Sequence[HelperFunction],
-        llm_priority: Sequence[LLMChoice],
-        temperature: float | None = 0.7,
+        generator: Models,
         cognitive_modes: set[CognitiveMode] | None = None,
+        random_state: int | None = 42,
     ) -> None:
+        """Check the generator now; it is resolved again on each call."""
         self._schema = schema
         self._helpers = list(helpers)
-        self._llm_priority = list(llm_priority)
-        self._temperature = temperature
+        resolve_models(generator, param="generator", task="generate")  # fail early
+        self._generator = generator  # resolved per call, so no key is held
         self._cognitive_modes = cognitive_modes or set()
+        self._random_state = random_state
+        self._calls = 0
+        self.usage = Usage()
 
-    async def generate(
+    def generate(
         self,
-        samples: Sequence[dict[str, Any]],
-        labels: Sequence[Any],
+        samples: Sequence[Record],
+        labels: Sequence[object],
         *,
         n_rules: int = 30,
         n_samples: int = 60,
         prior_rules: Sequence[Rule] | None = None,
+        pos_label: object = 1,
     ) -> list[Rule]:
-        """Generate binary classification rules from structured data samples.
+        """Generate rules from structured records and their labels.
 
-        Parameters
-        ----------
-        samples:
-            All available structured data records (dicts).
-        labels:
-            Parallel label sequence (one per record, e.g. ``1`` / ``0``).
-        n_rules:
-            Number of rules to request from the LLM.
-        n_samples:
-            Number of sample records to include in the prompt.
-        prior_rules:
-            Optional rules from a previous iteration, injected as feedback.
+        Args:
+            samples: Structured records (dicts).
+            labels: One label per record.
+            n_rules: Rules to ask for.
+            n_samples: Records shown in the prompt, half of them positive.
+            prior_rules: Rules from a previous round, given as feedback.
+            pos_label: The label the rules should find, e.g. ``"YES"``.
 
         Returns:
-        -------
-        list[Rule]
-            The generated rules, ready for :class:`FeatureEvaluator`.
+            The rules, ready for ``FeatureEvaluator``.
+
+        Raises:
+            DataError: No label equals ``pos_label``.
         """
-        system_prompt = build_system_prompt(
-            self._schema,
-            self._helpers,
-            n_rules,
-            cognitive_modes=self._cognitive_modes,
-        )
-        samples_text = format_samples(samples, labels, n_samples)
-        user_prompt = build_user_prompt(
-            samples_text,
-            n_rules,
-            prior_rules,
-        )
+        ask = _Ask(samples, labels, n_rules, n_samples, prior_rules, pos_label)
+        return run_sync(self._generate(ask))
 
-        response = await llm.respond(
-            query=user_prompt,
-            llm_priority=self._llm_priority,
-            response_format=GeneratedRules,
-            instructions=system_prompt,
-            temperature=self._temperature,
-        )
+    async def agenerate(
+        self,
+        samples: Sequence[Record],
+        labels: Sequence[object],
+        *,
+        n_rules: int = 30,
+        n_samples: int = 60,
+        prior_rules: Sequence[Rule] | None = None,
+        pos_label: object = 1,
+    ) -> list[Rule]:
+        """Generate rules, from async code. See ``generate``."""
+        ask = _Ask(samples, labels, n_rules, n_samples, prior_rules, pos_label)
+        return await run_async(self._generate(ask))
 
-        if response.response is None:
-            logger.warning("LLM returned no response for rule generation")
-            return []
-
-        rules = [
-            Rule(
-                name=r.name,
-                description=r.description,
-                expression=r.expression,
+    async def _generate(self, ask: _Ask) -> list[Rule]:
+        if not any(label == ask.pos_label for label in ask.labels):
+            raise DataError(
+                f"No label equals pos_label={ask.pos_label!r}; pass pos_label= with "
+                "the label the rules should find."
             )
-            for r in response.response.rules
-        ]
-        logger.info("Generated %d rules", len(rules))
+        draw, self._calls = self._calls, self._calls + 1
+        seed = None if self._random_state is None else self._random_state + draw
+        shown = format_samples(
+            ask.samples,
+            ask.labels,
+            ask.n_samples,
+            positive=ask.pos_label,
+            random_state=seed,
+        )
+        written = await LLMSession(usage=self.usage).generate(
+            resolve_models(self._generator, param="generator", task="generate"),
+            build_user_prompt(shown, ask.n_rules, ask.prior_rules),
+            role="generator",
+            schema=GeneratedRules,
+            instructions=build_system_prompt(
+                self._schema, self._helpers, ask.n_rules, self._cognitive_modes
+            ),
+            draw=draw,
+        )
+        rules = _distinct(written.rules)
+        logger.info(f"Generated {len(rules)} rules")
         return rules
+
+
+@dataclass(frozen=True, slots=True)
+class _Ask:
+    samples: Sequence[Record]
+    labels: Sequence[object]
+    n_rules: int
+    n_samples: int
+    prior_rules: Sequence[Rule] | None
+    pos_label: object
+
+
+def _distinct(written: Sequence[GeneratedRule]) -> list[Rule]:
+    """The rules, a repeated name suffixed ``_2``, ``_3``... so names are distinct."""
+    used: set[str] = set()
+    rules: list[Rule] = []
+    for rule in written:
+        name, n = rule.name, 1
+        while name in used:
+            n += 1
+            name = f"{rule.name}_{n}"
+        used.add(name)
+        rules.append(Rule(name, rule.description, rule.expression))
+    return rules

@@ -1,48 +1,187 @@
-"""Configuration for tests."""
+"""Every test runs offline, with a fresh cache and fresh shared state."""
 
 from __future__ import annotations
 
-import sys
+import itertools
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
+import httpx2
+import pytest
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+from think_reason_learn import LLM
+from think_reason_learn.core._classifier import TRLClassifier
+from think_reason_learn.gptree import GPTree
+from think_reason_learn.llm import (
+    Price,
+    Question,
+    _calls,
+    _catalog,
+    _config,
+    _limiter,
+    config_context,
+)
+from think_reason_learn.llm._adapters import _http
+from think_reason_learn.policy_induction import PolicyInduction
+from think_reason_learn.reasoned_rule_mining import ReasonedRuleMining
+from think_reason_learn.rrf import RRF
+from think_reason_learn.testing import FakeLLM, GenerateRequest, fake_llms
+
+type Handler = Callable[[httpx2.Request], httpx2.Response]
+type Make = Callable[[], TRLClassifier]
+
+_WRITER, _JUDGE = (
+    LLM("fake:writer", price=Price(1, 4), api_key="sk-contract-secret-writer"),
+    LLM("fake:judge", price=Price(1)),
+)  # the writer's key lets the contract check that save never stores one
+_X = [
+    f"Founder {i} is {'good' if i % 2 else 'bad'} at building companies."
+    for i in range(80)
+]
+_Y = ["good" if i % 2 else "bad" for i in range(80)]
+
+_MODELS: dict[str, Make] = {
+    "rrf": lambda: RRF(task="t", generator=_WRITER, answerer=_JUDGE, n_prompts=3, cv=2),
+    "rrf-screened": lambda: RRF(
+        task="t",
+        generator=_WRITER,
+        answerer=_JUDGE,
+        n_prompts=3,
+        cv=2,
+        screening_size=20,
+        screened_questions=5,
+    ),
+    "policy": lambda: PolicyInduction(
+        task="t",
+        generator=_WRITER,
+        answerer=_JUDGE,
+        n_samples=20,
+        memory=True,
+        n_rounds=2,
+        batch_size=4,
+        predictor="policy",
+        pos_label="good",
+    ),
+    "policy-rules": lambda: PolicyInduction(
+        task="t",
+        generator=_WRITER,
+        answerer=_JUDGE,
+        n_samples=20,
+        batch_size=4,
+        cv=2,
+        pos_label="good",
+    ),
+    "rule-mining": lambda: ReasonedRuleMining(
+        task="t",
+        generator=_WRITER,
+        answerer=_JUDGE,
+        n_samples=20,
+        cv=2,
+        pos_label="good",
+    ),
+    "gptree": lambda: GPTree(
+        task="t", generator=_WRITER, answerer=_JUDGE, use_critic=True
+    ),
+}
+
+OPENROUTER_DECISIONS = {
+    "data": [
+        {
+            "id": model_id,
+            "architecture": {"output_modalities": ["decisions"]},
+            "pricing": {"prompt": prompt, "completion": "0"},
+        }
+        for model_id, prompt in [
+            ("openai/gpt-6-luna-decisions", "0.0000001"),
+            ("typesafe/jev-1.14", "0.000000042"),
+            ("microsoft/microsoft-decision-1", "0.000000042"),
+        ]
+    ]
+}
+"""What OpenRouter's catalog of decision models returns, for offline tests."""
 
 
-import pytest  # noqa: E402
-
-from think_reason_learn.core._config import settings  # noqa: E402
-
-
-@pytest.fixture
-def typesafe_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A placeholder TYPESAFE_API_KEY so Jev answerers can be constructed offline."""
-    monkeypatch.setattr(settings, "TYPESAFE_API_KEY", "test-key")
+def _reset() -> None:
+    _limiter._limiters.clear()
+    _config._limits.clear()
+    _calls._dropped.clear()
+    _http.set_test_transport(None)
+    _catalog._loaded = None
 
 
 @pytest.fixture(autouse=True)
-def offline_jev(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Tests never reach Typesafe, even with a real TYPESAFE_API_KEY in .env."""
-    import httpx
+def isolated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """A cache in a temporary folder, two retries, no shared state, no network."""
+    _reset()
+    monkeypatch.setattr(_catalog, "_download", lambda: OPENROUTER_DECISIONS)
+    with config_context(cache_dir=tmp_path, max_retries=2):
+        yield
+    _reset()
 
-    from think_reason_learn.core.llms import llm
-    from think_reason_learn.core.llms._jev.client import JevClient
 
-    def refuse(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(599, text="tests must not call Typesafe")
+@pytest.fixture
+def wire() -> Callable[[Handler], list[httpx2.Request]]:
+    """Answer HTTP calls with ``handler``; returns the requests sent."""
 
-    async def no_wait(seconds: float) -> None:
-        return None
+    def install(handler: Handler) -> list[httpx2.Request]:
+        sent: list[httpx2.Request] = []
 
-    monkeypatch.setattr(
-        llm,
-        "jev_llm",
-        JevClient(
-            api_key="offline",
-            transport=httpx.MockTransport(refuse),
-            cache_dir=tmp_path / "jev-cache",
-            sleep=no_wait,
-        ),
-    )
+        def record(request: httpx2.Request) -> httpx2.Response:
+            sent.append(request)
+            return handler(request)
+
+        _http.set_test_transport(httpx2.MockTransport(record))
+        return sent
+
+    return install
+
+
+@pytest.fixture(params=sorted(_MODELS))
+def any_model(request: pytest.FixtureRequest) -> tuple[str, Make]:
+    """Every LLM model, in each of its main settings: its name and factory."""
+    name: str = request.param
+    return name, _MODELS[name]
+
+
+@pytest.fixture
+def generic_fakes() -> Iterator[tuple[FakeLLM, FakeLLM]]:
+    """A writer that fills every model's schemas, and a decision judge."""
+    writer, judge = _writer(), FakeLLM(answer=_judge, kind="decision")
+    with fake_llms(writer=writer, judge=judge):
+        yield writer, judge
+
+
+@pytest.fixture
+def fakes(scripted: tuple[FakeLLM, FakeLLM]) -> Iterator[tuple[FakeLLM, FakeLLM]]:
+    """The test module's ``scripted`` writer and judge, callable as ``fake:...``."""
+    writer, judge = scripted
+    with fake_llms(writer=writer, judge=judge):
+        yield writer, judge
+
+
+@pytest.fixture
+def founders() -> tuple[list[str], list[str]]:
+    """Eighty founders, half of them good."""
+    return list(_X), list(_Y)
+
+
+def _writer() -> FakeLLM:
+    ids = itertools.count()
+
+    def write(request: GenerateRequest) -> dict[str, object] | str:
+        fields = request.schema.model_fields if request.schema is not None else {}
+        if "questions" in fields:
+            texts = [f"Is fact {next(ids)} true?" for _ in range(10)]
+            plain = fields["questions"].annotation == list[str]
+            return {"questions": texts if plain else [{"text": t} for t in texts]}
+        if "rules" in fields:
+            return {"rules": [f"Rule {next(ids)}." for _ in range(5)]}
+        if "rule" in fields:
+            return {"reasoning": "r", "rule": f"IF fact {next(ids)} THEN good"}
+        return "Instructions."
+
+    return FakeLLM(generate=write)
+
+
+def _judge(sample: str, question: Question) -> float:
+    return 0.97 if "good" in sample else 0.1

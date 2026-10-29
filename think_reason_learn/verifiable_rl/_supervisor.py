@@ -1,180 +1,142 @@
-"""Optional LLM action supervisor for Verifiable RL.
+"""The optional LLM supervisor: a nudge when the policy cannot choose.
 
-The supervisor provides *weak* action preferences: when the policy is unsure
-which slot to query next (its top-two info probabilities are nearly tied), it is
-asked which remaining slot is most informative, and a small probability bias is
-applied. The STOP action is never touched by the supervisor.
-
-The core RL algorithm is fully offline; this module is only used when a
-supervisor is attached to :class:`VerifiableRL`.
+When the policy's top two information actions are nearly tied, a reasoning model
+is shown only what has been revealed so far and asked which slot to reveal next.
+Its pick gets a small added probability, as in 0.2; STOP is never changed.
 """
 
 from __future__ import annotations
 
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Dict, List, Protocol, Sequence, Tuple, runtime_checkable
+import logging
+from collections.abc import Coroutine, Iterable, Mapping, Sequence
+from typing import Final
 
 import numpy as np
+import numpy.typing as npt
+from pydantic import BaseModel
 
-from think_reason_learn.core.llms import LLMChoice, TokenCounter, llm as _default_llm
+from think_reason_learn.exceptions import NoOutputError
+from think_reason_learn.llm import Endpoint, LLMSession, run_sync
 
-from ._types import NextActionPreference
+logger = logging.getLogger(__name__)
 
-DEFAULT_SUPERVISOR_INSTRUCTIONS = (
-    "You are a decision-support module for an information-gathering agent. "
-    "Choose the ONE remaining information slot most likely to change the final "
-    "success/failure decision. Do not suggest already-observed slots. Prefer the "
-    "slot with the highest marginal information value. Return at most one slot as "
-    "a weak reference; if nothing stands out, return an empty list. Return "
-    "structured output only."
-)
-
-
-@runtime_checkable
-class ActionSupervisor(Protocol):
-    """Anything that can suggest the next slot to query.
-
-    Implementations must be synchronous from the policy's point of view.
-    """
-
-    def prefer(
-        self, observed: set[str], available: Sequence[str], profile: str
-    ) -> str | None:
-        """Return a preferred slot from ``available`` (or ``None``)."""
-        ...
+INSTRUCTIONS: Final = """\
+You advise an agent that gathers information about a sample one slot at a time
+before making a decision. Given what it has seen so far, pick the one remaining
+slot most likely to change the decision. If none stands out, pick none."""
 
 
-def is_uncertain(pi_info: np.ndarray, delta: float) -> bool:
-    """Return True if the top-two info probabilities differ by less than ``delta``."""
-    if len(pi_info) < 2:
+def is_uncertain(probs: npt.NDArray[np.float64], n_slots: int, delta: float) -> bool:
+    """Whether the top two information actions differ by less than ``delta``."""
+    if n_slots < 2:
         return False
-    order = np.argsort(-pi_info)
-    return bool((pi_info[order[0]] - pi_info[order[1]]) < delta)
+    top = np.sort(probs[:n_slots])[-2:]
+    return bool(top[1] - top[0] < delta)
 
 
-def apply_action_bias(
-    pi: np.ndarray,
-    n_info: int,
-    preferred: str | None,
-    slot_names: Sequence[str],
-    bias: float,
-) -> np.ndarray:
-    """Add ``bias`` to the preferred slot, preserving info-vs-STOP mass.
-
-    The STOP probability (``pi[n_info]``) is left unchanged; the info portion is
-    renormalised to its original total mass so the supervisor only changes *what*
-    to ask next, not *when* to stop.
-    """
-    out = np.asarray(pi, dtype=np.float64).copy()
-    if preferred is None or preferred not in slot_names:
-        return out
-    k = list(slot_names).index(preferred)
-    if k >= n_info:
-        return out
-    pi_info = out[:n_info].copy()
-    info_mass = float(pi_info.sum())
-    pi_info[k] += bias
-    pi_info = np.clip(pi_info, 1e-8, None)
-    pi_info = pi_info / pi_info.sum() * info_mass
-    out[:n_info] = pi_info
-    return out
+def boost(
+    probs: npt.NDArray[np.float64], n_slots: int, slot: int, bias: float
+) -> npt.NDArray[np.float64]:
+    """Add ``bias`` to one information action, keeping STOP's share."""
+    boosted = probs.copy()
+    info_mass = boosted[:n_slots].sum()
+    boosted[slot] += bias
+    boosted[:n_slots] *= info_mass / boosted[:n_slots].sum()
+    return boosted
 
 
-class LLMActionSupervisor:
-    """An :class:`ActionSupervisor` backed by the TRL unified LLM interface.
+class Supervisor:
+    """Asks a reasoning model which unrevealed slot to reveal next.
 
     Args:
-        llmc: LLM choices in priority order.
-        instructions: System instructions for the preference call.
-        temperature: Sampling temperature (default deterministic).
-        llm_semaphore_limit: Max concurrent LLM calls.
-        _llm: LLM instance for dependency injection (testing). If None, uses the
-            global ``llm`` singleton.
+        models: Reasoning models, in fallback order.
+        session: Where calls are made and recorded.
+        slot_names: Slot names, in column order.
+        slot_texts: Per slot, one text per sample.
+        delta: Gap between the top two slots below which the model is asked.
+        bias: Probability added to the pick before the slots are rescaled.
     """
 
     def __init__(
         self,
-        llmc: List[LLMChoice],
-        *,
-        instructions: str = DEFAULT_SUPERVISOR_INSTRUCTIONS,
-        temperature: float = 0.0,
-        llm_semaphore_limit: int = 3,
-        _llm: Any = None,
+        models: tuple[Endpoint, ...],
+        session: LLMSession,
+        slot_names: Sequence[str],
+        slot_texts: Mapping[str, Sequence[str]],
+        delta: float,
+        bias: float,
     ) -> None:
-        if not llmc:
-            raise ValueError("llmc must be a non-empty list of LLM choices")
-        if llm_semaphore_limit < 1:
-            raise ValueError("llm_semaphore_limit must be >= 1")
-        self.llmc = llmc
-        self.instructions = instructions
-        self.temperature = temperature
-        self._llm = _llm if _llm is not None else _default_llm
-        self._semaphore = asyncio.Semaphore(llm_semaphore_limit)
-        self._token_counter = TokenCounter()
-        self._cache: Dict[Tuple[frozenset, Tuple[str, ...], str], str | None] = {}
+        """Advise with ``models``, recording calls in ``session``."""
+        self.models, self.session = models, session
+        self.slot_names, self.slot_texts = list(slot_names), slot_texts
+        self.delta, self.bias = delta, bias
 
-    @property
-    def token_usage(self) -> TokenCounter:
-        """Accumulated token usage across supervisor calls."""
-        return self._token_counter
+    def nudge(
+        self,
+        probs: npt.NDArray[np.float64],
+        allowed: npt.NDArray[np.bool_],
+        masks: npt.NDArray[np.bool_],
+        samples: Sequence[int] | npt.NDArray[np.intp],
+    ) -> npt.NDArray[np.float64]:
+        """Boost the model's pick in rows where the policy is unsure.
 
-    def _build_query(
-        self, observed: set[str], available: Sequence[str], profile: str
-    ) -> str:
-        avail_lines = "\n".join(f"- {s}: information slot '{s}'" for s in available)
-        return (
-            f"Founder profile (observed information only):\n{profile}\n\n"
-            f"Already observed slots: {sorted(observed)}\n\n"
-            f"Available slots to choose from:\n{avail_lines}\n"
-        )
+        Rows are skipped when STOP outweighs every slot together, since no boost
+        could change the action. The rows' questions are asked at once.
 
-    async def aprefer(
-        self, observed: set[str], available: Sequence[str], profile: str
-    ) -> str | None:
-        """Async: ask the LLM for the most informative remaining slot."""
-        candidates = [s for s in available if s not in observed]
-        if not candidates:
-            return None
-
-        query = self._build_query(observed, candidates, profile)
-        async with self._semaphore:
-            response = await self._llm.respond(
-                query=query,
-                llm_priority=self.llmc,
-                response_format=NextActionPreference,
-                instructions=self.instructions,
-                temperature=self.temperature,
-            )
-        await self._token_counter.append(
-            provider=response.provider_model.provider,
-            model=response.provider_model.model,
-            value=response.total_tokens,
-            caller="LLMActionSupervisor.aprefer",
-        )
-
-        prefer = list(response.response.prefer) if response.response else []
-        for slot in prefer:
-            if slot in candidates:
-                return slot
-        return None
-
-    def prefer(
-        self, observed: set[str], available: Sequence[str], profile: str
-    ) -> str | None:
-        """Sync wrapper around :meth:`aprefer`, with per-state caching.
-
-        The coroutine runs in an isolated worker thread so the caller's event
-        loop (and the process-wide default loop) is never touched; this keeps
-        the synchronous training/prediction path safe to call from anywhere.
+        Args:
+            probs: Action probabilities, one row per state.
+            allowed: The actions allowed in each row.
+            masks: The slots revealed in each row.
+            samples: The sample of each row, to look up its slot texts.
         """
-        key = (frozenset(observed), tuple(available), profile)
-        if key in self._cache:
-            return self._cache[key]
+        n_slots = len(self.slot_names)
+        probs = np.where(allowed, probs, 0.0)
+        unsure = [
+            k
+            for k, row in enumerate(probs)
+            if row[n_slots] < row[:n_slots].sum()
+            and is_uncertain(row, n_slots, self.delta)
+        ]
+        picks = run_sync(_gather(self._pick(masks[k], samples[k]) for k in unsure))
+        for k, pick in zip(unsure, picks, strict=True):
+            if pick is not None:
+                probs[k] = boost(probs[k], n_slots, pick, self.bias)
+        return probs
 
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            result = pool.submit(
-                lambda: asyncio.run(self.aprefer(observed, available, profile))
-            ).result()
-        self._cache[key] = result
-        return result
+    async def _pick(self, mask: npt.NDArray[np.bool_], sample: int) -> int | None:
+        """The suggested slot; only revealed slots' texts are shown."""
+        names = self.slot_names
+        shown = (
+            "\n".join(
+                f"{name}: {self.slot_texts[name][sample]}"
+                for name, seen in zip(names, mask, strict=True)
+                if seen
+            )
+            or "(nothing yet)"
+        )
+        available = [name for name, seen in zip(names, mask, strict=True) if not seen]
+        prompt = (
+            f"Revealed so far:\n{shown}\n\n"
+            f"Slots you may reveal next: {', '.join(available)}"
+        )
+        try:
+            reply = await self.session.generate(
+                self.models,
+                prompt,
+                role="supervisor",
+                schema=_Pick,
+                instructions=INSTRUCTIONS,
+            )
+        except NoOutputError as error:
+            logger.warning(f"The supervisor gave no advice: {error}")
+            return None
+        return names.index(reply.slot) if reply.slot in available else None
+
+
+async def _gather[T](calls: Iterable[Coroutine[object, object, T]]) -> list[T]:
+    return list(await asyncio.gather(*calls))
+
+
+class _Pick(BaseModel):
+    slot: str | None = None

@@ -1,7 +1,7 @@
 [project]
 name = "think-reason-learn"
 version = "0.3.0"
-description = "Interpretable tree/forest-style decision-making systems powered by LLMs"
+description = "The decision harness for predictions, built as scikit-learn models that use language-model reasoning and show the reasons behind every prediction"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]

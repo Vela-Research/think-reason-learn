@@ -1,6 +1,10 @@
 Changelog
 =========
 
+Unreleased
+----------
+- The one-line package description on PyPI now opens with the website's headline and says what the library is.
+
 0.3.0
 -----
 The redesign: one way to call every model, on one provider layer, as scikit-learn classifiers, with each model

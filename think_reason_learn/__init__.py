@@ -1,7 +1,7 @@
 """Think Reason Learn.
 
-An open-source Python library for building interpretable, tree/forest-style
-decision-making systems powered by large language models (LLMs).
+The decision harness for predictions, built as scikit-learn models that use
+language-model reasoning and show the reasons behind every prediction.
 """
 
 from __future__ import annotations

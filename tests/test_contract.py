@@ -47,3 +47,14 @@ def test_models_use_only_the_public_llm_interface() -> None:
         and "think_reason_learn.llm._" in path.read_text(encoding="utf-8")
     ]
     assert not private
+
+
+def test_the_package_docstring_matches_the_pypi_description() -> None:
+    import tomllib
+    from pathlib import Path
+
+    pyproject = Path(__file__).parents[1] / "pyproject.toml"
+    description = tomllib.loads(pyproject.read_text())["project"]["description"]
+    summary = (think_reason_learn.__doc__ or "").split("\n\n")[1]
+    sentence = " ".join(summary.split()).rstrip(".")
+    assert sentence == description, "update both, or neither"

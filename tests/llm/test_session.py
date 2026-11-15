@@ -30,7 +30,7 @@ from think_reason_learn.llm import (
     set_limits,
 )
 from think_reason_learn.llm._cache import open_cache
-from think_reason_learn.llm._estimate import call_tokens
+from think_reason_learn.llm._estimate import call_tokens, generate_output_tokens
 from think_reason_learn.llm._usage import TokenCounts
 from think_reason_learn.testing import (
     FakeFailure,
@@ -355,6 +355,17 @@ def test_the_bill_passes_the_cap_by_at_most_the_calls_in_flight(
     assert refused and writer.n_calls + len(refused) == 12
     # At most three calls are in flight when spending crosses the cap.
     assert session.usage.cost_usd <= _CAP + 3 * Price(0.5, 2.0).cost(_REPLY)
+
+
+def test_writing_calls_hold_what_earlier_ones_wrote() -> None:
+    writer = FakeLLM(generate=lambda r: "ok", tokens=(10, 15_000))
+    with fake_llms(writer=writer):
+        models = resolve_models(_THINKER, param="g", task="generate")
+        session = LLMSession()
+        planned = generate_output_tokens(models[0])
+        assert session._engine.writing_output(models[0]) == planned
+        run_sync(session.generate(models, "p", role="g"))
+    assert session._engine.writing_output(models[0]) > 15_000
 
 
 def test_usage_records_cost_and_roles() -> None:

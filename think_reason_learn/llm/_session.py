@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import math
 import time
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import astuple, dataclass, replace
@@ -32,9 +33,9 @@ from ._cache import JSON, Cache, cache_key, open_cache
 from ._calls import Skipped, send
 from ._config import get_config
 from ._estimate import (
-    GENERATE_OUTPUT_TOKENS,
     answer_output_tokens,
     call_tokens,
+    generate_output_tokens,
     planned_cost,
 )
 from ._limiter import apply_limits
@@ -67,6 +68,8 @@ _DEAD_AFTER: Final = 5
 """Failed requests in a row, retries spent, after which the next model takes over,
 or the run stops if none is left."""
 _CUT_OFF: Final = "Cancelled with the request sent; tokens and cost are estimates."
+_WRITING_MARGIN: Final = 1.25
+"""A writing call holds this much more than the most an earlier one output."""
 
 
 class LLMSession:
@@ -159,12 +162,13 @@ class LLMSession:
                     partial(adapter.generate, endpoint, request),
                     TokenCounts(
                         input=call_tokens(prompt, instructions, prefix),
-                        output=GENERATE_OUTPUT_TOKENS,
+                        output=self._engine.writing_output(endpoint),
                     ),
                 )
             except ProviderError as error:
                 errors.append(f"{endpoint.name}: {error}")
                 continue
+            self._engine.wrote(endpoint, reply.tokens.output)
             if _usable(reply.output, schema):
                 self._engine.store({key: _dump(reply.output)}, now=True)
                 self._engine.budget.check()
@@ -245,6 +249,7 @@ class _Engine:
             open_cache(self.config.cache_path) if self.config.cache else None
         )
         self._configured: set[str] = set()
+        self._written: dict[Endpoint, int] = {}
         self._served: dict[str, set[str]] = {}
         self._pending: dict[str, JSON] = {}
         self._flushed = time.monotonic()
@@ -315,6 +320,24 @@ class _Engine:
             raise
         finally:
             self.budget.settle(held, cost)
+
+    def writing_output(self, endpoint: Endpoint) -> int:
+        """Output tokens to hold for a writing call of ``endpoint``.
+
+        The most an earlier writing call of it output in this run, plus a
+        margin; before any, the planned estimate, which counts its reasoning
+        effort. Never more than its ``max_output_tokens``.
+        """
+        if (most := self._written.get(endpoint)) is None:
+            return generate_output_tokens(endpoint)
+        tokens = math.ceil(most * _WRITING_MARGIN)
+        cap = endpoint.settings.max_output_tokens
+        return tokens if cap is None else min(tokens, cap)
+
+    def wrote(self, endpoint: Endpoint, output_tokens: int) -> None:
+        """Note what a writing call of ``endpoint`` output, to size later ones."""
+        if output_tokens > 0:  # some report none
+            self._written[endpoint] = max(self._written.get(endpoint, 0), output_tokens)
 
     def _first_call(self, endpoint: Endpoint, estimate: TokenCounts) -> None:
         """Refuse a model the cap cannot count (each call, until one passes)."""

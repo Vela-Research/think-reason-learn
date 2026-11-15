@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import math
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -25,9 +27,11 @@ from think_reason_learn.llm import (
     get_config,
     resolve_models,
     run_sync,
+    set_limits,
 )
 from think_reason_learn.llm._cache import open_cache
 from think_reason_learn.llm._estimate import call_tokens
+from think_reason_learn.llm._usage import TokenCounts
 from think_reason_learn.testing import (
     FakeFailure,
     FakeLLM,
@@ -35,6 +39,8 @@ from think_reason_learn.testing import (
     fake_llms,
     scripted,
 )
+
+type SlowWrites = Callable[[Callable[[str], float]], list[str]]
 
 QUESTIONS = {
     "tech": YesNoQuestion("Is the founder technical?"),
@@ -289,6 +295,66 @@ def test_budget_stops_once_spending_passes_the_cap() -> None:
         )
         with pytest.raises(BudgetExceededError, match="cap"):
             run_sync(LLMSession().generate(models, "p", role="g"))
+
+
+_CAP = 0.10
+_THINKER = LLM("fake:writer", reasoning_effort="none", price=Price(0.5, 2.0))
+"""Estimated not to think, so every queued call fits under the cap when reserved."""
+_REPLY = TokenCounts(input=1_000, output=15_000)
+"""What the writer really spends a call: $0.0305, three times a call's hold."""
+
+
+def _write_under_the_cap(
+    slow_writes: SlowWrites, calls: int, concurrency: int
+) -> tuple[LLMSession, list[str | BaseException], list[float]]:
+    """``calls`` writing calls at once; the session, replies, and spend at each send."""
+    set_limits("fake:writer", max_concurrency=concurrency)
+    with config_context(max_cost_usd=_CAP):
+        session = LLMSession()
+        models = resolve_models(_THINKER, param="g", task="generate")
+    spent_at_send: list[float] = []
+
+    def note_spending(prompt: str) -> float:
+        spent_at_send.append(session.usage.cost_usd)
+        return 0.01  # seconds a call takes
+
+    slow_writes(note_spending)
+
+    async def write_all() -> list[str | BaseException]:
+        writes = (session.generate(models, f"p{i}", role="g") for i in range(calls))
+        return await asyncio.gather(*writes, return_exceptions=True)
+
+    return session, run_sync(write_all()), spent_at_send
+
+
+def test_calls_waiting_for_a_slot_are_refused_once_spending_passes_the_cap(
+    slow_writes: SlowWrites,
+) -> None:
+    writer = FakeLLM(generate=lambda r: "ok", tokens=(_REPLY.input, _REPLY.output))
+    with fake_llms(writer=writer):
+        session, replies, _ = _write_under_the_cap(slow_writes, 8, concurrency=1)
+    # One at a time: after three calls $0.0915 is spent and the fourth's $0.0045
+    # hold still fits; after the fourth ($0.122) the other four are refused unsent.
+    refused = [r for r in replies if "the next call" in str(r)]
+    assert writer.n_calls == 4 and len(refused) == 4
+    assert all(isinstance(r, BudgetExceededError) for r in refused)
+    assert len(session.usage) == session.usage.calls == 4  # refused: not recorded
+    assert math.isclose(session.usage.cost_usd, 4 * Price(0.5, 2.0).cost(_REPLY))
+
+
+def test_the_bill_passes_the_cap_by_at_most_the_calls_in_flight(
+    slow_writes: SlowWrites,
+) -> None:
+    writer = FakeLLM(generate=lambda r: "ok", tokens=(_REPLY.input, _REPLY.output))
+    with fake_llms(writer=writer):
+        session, replies, spent_at_send = _write_under_the_cap(
+            slow_writes, 12, concurrency=3
+        )
+    assert all(spent <= _CAP for spent in spent_at_send)  # none sent past the cap
+    refused = [r for r in replies if "the next call" in str(r)]
+    assert refused and writer.n_calls + len(refused) == 12
+    # At most three calls are in flight when spending crosses the cap.
+    assert session.usage.cost_usd <= _CAP + 3 * Price(0.5, 2.0).cost(_REPLY)
 
 
 def test_usage_records_cost_and_roles() -> None:

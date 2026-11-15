@@ -259,9 +259,11 @@ class _Engine:
     ) -> Reply[T]:
         """One call under the budget, recorded in usage.
 
-        Skipped if ``stopped()`` or the caller has cancelled the run. A call
-        cancelled with its request sent is recorded at its estimated cost: the
-        provider may bill it.
+        Skipped if ``stopped()`` or the caller has cancelled the run. Its
+        estimate is held from now on; once it has a slot it is refused, unsent,
+        if spending plus that estimate would pass the cap. A call cancelled
+        with its request sent is recorded at its estimated cost: the provider
+        may bill it.
         """
         if endpoint.key not in self._configured:
             self._first_call(endpoint, estimate)
@@ -285,6 +287,7 @@ class _Engine:
                 estimated_tokens=estimate.input,
                 config=self.config,
                 stopped=lambda: stopped() or stop_requested(),
+                before_send=lambda: self.budget.admit(held),
             )
             cost = self._record(
                 endpoint,

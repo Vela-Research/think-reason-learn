@@ -130,6 +130,10 @@ tree.usage_.by("role", "model")    # calls, tokens and dollars
   own machine or network are free.
 - A failed call is retried up to 5 times, within 5 minutes of its first failure. When the last model left fails 5
   calls in a row, the run stops; a rerun continues from the cache. Missing answers are counted in a warning.
+- Cancelling `afit`, `apredict` or `apredict_proba` (cancelling their task), or Ctrl-C in `fit` and `predict`, stops
+  the run. No call starts after the cancel, and the cancel returns once the run has stopped, so nothing of it is
+  still running. Calls cut off in flight may still be billed, so they are in `usage_` at their estimated cost
+  (`cost_source="estimate"`). Answers so far are cached, so a rerun continues from them.
 
 ## scikit-learn
 

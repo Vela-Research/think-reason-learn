@@ -66,6 +66,7 @@ _BAD_AFTER: Final = 20
 _DEAD_AFTER: Final = 5
 """Failed requests in a row, retries spent, after which the next model takes over,
 or the run stops if none is left."""
+_CUT_OFF: Final = "Cancelled with the request sent; tokens and cost are estimates."
 
 
 class LLMSession:
@@ -258,16 +259,29 @@ class _Engine:
     ) -> Reply[T]:
         """One call under the budget, recorded in usage.
 
-        Skipped if ``stopped()`` or the caller has cancelled the run.
+        Skipped if ``stopped()`` or the caller has cancelled the run. A call
+        cancelled with its request sent is recorded at its estimated cost: the
+        provider may bill it.
         """
         if endpoint.key not in self._configured:
             self._first_call(endpoint, estimate)
         held = self.budget.reserve(call_cost(endpoint, estimate, None)[0])
         start, cost = time.perf_counter(), None
+        sent = False  # a request is out and no error has come back
+
+        async def sending(dropped: frozenset[str]) -> Reply[T]:
+            nonlocal sent
+            sent = True
+            try:
+                return await call(dropped)
+            except ProviderError:
+                sent = False
+                raise
+
         try:
             reply = await send(
                 endpoint,
-                call,
+                sending,
                 estimated_tokens=estimate.input,
                 config=self.config,
                 stopped=lambda: stopped() or stop_requested(),
@@ -292,6 +306,10 @@ class _Engine:
             if error is raised:
                 raise
             raise error from None
+        except asyncio.CancelledError:
+            if sent:
+                cost = self._record(endpoint, role, estimate, start, cut_off=True)
+            raise
         finally:
             self.budget.settle(held, cost)
 
@@ -314,13 +332,17 @@ class _Engine:
         served: str | None = None,
         provider_cost: float | None = None,
         error: str | None = None,
+        cut_off: bool = False,
     ) -> float | None:
+        """Record one call; ``cut_off``: cancelled in flight, ``tokens`` estimated."""
         tokens = TokenCounts(*(max(0, n) for n in astuple(tokens)))  # some send -1
         cost, source = (
             (0.0, "none")
             if error is not None
             else call_cost(endpoint, tokens, provider_cost)
         )
+        if cut_off and source in ("price", "price_table"):
+            source = "estimate"
         self.usage.add(
             UsageRecord(
                 time=time.time(),
@@ -335,7 +357,7 @@ class _Engine:
                 cache_write_tokens=tokens.cache_write,
                 reasoning_tokens=tokens.reasoning,
                 latency_s=time.perf_counter() - start,
-                error=error,
+                error=_CUT_OFF if cut_off else error,
             )
         )
         self._check_served(endpoint, served)

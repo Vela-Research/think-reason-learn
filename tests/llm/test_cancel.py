@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import threading
 from collections.abc import Iterable, Iterator, Mapping
 from concurrent import futures
@@ -18,6 +19,7 @@ from think_reason_learn.llm import (
     Answers,
     Endpoint,
     LLMSession,
+    Price,
     Question,
     YesNoQuestion,
     _loop,
@@ -25,7 +27,9 @@ from think_reason_learn.llm import (
     run_sync,
 )
 from think_reason_learn.llm._adapters import ADAPTERS, Reply
+from think_reason_learn.llm._estimate import answer_output_tokens, call_tokens
 from think_reason_learn.llm._loop import io_loop, stop_requested
+from think_reason_learn.llm._usage import TokenCounts
 from think_reason_learn.testing import FakeLLM, GenerateRequest, fake_llms
 
 QUESTION = "Is the founder an engineer?"
@@ -34,6 +38,7 @@ X = [
 ]
 Y = ["hit" if i % 2 else "miss" for i in range(200)]
 IN_FLIGHT = 4
+JUDGE_PRICE = Price(input=1.0, output=4.0)
 
 
 class Written(BaseModel):
@@ -169,6 +174,31 @@ async def test_no_call_starts_after_cancel_returns(held: Held) -> None:
     alive = _library_tasks()  # after a turn of the library's loop
     assert held.sent == IN_FLIGHT  # no call started after the cancel
     assert alive == []  # and nothing is left to start one later
+
+
+@pytest.mark.asyncio
+async def test_calls_cut_off_in_flight_are_counted_at_their_estimate(
+    held: Held,
+) -> None:
+    judge = LLM("fake:judge", kind="decision", price=JUDGE_PRICE)
+    model = OneQuestion(judge=judge)
+    await _cancel(await _started(model, held))
+
+    cut_off = [r for r in model.usage_ if r.cost_source == "estimate"]
+    endpoint = resolve_models(judge, param="judge", task="answer")[0]
+    tokens = TokenCounts(
+        input=call_tokens(X[0], QUESTION), output=answer_output_tokens(endpoint, 1)
+    )
+    assert len(cut_off) == IN_FLIGHT == held.sent
+    for record in cut_off:
+        assert record.role == "answerer" and record.error is not None
+        assert (record.input_tokens, record.output_tokens) == (
+            tokens.input,
+            tokens.output,
+        )
+        assert record.cost_usd == JUDGE_PRICE.cost(tokens) > 0
+    assert math.isclose(model.usage_.cost_usd, IN_FLIGHT * JUDGE_PRICE.cost(tokens))
+    assert not hasattr(model, "classes_")  # not fitted
 
 
 @pytest.mark.asyncio

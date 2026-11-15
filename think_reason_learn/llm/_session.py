@@ -38,6 +38,7 @@ from ._estimate import (
     planned_cost,
 )
 from ._limiter import apply_limits
+from ._loop import stop_requested
 from ._questions import Answer, Question
 from ._spec import Endpoint
 from ._usage import (
@@ -255,7 +256,10 @@ class _Engine:
         estimate: TokenCounts,
         stopped: Callable[[], bool] = lambda: False,
     ) -> Reply[T]:
-        """One call under the budget, recorded in usage; skipped if ``stopped()``."""
+        """One call under the budget, recorded in usage.
+
+        Skipped if ``stopped()`` or the caller has cancelled the run.
+        """
         if endpoint.key not in self._configured:
             self._first_call(endpoint, estimate)
         held = self.budget.reserve(call_cost(endpoint, estimate, None)[0])
@@ -266,7 +270,7 @@ class _Engine:
                 call,
                 estimated_tokens=estimate.input,
                 config=self.config,
-                stopped=stopped,
+                stopped=lambda: stopped() or stop_requested(),
             )
             cost = self._record(
                 endpoint,

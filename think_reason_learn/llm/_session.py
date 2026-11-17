@@ -38,7 +38,7 @@ from ._estimate import (
     planned_cost,
 )
 from ._limiter import apply_limits
-from ._questions import Answer, Question
+from ._questions import Answer, ChoiceQuestion, Question
 from ._spec import Endpoint
 from ._usage import (
     Budget,
@@ -468,11 +468,20 @@ class _AnswerPass:
 
     def _key(self, i: int, qid: str) -> str:
         question = self.questions[qid]
+        identity: list[JSON] = [
+            question.text,
+            list(question.labels),
+            type(question).__name__,
+        ]
+        if isinstance(question, ChoiceQuestion) and question.descriptions:
+            # Asked with descriptions, it is another question. Without them the
+            # key is as before, so answers already cached still match.
+            identity.append([[k, v] for k, v in question.descriptions.items()])
         return cache_key(
             kind="answer",
             endpoint=_endpoint_identity(self.endpoint),
             sample=self.digests[i],
-            question=[question.text, list(question.labels), type(question).__name__],
+            question=identity,
             draw=self.draw,
         )
 

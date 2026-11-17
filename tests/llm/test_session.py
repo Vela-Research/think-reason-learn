@@ -529,3 +529,33 @@ def test_a_model_refusing_every_request_stops_the_run() -> None:
             )
         )
     assert broken.n_calls < 300
+
+
+def test_choice_descriptions_are_part_of_the_cache_key() -> None:
+    """Asked with descriptions, a question is another question; without them, the
+    key is as before, so answers already cached still match."""
+    judge = FakeLLM(answer=_answer)
+    plain = QUESTIONS["stage"]
+    described = ChoiceQuestion(plain.text, plain.labels, {"seed": "no priced round"})
+    emptied = ChoiceQuestion(plain.text, plain.labels, {})
+    with fake_llms(judge=judge):
+        for question in (plain, emptied, described, described):
+            run_sync(
+                LLMSession().answer(
+                    _resolved("judge"), ["x"], {"stage": question}, role="a"
+                )
+            )
+    assert judge.n_calls == 2
+
+
+def test_choice_descriptions_are_for_its_labels() -> None:
+    with pytest.raises(ValueError, match=r"\['pre_seed'\] are not among them"):
+        ChoiceQuestion("Stage?", ("seed", "series_a"), {"pre_seed": "no money yet"})
+    question = ChoiceQuestion(
+        "Stage?", ("seed", "series_a"), {"series_a": "a priced round", "seed": "none"}
+    )
+    assert question.descriptions == {"seed": "none", "series_a": "a priced round"}
+    assert list(question.descriptions or ()) == ["seed", "series_a"]  # label order
+    assert ChoiceQuestion("Stage?", ("seed", "series_a"), {}).descriptions is None
+    assert question != ChoiceQuestion("Stage?", ("seed", "series_a"))
+    assert hash(question) == hash(ChoiceQuestion("Stage?", ("seed", "series_a")))

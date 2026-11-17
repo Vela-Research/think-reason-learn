@@ -23,11 +23,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 type CostSource = Literal[
-    "provider", "price", "price_table", "local", "cache", "none", "unknown"
+    "provider", "price", "price_table", "estimate", "local", "cache", "none", "unknown"
 ]
-"""Where a call's cost came from: the provider's bill, a price, a model on your own
-machine or network (free), the cache (free), nothing to pay (a failed call), or
-nowhere (unknown)."""
+"""Where a call's cost came from: the provider's bill, a price, a price table, an
+estimate (a call cancelled with its request sent, priced at its estimated tokens),
+a model on your own machine or network (free), the cache (free), nothing to pay (a
+failed call), or nowhere (unknown)."""
 
 
 @dataclass(frozen=True, slots=True)

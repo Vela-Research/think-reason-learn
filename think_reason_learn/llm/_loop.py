@@ -13,11 +13,16 @@ import os
 import threading
 from collections.abc import Callable, Coroutine
 from concurrent.futures import Future, wait
+from contextvars import ContextVar
 from typing import Final
 
 _lock: Final = threading.Lock()
 _loop: asyncio.AbstractEventLoop | None = None
 _fork_resets: Final[list[Callable[[], None]]] = []
+_stop: Final[ContextVar[threading.Event | None]] = ContextVar(
+    "think_reason_learn_stop", default=None
+)
+"""Set by the caller, from its own thread, when it cancels the run."""
 
 
 def io_loop() -> asyncio.AbstractEventLoop:
@@ -36,7 +41,8 @@ def run_sync[T](coro: Coroutine[object, object, T]) -> T:
     """Run ``coro`` on the library's loop and wait for it.
 
     Works from scripts and from inside a running event loop (e.g. a notebook
-    cell). Ctrl-C cancels the work.
+    cell). Ctrl-C cancels the work: no call starts after it, and it returns
+    once the work has stopped (a second Ctrl-C stops waiting).
 
     Raises:
         RuntimeError: Called from the library's own loop.
@@ -45,20 +51,41 @@ def run_sync[T](coro: Coroutine[object, object, T]) -> T:
     if _on(loop):
         coro.close()
         raise RuntimeError("Use the async API (e.g. afit) inside the library's loop.")
-    future = asyncio.run_coroutine_threadsafe(coro, loop)
+    run = _Run(coro, loop)
     try:
-        return _wait(future)
+        return _wait(run.future)
     except KeyboardInterrupt:
-        future.cancel()
+        run.stop()
+        _wait_done(run.future)
         raise
 
 
 async def run_async[T](coro: Coroutine[object, object, T]) -> T:
-    """Await ``coro`` on the library's loop from any event loop."""
+    """Await ``coro`` on the library's loop from any event loop.
+
+    Cancelling the caller cancels the work: no call starts after the cancel,
+    and the caller's ``CancelledError`` comes once the work has stopped, its
+    calls recorded (cancelling again stops waiting).
+    """
     loop = io_loop()
     if _on(loop):
         return await coro
-    return await asyncio.wrap_future(asyncio.run_coroutine_threadsafe(coro, loop))
+    run = _Run(coro, loop)
+    done = asyncio.wrap_future(run.future)
+    try:
+        return await asyncio.shield(done)
+    except asyncio.CancelledError:
+        run.stop()
+        await asyncio.wait([done])
+        if not done.cancelled():
+            done.exception()  # retrieved: the caller cancelled, so it sees that
+        raise
+
+
+def stop_requested() -> bool:
+    """Whether the caller has cancelled the run this code is part of."""
+    stop = _stop.get()
+    return stop is not None and stop.is_set()
 
 
 def on_fork(reset: Callable[[], None]) -> None:
@@ -74,10 +101,50 @@ def _on(loop: asyncio.AbstractEventLoop) -> bool:
 
 
 def _wait[T](future: Future[T]) -> T:
+    _wait_done(future)
+    return future.result()
+
+
+def _wait_done[T](future: Future[T]) -> None:
     # Poll, so Ctrl-C reaches this thread on every platform.
     while not future.done():
         wait([future], timeout=0.5)
-    return future.result()
+
+
+class _Run[T]:
+    """``coro`` running on the library's loop, which the caller can stop.
+
+    The cancel crosses threads, so the loop may start calls before it takes
+    effect; ``stop`` therefore sets a flag first, from the caller's thread,
+    which every call checks before it is sent (``stop_requested``).
+    """
+
+    def __init__(
+        self, coro: Coroutine[object, object, T], loop: asyncio.AbstractEventLoop
+    ) -> None:
+        """Start ``coro`` on ``loop``."""
+        self._loop = loop
+        self._stop = threading.Event()
+        self._task: asyncio.Task[object] | None = None
+        self.future = asyncio.run_coroutine_threadsafe(self._run(coro), loop)
+
+    def stop(self) -> None:
+        """From the caller's thread: start no call from now on, and cancel."""
+        self._stop.set()
+        self._loop.call_soon_threadsafe(self._cancel)
+
+    async def _run(self, coro: Coroutine[object, object, T]) -> T:
+        self._task = asyncio.current_task()
+        if self._stop.is_set():  # stopped before it started
+            coro.close()
+            raise asyncio.CancelledError
+        _stop.set(self._stop)  # seen by the tasks this one starts, too
+        return await coro
+
+    def _cancel(self) -> None:
+        # On the loop, like _run: a task not started yet stops itself there.
+        if self._task is not None:
+            self._task.cancel()
 
 
 def _forget_loop() -> None:

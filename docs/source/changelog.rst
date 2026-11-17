@@ -4,6 +4,10 @@ Changelog
 Unreleased
 ----------
 - The one-line package description on PyPI now opens with the website's headline and says what the library is.
+- Cancelling ``afit``, ``apredict`` or ``apredict_proba``, or Ctrl-C in ``fit`` and ``predict``, now starts no
+  call after the cancel and returns once the run has stopped. Before, calls already queued on the library's loop
+  could still start just after the cancel returned. Calls cut off in flight are now in ``usage_`` at their
+  estimated cost (``cost_source="estimate"``) instead of not at all.
 
 0.3.0
 -----

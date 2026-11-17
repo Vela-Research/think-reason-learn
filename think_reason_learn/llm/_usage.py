@@ -244,6 +244,17 @@ class Budget:
         self._reserved_usd += held
         return held
 
+    def admit(self, held: float) -> None:
+        """Refuse to send a call holding ``held`` if spending plus it passes the cap.
+
+        Checked when the call gets its slot, right before it is sent: spending
+        may have grown while it waited.
+        """
+        if self.max_cost_usd is not None and self.spent_usd + held > self.max_cost_usd:
+            raise BudgetExceededError(
+                self._stopped(f"the next call ({format_usd(held)})")
+            )
+
     def settle(self, held: float, cost_usd: float | None) -> None:
         """Replace a held estimate with the call's cost."""
         self._reserved_usd -= held

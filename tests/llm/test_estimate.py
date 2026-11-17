@@ -6,7 +6,9 @@ import math
 
 from think_reason_learn import LLM
 from think_reason_learn.llm import (
+    GENERATE_OUTPUT_TOKENS,
     Price,
+    ReasoningEffort,
     estimate_answers,
     estimate_generations,
     resolve_models,
@@ -41,3 +43,24 @@ def test_generations() -> None:
     )
     planned = estimate_generations(writer, 500, calls=3)
     assert (planned.calls, planned.input_tokens, planned.role) == (3, 1800, "generator")
+
+
+def test_a_writer_thinking_longer_is_estimated_to_write_more() -> None:
+    def output(effort: ReasoningEffort | None, cap: int | None = None) -> int:
+        writer = resolve_models(
+            LLM(
+                "openai:gpt-5-mini",
+                api_key="k",
+                reasoning_effort=effort,
+                max_output_tokens=cap,
+            ),
+            param="g",
+            task="generate",
+        )
+        return estimate_generations(writer, 500).output_tokens
+
+    outputs = [output(e) for e in ("none", "low", "medium", "high", "xhigh")]
+    assert outputs == sorted(set(outputs))
+    assert output("none") == output("minimal") == GENERATE_OUTPUT_TOKENS
+    assert output(None) == output("medium")  # most models' default
+    assert output("high", cap=4_000) == 4_000

@@ -30,13 +30,24 @@ async def most_written[T](calls: Sequence[Awaitable[T]], what: str) -> list[T]:
 
     One refusal or unusable reply among many (prompts, mined samples) is
     logged and skipped; any other error, such as a bad key or the budget,
-    stops the run, and so does every call writing nothing.
+    cancels the calls still running and stops the run, and so does every call
+    writing nothing.
     """
-    replies = await asyncio.gather(*calls, return_exceptions=True)
-    failed = [r for r in replies if isinstance(r, BaseException)]
-    if fatal := next((e for e in failed if not isinstance(e, NoOutputError)), None):
-        raise fatal
-    written = [r for r in replies if not isinstance(r, BaseException)]
+
+    async def kept(call: Awaitable[T]) -> T | NoOutputError:
+        try:
+            return await call
+        except NoOutputError as error:
+            return error
+
+    try:
+        async with asyncio.TaskGroup() as group:  # the first error cancels the rest
+            tasks = [group.create_task(kept(call)) for call in calls]
+    except BaseExceptionGroup as errors:
+        raise errors.exceptions[0] from None  # tasks do not nest groups
+    replies = [task.result() for task in tasks]
+    failed = [r for r in replies if isinstance(r, NoOutputError)]
+    written = [r for r in replies if not isinstance(r, NoOutputError)]
     if failed and not written:
         raise failed[0]
     if failed:

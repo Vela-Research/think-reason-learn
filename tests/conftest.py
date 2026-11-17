@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+import asyncio
 import itertools
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import httpx2
 import pytest
+from pydantic import BaseModel
 
-from think_reason_learn import LLM
+from think_reason_learn import LLM, testing
 from think_reason_learn.core._classifier import TRLClassifier
 from think_reason_learn.gptree import GPTree
 from think_reason_learn.llm import (
+    Endpoint,
     Price,
     Question,
     _calls,
@@ -21,7 +24,7 @@ from think_reason_learn.llm import (
     _limiter,
     config_context,
 )
-from think_reason_learn.llm._adapters import _http
+from think_reason_learn.llm._adapters import Reply, _http
 from think_reason_learn.policy_induction import PolicyInduction
 from think_reason_learn.reasoned_rule_mining import ReasonedRuleMining
 from think_reason_learn.rrf import RRF
@@ -29,6 +32,7 @@ from think_reason_learn.testing import FakeLLM, GenerateRequest, fake_llms
 
 type Handler = Callable[[httpx2.Request], httpx2.Response]
 type Make = Callable[[], TRLClassifier]
+type SlowWrites = Callable[[Callable[[str], float]], list[str]]
 
 _WRITER, _JUDGE = (
     LLM("fake:writer", price=Price(1, 4), api_key="sk-contract-secret-writer"),
@@ -131,6 +135,30 @@ def wire() -> Callable[[Handler], list[httpx2.Request]]:
             return handler(request)
 
         _http.set_test_transport(httpx2.MockTransport(record))
+        return sent
+
+    return install
+
+
+@pytest.fixture
+def slow_writes(monkeypatch: pytest.MonkeyPatch) -> SlowWrites:
+    """Fake writing calls take ``seconds(prompt)``; returns the prompts sent."""
+
+    def install(seconds: Callable[[str], float]) -> list[str]:
+        sent: list[str] = []
+        reply = testing._FakeAdapter.generate
+
+        async def slow(
+            adapter: testing._FakeAdapter,
+            endpoint: Endpoint,
+            request: GenerateRequest,
+            dropped: frozenset[str],
+        ) -> Reply[str | BaseModel | None]:
+            sent.append(request.prompt)
+            await asyncio.sleep(seconds(request.prompt))
+            return await reply(adapter, endpoint, request, dropped)
+
+        monkeypatch.setattr(testing._FakeAdapter, "generate", slow)
         return sent
 
     return install

@@ -62,7 +62,13 @@ class SystemOneAdapter(DecisionAdapter):
 
 
 def _auth(endpoint: Endpoint) -> dict[str, str]:
-    key = endpoint.api_key or ""
+    """The key's header; none without a key, e.g. a decision model on your server.
+
+    An empty value (``Bearer ``) is an illegal header, so the call would never go.
+    """
+    key = endpoint.api_key
+    if not key:
+        return {}
     return (
         {"api-key": key}
         if endpoint.api_key_header

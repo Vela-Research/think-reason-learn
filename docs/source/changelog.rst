@@ -4,6 +4,9 @@ Changelog
 Unreleased
 ----------
 - The one-line package description on PyPI now opens with the website's headline and says what the library is.
+- A System One decision model called without a key, such as one on your own server
+  (``LLM(..., base_url=..., kind="decision")`` with no ``api_key``) or a saved model loaded again, now gets no key
+  header. It used to get an empty ``Bearer`` value, an illegal header that stopped every call.
 
 0.3.0
 -----

@@ -454,6 +454,29 @@ class TestSystemOne:
             sent[0].headers["api-key"] == "k" and "authorization" not in sent[0].headers
         )
 
+    @pytest.mark.parametrize(
+        "model",
+        [
+            LLM("kev", base_url="http://127.0.0.1:8009/v1/systemone", kind="decision"),
+            LLM(
+                "azure:Microsoft-Decision-1",
+                base_url="https://r.example/systemone",
+                kind="decision",
+            ),
+        ],
+        ids=["bearer", "api-key-header"],
+    )
+    def test_a_keyless_server_gets_no_key_header(self, wire: Wire, model: LLM) -> None:
+        # A base_url never gets the provider's key, so a decision model on your own
+        # server, or a saved model loaded again, is called with no key at all.
+        sent = wire(
+            lambda r: httpx2.Response(200, json={"answers": {"tech": {"noul": 0.4}}})
+        )
+        _, [result] = _answer(model)
+        assert "authorization" not in sent[0].headers
+        assert "api-key" not in sent[0].headers
+        assert math.isclose(_yes(result, "tech") or 0.0, 0.4)
+
 
 class TestOpenAIDecisions:
     def test_predicate_choice_and_refusal(self, wire: Wire) -> None:

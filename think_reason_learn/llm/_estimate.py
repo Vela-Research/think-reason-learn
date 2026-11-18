@@ -13,11 +13,24 @@ from collections.abc import Sequence
 from typing import Final
 
 from ._adapters import ADAPTERS
-from ._spec import Endpoint
+from ._spec import Endpoint, ReasoningEffort
 from ._usage import CostSource, TokenCounts, UsageRecord, call_cost
 
 GENERATE_OUTPUT_TOKENS: Final = 2000
-"""Output tokens assumed for a writing call, reasoning included."""
+"""Tokens of text a writing call replies with, thinking not included."""
+WRITING_THINKING_TOKENS: Final[dict[ReasoningEffort | None, int]] = {
+    "none": 0,
+    "minimal": 0,
+    "low": 2_000,
+    "medium": 6_000,
+    None: 6_000,
+    "high": 16_000,
+    "xhigh": 32_000,
+}
+"""Output tokens a model may spend thinking before it writes, by reasoning effort.
+
+An effort left unset counts as medium, the default of most reasoning models.
+"""
 ANSWER_OUTPUT_TOKENS: Final = 8
 """Output tokens assumed per answered question."""
 FRAMING_TOKENS: Final = 100
@@ -54,6 +67,17 @@ def answer_output_tokens(endpoint: Endpoint, n_questions: int) -> int:
     return n_questions * ANSWER_OUTPUT_TOKENS + (THINKING_TOKENS if thinks else 0)
 
 
+def generate_output_tokens(endpoint: Endpoint) -> int:
+    """Output tokens of one writing call: any thinking, then the reply.
+
+    At most the model's ``max_output_tokens``, if set.
+    """
+    effort = endpoint.settings.reasoning_effort
+    tokens = WRITING_THINKING_TOKENS[effort] + GENERATE_OUTPUT_TOKENS
+    cap = endpoint.settings.max_output_tokens
+    return tokens if cap is None else min(tokens, cap)
+
+
 def planned_cost(
     endpoint: Endpoint, calls: int, tokens: TokenCounts
 ) -> tuple[float | None, CostSource]:
@@ -83,10 +107,14 @@ def estimate_generations(
     calls: int = 1,
     role: str = "generator",
 ) -> UsageRecord:
-    """``calls`` writing calls with about ``input_tokens`` of text each."""
+    """``calls`` writing calls with about ``input_tokens`` of text each.
+
+    Each is sized by ``generate_output_tokens``, so a writer set to think
+    longer is estimated to cost more.
+    """
     tokens = TokenCounts(
         input=round(calls * (FRAMING_TOKENS + input_tokens)),
-        output=calls * GENERATE_OUTPUT_TOKENS,
+        output=calls * generate_output_tokens(models[0]),
     )
     return _planned(models[0], role, calls, tokens)
 

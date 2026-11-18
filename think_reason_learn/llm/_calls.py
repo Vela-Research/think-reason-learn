@@ -41,6 +41,7 @@ async def send[T](
     estimated_tokens: int,
     config: Config,
     stopped: Callable[[], bool] = lambda: False,
+    before_send: Callable[[], None] = lambda: None,
 ) -> Reply[T]:
     """Run ``call`` under the endpoint's limiter.
 
@@ -48,7 +49,8 @@ async def send[T](
     least what the provider asked: at most ``config.max_retries`` times, and only
     while a retry can finish within ``config.max_retry_time`` of the first
     failure. A setting the model rejects is dropped for this endpoint and the
-    call resent at once.
+    call resent at once. ``before_send`` runs each time a slot is held, right
+    before the call goes out; whatever it raises stops the call unsent.
 
     Raises:
         ProviderError: The call failed and retrying cannot help.
@@ -60,7 +62,13 @@ async def send[T](
         dropped = _dropped.get(endpoint.key, frozenset())
         try:
             return await _attempt(
-                limiter, call, dropped, estimated_tokens, stopped, config.timeout
+                limiter,
+                call,
+                dropped,
+                estimated_tokens,
+                stopped,
+                config.timeout,
+                before_send,
             )
         except ProviderError as error:
             if _drop(endpoint, error, dropped):
@@ -105,6 +113,7 @@ async def _attempt[T](
     estimated: int,
     stopped: Callable[[], bool],
     timeout: float,
+    before_send: Callable[[], None],
 ) -> Reply[T]:
     """One call in one limiter slot; the slot is returned whatever happens.
 
@@ -114,10 +123,12 @@ async def _attempt[T](
     if not await limiter.acquire(estimated, stopped):
         raise Skipped
     outcome: Outcome = "failed"
-    used: int | None = None
+    used: int | None = 0  # nothing sent yet: the tokens taken go back
     headers: dict[str, str] = {}
     retry_after: float | None = None
     try:
+        before_send()
+        used = None
         try:
             async with asyncio.timeout(timeout):
                 reply = await call(dropped)

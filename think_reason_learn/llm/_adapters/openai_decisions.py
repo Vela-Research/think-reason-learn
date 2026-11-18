@@ -57,9 +57,19 @@ def _wire(qid: str, question: Question) -> decision_create_params.Question:
             "type": "choice",
             "name": qid,
             "instructions": question.text,
-            "choices": [{"value": label} for label in question.labels],
+            "choices": [_choice(question, label) for label in question.labels],
         }
     return {"type": "predicate", "name": qid, "instructions": question.text}
+
+
+def _choice(
+    question: ChoiceQuestion, label: str
+) -> decision_create_params.QuestionQuestionParamChoiceChoice:
+    """One choice, with its description when the question gives one."""
+    description = (question.descriptions or {}).get(label)
+    if description is None:
+        return {"value": label}
+    return {"value": label, "description": description}
 
 
 def _answers(decision: Decision, questions: Mapping[str, Question]) -> Answers:

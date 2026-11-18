@@ -14,6 +14,7 @@ from think_reason_learn import LLM, Price
 from think_reason_learn.core._classifier import TRLClassifier
 from think_reason_learn.core._persistence import FORMAT, decode, encode
 from think_reason_learn.exceptions import DataError
+from think_reason_learn.llm import ChoiceQuestion
 from think_reason_learn.rrf import RRF
 from think_reason_learn.testing import FakeLLM
 
@@ -158,3 +159,17 @@ def test_a_password_in_a_base_url_is_not_saved() -> None:
     llm = LLM("my-model", base_url="https://me:s3cret@llm.example.com/v1")
     text = json.dumps(encode(llm))
     assert "s3cret" not in text and "me@llm.example.com" in text
+
+
+def test_choice_questions_come_back_with_their_descriptions() -> None:
+    # GPTree saves its questions, so one saved before descriptions existed loads too.
+    plain = ChoiceQuestion("Stage?", ("seed", "series_a"))
+    described = ChoiceQuestion(plain.text, plain.labels, {"seed": "no priced round"})
+    assert decode(json.loads(json.dumps(encode([plain, described])))) == [
+        plain,
+        described,
+    ]
+    saved = encode(plain)
+    assert isinstance(saved, dict) and isinstance(saved["fields"], dict)
+    del saved["fields"]["descriptions"]
+    assert decode(saved) == plain

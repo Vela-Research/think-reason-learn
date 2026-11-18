@@ -14,7 +14,7 @@ from typing import Final
 
 from pydantic import BaseModel, Field, create_model
 
-from .._questions import Answer, Question
+from .._questions import Answer, ChoiceQuestion, Question
 from .._spec import Endpoint
 from ._base import Answers, GenerateRequest, Reply
 
@@ -76,13 +76,26 @@ def _prompt(questions: Sequence[Question]) -> str:
     if len(questions) == 1:
         [question] = questions
         options = ", ".join(question.labels)
-        return f"Question: {question.text}\nAnswer with exactly one of: {options}."
+        return (
+            f"Question: {question.text}\nAnswer with exactly one of: {options}."
+            f"{_meanings(question, '')}"
+        )
     numbered = "\n".join(
-        f"{i}. {q.text} (one of: {', '.join(q.labels)})"
+        f"{i}. {q.text} (one of: {', '.join(q.labels)}){_meanings(q, '   ')}"
         for i, q in enumerate(questions, 1)
     )
     return (
         f"Questions:\n{numbered}\nAnswer question 1 in a1, question 2 in a2, and so on."
+    )
+
+
+def _meanings(question: Question, indent: str) -> str:
+    """A line per described label; nothing without descriptions, as before."""
+    if not isinstance(question, ChoiceQuestion) or not question.descriptions:
+        return ""
+    return "".join(
+        f"\n{indent}- {label}: {meaning}"
+        for label, meaning in question.descriptions.items()
     )
 
 

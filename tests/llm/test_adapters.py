@@ -35,6 +35,9 @@ NEEDS_ANTHROPIC = pytest.mark.skipif(
 )
 
 TECH = {"tech": YesNoQuestion("Is the founder technical?")}
+DESCRIBED = ChoiceQuestion(
+    "Stage?", ("seed", "series_a"), {"seed": "before any priced round"}
+)
 
 
 def _answer(
@@ -114,6 +117,28 @@ class TestOpenAICompatible:
             record.cache_read_tokens,
             record.reasoning_tokens,
         ) == (120, 100, 2)
+
+    def test_choice_descriptions_are_in_the_prompt(self, wire: Wire) -> None:
+        sent = wire(lambda r: _chat('{"a1": "seed"}'))
+        _, [result] = _answer(
+            LLM("openai:gpt-5-mini", api_key="k"), {"stage": DESCRIBED}
+        )
+        _, user = json.loads(sent[0].content)["messages"]
+        assert user["content"].endswith(
+            "Answer with exactly one of: seed, series_a.\n"
+            "- seed: before any priced round"
+        )
+        assert _label(result, "stage") == "seed"
+
+    def test_choice_descriptions_follow_their_question(self, wire: Wire) -> None:
+        sent = wire(lambda r: _chat('{"a1": "seed", "a2": "YES"}'))
+        model = LLM("openai:gpt-5-mini", api_key="k", questions_per_call=2)
+        _answer(model, {"stage": DESCRIBED, **TECH})
+        _, user = json.loads(sent[0].content)["messages"]
+        assert (
+            "1. Stage? (one of: seed, series_a)\n   - seed: before any priced round\n"
+            f"2. {TECH['tech'].text} (one of: YES, NO)\n"
+        ) in user["content"]
 
     def test_rejected_temperature_is_dropped_for_good(self, wire: Wire) -> None:
         replies = iter(
@@ -372,6 +397,18 @@ class TestSystemOne:
         assert record.served_model == "jev-1.13.0"
         assert record.cost_usd is not None and math.isclose(record.cost_usd, 0.042)
 
+    def test_choice_descriptions_are_sent_as_criteria(self, wire: Wire) -> None:
+        sent = wire(
+            lambda r: httpx2.Response(
+                200, json={"answers": {"stage": {"choice": "seed"}}, "usage": {}}
+            )
+        )
+        _answer(LLM("jev", api_key="k"), {"stage": DESCRIBED})
+        assert json.loads(sent[0].content)["questions"]["stage"]["criteria"] == {
+            "seed": "before any priced round",
+            "series_a": None,
+        }
+
     def test_invalid_answers_are_unanswered(self, wire: Wire) -> None:
         wire(
             lambda r: httpx2.Response(
@@ -480,6 +517,47 @@ class TestOpenAIDecisions:
         }
         assert wired[1]["choices"] == [{"value": "seed"}, {"value": "series_a"}]
         assert _label(result, "tech") == "NO" and result["stage"] is None
+
+    def test_choice_descriptions_go_on_their_choices(self, wire: Wire) -> None:
+        sent = wire(
+            lambda r: httpx2.Response(
+                200,
+                json={
+                    "model": "gpt-6-luna",
+                    "answers": [
+                        {
+                            "type": "choice",
+                            "name": "stage",
+                            "choice": "seed",
+                            "confidence": 0.9,
+                            "probabilities": [
+                                {"value": "seed", "probability": 0.9},
+                                {"value": "series_a", "probability": 0.1},
+                            ],
+                        }
+                    ],
+                    "usage": {
+                        "input_tokens": 50,
+                        "input_tokens_details": {
+                            "cached_tokens": 0,
+                            "cache_write_tokens": 0,
+                        },
+                        "output_tokens": 2,
+                        "output_tokens_details": {"reasoning_tokens": 0},
+                        "total_tokens": 52,
+                    },
+                },
+            )
+        )
+        _, [result] = _answer(
+            LLM("openai:gpt-6-luna", api_key="k", kind="decision"), {"stage": DESCRIBED}
+        )
+        [wired] = json.loads(sent[0].content)["questions"]
+        assert wired["choices"] == [
+            {"value": "seed", "description": "before any priced round"},
+            {"value": "series_a"},
+        ]
+        assert _label(result, "stage") == "seed"
 
 
 @pytest.mark.parametrize(

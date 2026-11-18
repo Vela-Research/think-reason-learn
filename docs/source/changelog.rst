@@ -4,6 +4,10 @@ Changelog
 Unreleased
 ----------
 - The one-line package description on PyPI now opens with the website's headline and says what the library is.
+- ``ChoiceQuestion`` takes optional ``descriptions``, by label, of what each option means. System One models get
+  them in ``criteria`` (``null`` used to be sent for every option), OpenAI's Decisions API on each choice, and
+  reasoning models in the prompt. A decision model trained or prompted with descriptions can now be asked with the
+  same ones. Without descriptions, requests and cached answers are unchanged.
 - A System One decision model called without a key, such as one on your own server
   (``LLM(..., base_url=..., kind="decision")`` with no ``api_key``) or a saved model loaded again, now gets no key
   header. It used to get an empty ``Bearer`` value, an illegal header that stopped every call.

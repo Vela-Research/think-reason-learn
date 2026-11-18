@@ -19,7 +19,7 @@ from .._usage import TokenCounts
 from ._base import Answers, DecisionAdapter, ProviderError, Reply, classify
 from ._http import http_client
 
-type _Wire = dict[str, str | dict[str, None]]
+type _Wire = dict[str, str | dict[str, str | None]]
 
 
 class SystemOneAdapter(DecisionAdapter):
@@ -78,7 +78,8 @@ def _auth(endpoint: Endpoint) -> dict[str, str]:
 
 def _wire(question: Question) -> _Wire:
     if isinstance(question, ChoiceQuestion):
-        criteria: dict[str, None] = dict.fromkeys(question.labels)
+        described = question.descriptions or {}
+        criteria = {label: described.get(label) for label in question.labels}
         return {"type": "choice", "instructions": question.text, "criteria": criteria}
     return {"type": "noul", "instructions": question.text}
 

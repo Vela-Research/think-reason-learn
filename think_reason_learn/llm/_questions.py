@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import functools
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from typing import Final
 
 YES: Final = "YES"
@@ -35,19 +36,41 @@ class ChoiceQuestion:
     Args:
         text: The question.
         labels: The possible answers, at least two, all different.
+        descriptions: What some or all labels mean, by label, e.g.
+            ``{"seed": "before any priced round"}``. Every model is shown them:
+            System One models in ``criteria``, OpenAI's Decisions API on each
+            choice, and reasoning models in the prompt. A decision model reads
+            each option through its description, so one trained or prompted with
+            descriptions should be asked with the same ones. ``None`` (or an
+            empty mapping) asks with the labels alone, as before.
     """
 
     text: str
     labels: tuple[str, ...]
+    descriptions: Mapping[str, str] | None = field(default=None, hash=False)
 
     def __post_init__(self) -> None:
-        """Check the labels, and keep them as a tuple (a list is accepted)."""
+        """Check the labels and descriptions, and keep labels as a tuple."""
         object.__setattr__(self, "labels", tuple(self.labels))
         if len(self.labels) < 2 or len(set(self.labels)) != len(self.labels):
             raise ValueError(
                 f"A choice question needs two or more different labels, got "
                 f"{self.labels}."
             )
+        if self.descriptions is None:
+            return
+        unknown = [label for label in self.descriptions if label not in self.labels]
+        if unknown:
+            raise ValueError(
+                f"Descriptions are for the question's labels {self.labels}; "
+                f"{unknown} are not among them."
+            )
+        described = {
+            label: self.descriptions[label]
+            for label in self.labels
+            if label in self.descriptions
+        }  # a copy in label order, so the wire and the cache key are stable
+        object.__setattr__(self, "descriptions", described or None)
 
 
 type Question = YesNoQuestion | ChoiceQuestion

@@ -12,7 +12,7 @@ from sklearn.exceptions import NotFittedError
 from think_reason_learn import LLM, config_context
 from think_reason_learn.core._classifier import TRLClassifier
 from think_reason_learn.exceptions import DataError
-from think_reason_learn.llm import Price
+from think_reason_learn.llm import Price, ReasoningEffort
 from think_reason_learn.rrf import RRF
 from think_reason_learn.testing import FakeLLM
 
@@ -119,3 +119,15 @@ def test_a_costly_run_warns_and_a_cap_refuses_unknown_prices(
     ):
         RRF(task="t", generator="fake:writer", answerer="fake:judge").fit(*founders)
     assert writer.n_calls + judge.n_calls == calls  # refused before any call
+
+
+def test_a_writer_thinking_longer_is_estimated_to_cost_more(
+    generic_fakes: tuple[FakeLLM, FakeLLM], founders: tuple[list[str], list[str]]
+) -> None:
+    def writing_cost(effort: ReasoningEffort) -> float:
+        writer = LLM("fake:writer", reasoning_effort=effort, price=Price(1, 4))
+        model = RRF(task="t", generator=writer, answerer="fake:judge", n_prompts=3)
+        planned = model.estimate_cost(*founders)
+        return sum(r.cost_usd or 0 for r in planned if r.role == "generator")
+
+    assert writing_cost("low") < writing_cost("medium") < writing_cost("high")

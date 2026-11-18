@@ -124,12 +124,18 @@ tree.usage_.by("role", "model")    # calls, tokens and dollars
 - `estimate_cost(X, y)` counts the calls, tokens and dollars of `fit(X, y)` (or of `predict(X)` without `y`)
   without calling a model, and without API keys. Each `fit` and `predict` logs its estimate first, as a warning
   above $1.
-- `max_cost_usd` refuses work estimated over the cap, stops starting calls once spending passes it, and refuses a
-  model with no known price, since it could not count it. Calls already sent finish, and one can cost more than
-  estimated (a reasoning model thinking long), so the bill can pass the cap by what those calls cost. Models on your
-  own machine or network are free.
+- `max_cost_usd` refuses work estimated over the cap and a model with no known price, since it could not count it.
+  A call is sent only if spending plus its estimate stays within the cap, checked right before it goes out, so no
+  call starts once spending passes it. Writing calls are estimated by their reasoning effort, then by what the run's
+  earlier writing calls wrote. Calls already sent finish, and one can cost more than estimated (a reasoning model
+  thinking long), so the bill can pass the cap by at most what the calls in flight when it was crossed cost. Models
+  on your own machine or network are free.
 - A failed call is retried up to 5 times, within 5 minutes of its first failure. When the last model left fails 5
   calls in a row, the run stops; a rerun continues from the cache. Missing answers are counted in a warning.
+- Cancelling `afit`, `apredict` or `apredict_proba` (cancelling their task), or Ctrl-C in `fit` and `predict`, stops
+  the run. No call starts after the cancel, and the cancel returns once the run has stopped, so nothing of it is
+  still running. Calls cut off in flight may still be billed, so they are in `usage_` at their estimated cost
+  (`cost_source="estimate"`). Answers so far are cached, so a rerun continues from them.
 
 ## scikit-learn
 

@@ -23,11 +23,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 type CostSource = Literal[
-    "provider", "price", "price_table", "local", "cache", "none", "unknown"
+    "provider", "price", "price_table", "estimate", "local", "cache", "none", "unknown"
 ]
-"""Where a call's cost came from: the provider's bill, a price, a model on your own
-machine or network (free), the cache (free), nothing to pay (a failed call), or
-nowhere (unknown)."""
+"""Where a call's cost came from: the provider's bill, a price, a price table, an
+estimate (a call cancelled with its request sent, priced at its estimated tokens),
+a model on your own machine or network (free), the cache (free), nothing to pay (a
+failed call), or nowhere (unknown)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -242,6 +243,17 @@ class Budget:
             )
         self._reserved_usd += held
         return held
+
+    def admit(self, held: float) -> None:
+        """Refuse to send a call holding ``held`` if spending plus it passes the cap.
+
+        Checked when the call gets its slot, right before it is sent: spending
+        may have grown while it waited.
+        """
+        if self.max_cost_usd is not None and self.spent_usd + held > self.max_cost_usd:
+            raise BudgetExceededError(
+                self._stopped(f"the next call ({format_usd(held)})")
+            )
 
     def settle(self, held: float, cost_usd: float | None) -> None:
         """Replace a held estimate with the call's cost."""

@@ -70,6 +70,11 @@ Async code
 ``fit`` and ``predict`` work in notebooks and scripts. In async applications use ``afit``, ``apredict`` and
 ``apredict_proba``.
 
+Cancelling their task (or Ctrl-C in ``fit`` and ``predict``) stops the run: no call starts after the cancel, and
+the ``CancelledError`` comes once the run has stopped. Calls cut off in flight may still be billed, so ``usage_``
+counts them at their estimated cost (``cost_source="estimate"``). Answers so far are cached, so a rerun continues
+from them.
+
 Offline tests
 ~~~~~~~~~~~~~
 

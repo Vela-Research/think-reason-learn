@@ -7,6 +7,20 @@ Unreleased
 - A System One decision model called without a key, such as one on your own server
   (``LLM(..., base_url=..., kind="decision")`` with no ``api_key``) or a saved model loaded again, now gets no key
   header. It used to get an empty ``Bearer`` value, an illegal header that stopped every call.
+- Cancelling ``afit``, ``apredict`` or ``apredict_proba``, or Ctrl-C in ``fit`` and ``predict``, now starts no
+  call after the cancel and returns once the run has stopped. Before, calls already queued on the library's loop
+  could still start just after the cancel returned. Calls cut off in flight are now in ``usage_`` at their
+  estimated cost (``cost_source="estimate"``) instead of not at all.
+- ``max_cost_usd`` holds for writers that think long. A call checks the cap again once it has its rate-limit or
+  concurrency slot, right before it is sent, so no call starts once spending passes the cap; the bill passes it by
+  at most what the calls in flight when it was crossed cost. Before, a $0.20 cap with a writer thinking 15,000
+  tokens a reply spent $0.36, since calls queued before the cap was crossed were sent after it.
+- Writing calls are estimated by their reasoning effort, from no thinking at ``"none"`` to 32,000 tokens of it at
+  ``"xhigh"`` (6,000 when unset), in ``estimate_cost`` and in what a call holds of the cap. Within a run, later
+  writing calls hold what the earlier ones wrote, plus a quarter.
+- When one of several writing calls stops the run (the cap, a rejected key), the others are cancelled instead of
+  running on. Those already sent are counted at their estimated cost (``cost_source="estimate"``), like calls cut
+  off by a cancelled run.
 
 0.3.0
 -----

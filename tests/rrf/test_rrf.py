@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from functools import partial
 
 import numpy as np
 import pytest
 
-from think_reason_learn.exceptions import DataError, LLMError
-from think_reason_learn.llm import Question, config_context
+from think_reason_learn import LLM
+from think_reason_learn.exceptions import BudgetExceededError, DataError, LLMError
+from think_reason_learn.llm import Price, Question, config_context
 from think_reason_learn.rrf import RRF
 from think_reason_learn.rrf._selection import question_stats, rank, tune_vote, vote_grid
 from think_reason_learn.testing import (
@@ -273,6 +275,29 @@ def test_one_failed_prompt_is_skipped() -> None:
     with fake_llms(writer=FakeLLM(generate=flaky), judge=FakeLLM(answer=answer)):
         model = rrf(combiner="vote").fit(FOUNDERS, LABELS)
     assert model.rules_ == ("Is the founder an engineer?",)
+
+
+def test_a_writer_thinking_long_stays_under_the_cap(
+    slow_writes: Callable[[Callable[[str], float]], list[str]],
+) -> None:
+    # Each writing call costs $0.033, eight times what 0.3.0 held for it, so 0.3.0
+    # sent all eleven ($0.36) against a $0.20 cap.
+    sent = slow_writes(lambda _: 0.05)
+    model = rrf(
+        generator=LLM("fake:writer", price=Price(0.5, 2.0)),
+        answerer=LLM("fake:judge", price=Price(0.042)),
+        n_prompts=10,
+    )
+    with (
+        fake_llms(
+            writer=FakeLLM(generate=write, tokens=(6_000, 15_000)),
+            judge=FakeLLM(answer=answer),
+        ),
+        config_context(max_cost_usd=0.2),
+        pytest.raises(BudgetExceededError),
+    ):
+        model.fit(FOUNDERS, LABELS)
+    assert len(sent) * 0.033 <= 0.2  # under the cap even if each was billed in full
 
 
 def test_integer_labels_work_with_scikit_learn_metrics(

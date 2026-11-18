@@ -1,8 +1,10 @@
 Changelog
 =========
 
-Unreleased
-----------
+0.3.1
+-----
+Fixes for decision models, the cost cap and cancelling a run.
+
 - The one-line package description on PyPI now opens with the website's headline and says what the library is.
 - ``ChoiceQuestion`` takes optional ``descriptions``, by label, of what each option means. System One models get
   them in ``criteria`` (``null`` used to be sent for every option), OpenAI's Decisions API on each choice, and

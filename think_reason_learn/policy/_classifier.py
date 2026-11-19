@@ -91,6 +91,8 @@ type Decision = Literal["likely", "balanced"]
 """How probabilities become an outcome: the most probable one, or cut-offs on
 the expected outcome tuned out of fold for balanced accuracy."""
 type Floats = npt.NDArray[np.float64]
+type SampleWeight = Sequence[float] | pd.Series | npt.NDArray[np.float64]
+"""One weight per case."""
 
 DECISIONS: Final[tuple[Decision, ...]] = ("likely", "balanced")
 POINTS: Final = 10.0
@@ -204,7 +206,7 @@ class PolicyClassifier(TRLClassifier):
         self,
         X: TextInput,
         y: LabelInput | None = None,
-        sample_weight: npt.ArrayLike | None = None,
+        sample_weight: SampleWeight | None = None,
     ) -> Self:
         """Fit the model.
 
@@ -226,7 +228,7 @@ class PolicyClassifier(TRLClassifier):
         self,
         X: TextInput,
         y: LabelInput | None = None,
-        sample_weight: npt.ArrayLike | None = None,
+        sample_weight: SampleWeight | None = None,
     ) -> Self:
         """Fit the model, from async code. See ``fit``."""
         return await run_async(self._weighted_fit(X, y, sample_weight))
@@ -302,7 +304,7 @@ class PolicyClassifier(TRLClassifier):
             return await super()._fit(X, y)
 
     async def _weighted_fit(
-        self, X: TextInput, y: LabelInput | None, sample_weight: npt.ArrayLike | None
+        self, X: TextInput, y: LabelInput | None, sample_weight: SampleWeight | None
     ) -> Self:
         """``_fit`` with ``sample_weight``, checked first and held for ``_afit``."""
         n = len(to_texts(X)[0])
@@ -885,7 +887,7 @@ def _relabelled(frame: pd.DataFrame, policy: Policy, codes: Labels) -> pd.DataFr
     return pd.DataFrame(rows, columns=frame.columns)
 
 
-def _checked_weights(sample_weight: npt.ArrayLike | None, n: int) -> Floats | None:
+def _checked_weights(sample_weight: SampleWeight | None, n: int) -> Floats | None:
     """``sample_weight`` as floats, one per case, finite and 0 or more."""
     if sample_weight is None:
         return None

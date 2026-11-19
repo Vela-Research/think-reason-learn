@@ -36,8 +36,8 @@ Fit
 ~~~
 
 Give labels where you have them, ``None`` where you do not, and a teacher to label the rest. The teacher is a strong
-reasoning model that applies the policy to one case at a time. Your labels always win: a case you labelled is never
-sent to the teacher.
+reasoning model that applies the policy to one case at a time. Your labels always win: the teacher never labels a
+case you labelled. It does judge a sample of them, to measure how often it agrees with you (see the report below).
 
 .. code-block:: python
 
@@ -103,7 +103,10 @@ Read the report
 
 ``clf.report_`` says how well the model agrees with its labels on cases it did not learn from (out of fold): the
 share exactly right, balanced accuracy, quadratic kappa and the AUC of each boundary, for your labels and the
-teacher's apart. It also gives each source's outcome shares, the teacher's consistency, and the criteria left out.
+teacher's apart. It also gives each source's outcome shares, the teacher's consistency, and the criteria left out. When there are
+both your labels and a teacher, the teacher also judges up to ``teacher_check`` (50) of your cases, only to measure how
+often it gives your label: ``report_["policy_vs_labels"]`` has the share it matches, the quadratic kappa and how many
+it judged. Your labels stay as they are, and these verdicts are not learned from.
 Written checks were written from these same cases, so with a writer the report is optimistic: keep some labelled
 cases apart to measure it. ``clf.labels_`` has each training case's outcome, source, confidence and reason, and
 ``clf.checks_`` each check with its points.

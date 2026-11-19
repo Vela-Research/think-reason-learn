@@ -74,10 +74,12 @@ from ._checks import (
 from ._labels import (
     UNJUDGED_SHARE,
     UNLABELLED,
+    TeacherSpec,
     label_rows,
     outcome_codes,
     resolve_teacher,
     unjudged_shares,
+    verdicts,
 )
 from ._prompts import TEACHER_INSTRUCTIONS, policy_block
 from ._types import Criterion, Explanation, Mistake, Policy, Teacher
@@ -134,6 +136,10 @@ class PolicyClassifier(TRLClassifier):
         Cs: Inverse L2 strengths to choose from.
         teacher_draws: 2 asks the teacher twice per case; a case it judges two
             ways weighs half, and the report gives its consistency.
+        teacher_check: How many of your labelled cases the teacher also
+            judges, to measure how well it follows your labels
+            (``report_["policy_vs_labels"]``). Only measured: your labels stay
+            as they are and its verdicts are not learned from. 0 for none.
         max_cost_usd: A cost cap for each fit and predict, in US dollars; the
             one in ``config_context`` applies when ``None``.
         random_state: Seed for the folds.
@@ -155,6 +161,7 @@ class PolicyClassifier(TRLClassifier):
         cv: int = 5,
         Cs: tuple[float, ...] = CS,
         teacher_draws: int = 1,
+        teacher_check: int = 50,
         max_cost_usd: float | None = None,
         random_state: int | None = 42,
         verbose: int = 0,
@@ -171,6 +178,7 @@ class PolicyClassifier(TRLClassifier):
         self.cv = cv
         self.Cs = Cs
         self.teacher_draws = teacher_draws
+        self.teacher_check = teacher_check
         self.max_cost_usd = max_cost_usd
         self.random_state = random_state
         self.verbose = verbose
@@ -184,6 +192,7 @@ class PolicyClassifier(TRLClassifier):
     scorer_: OrdinalScorer
     cut_points_: Floats | None
     unjudged_: dict[str, float]
+    policy_vs_labels_: dict[str, float | int | None] | None
     dropped_criteria_: tuple[str, ...]
     report_: dict[str, object]
 
@@ -303,6 +312,8 @@ class PolicyClassifier(TRLClassifier):
             raise ValueError(f"decision must be one of {DECISIONS}.")
         if self.teacher_draws not in (1, 2):
             raise ValueError(f"teacher_draws must be 1 or 2, got {self.teacher_draws}.")
+        if self.teacher_check < 0:
+            raise ValueError(f"teacher_check must be 0 or more: {self.teacher_check}.")
         if self.cv < 2 or not self.Cs or min(self.Cs) <= 0:
             raise ValueError("cv needs 2 or more folds, and Cs values above 0.")
         if self.writer_rounds is not None and self.writer_rounds < 0:
@@ -322,6 +333,9 @@ class PolicyClassifier(TRLClassifier):
         teacher = resolve_teacher(self.teacher) if self.teacher is not None else None
         labels = await label_rows(
             session, policy, texts, y, teacher, draws=self.teacher_draws
+        )
+        self.policy_vs_labels_ = await self._check_teacher(
+            session, policy, texts, y, teacher
         )
         shares = unjudged_shares(labels, policy)
         dropped = [cid for cid, share in shares.items() if share > UNJUDGED_SHARE]
@@ -356,6 +370,43 @@ class PolicyClassifier(TRLClassifier):
         await asyncio.to_thread(
             self._weigh, checks, answers, {}, muted=[], locked=[], unjudged=shares
         )
+
+    def _gold_checked(self, y: Labels) -> npt.NDArray[np.intp]:
+        """The labelled cases the teacher also judges: a seeded sample of them."""
+        gold = np.flatnonzero(y != UNLABELLED)
+        if self.teacher is None or not self.teacher_check or not len(gold):
+            return np.empty(0, dtype=np.intp)
+        rng = np.random.default_rng(self.random_state)
+        picked = rng.permutation(gold)[: self.teacher_check]
+        return np.sort(picked).astype(np.intp)
+
+    async def _check_teacher(
+        self,
+        session: LLMSession,
+        policy: Policy,
+        texts: list[str],
+        y: Labels,
+        teacher: TeacherSpec | None,
+    ) -> dict[str, float | int | None] | None:
+        """How often the teacher gives your label, on a sample of your cases."""
+        rows = self._gold_checked(y)
+        if teacher is None or not len(rows):
+            return None
+        found = await verdicts(session, teacher, policy, take(texts, rows), draw=0)
+        pairs = [
+            (int(y[r]), policy.names.index(v.outcome))
+            for r, v in zip(rows.tolist(), found, strict=True)
+            if v is not None
+        ]
+        if not pairs:
+            return None
+        labelled = np.array([gold for gold, _ in pairs], dtype=np.intp)
+        judged = np.array([verdict for _, verdict in pairs], dtype=np.intp)
+        return {
+            "n": len(pairs),
+            "exact": float((labelled == judged).mean()),
+            "kappa": quadratic_kappa(labelled, judged, len(policy.names)),
+        }
 
     async def _write(
         self,
@@ -551,6 +602,11 @@ class PolicyClassifier(TRLClassifier):
             },
             "C": self.scorer_.C,
             "cv_auc": self.scorer_.cv_auc,
+            **(
+                {"policy_vs_labels": self.policy_vs_labels_}
+                if self.policy_vs_labels_ is not None
+                else {}
+            ),
             "muted": muted,
             "locked": locked,
         }
@@ -650,14 +706,15 @@ class PolicyClassifier(TRLClassifier):
         checks = self._starting_checks(policy, ())
         planned: list[UsageRecord] = []
         asked = int((y == UNLABELLED).sum())
+        checked = len(self._gold_checked(y))
         teacher = resolve_teacher(self.teacher) if self.teacher is not None else None
-        if asked and teacher is not None and not callable(teacher):
+        if asked + checked and teacher is not None and not callable(teacher):
             prompt = (
                 text_tokens(TEACHER_INSTRUCTIONS)
                 + text_tokens(policy_block(policy))
                 + mean_tokens(texts)
             )
-            calls = asked * self.teacher_draws
+            calls = asked * self.teacher_draws + checked
             planned.append(
                 estimate_generations(teacher, prompt, calls=calls, role="teacher")
             )

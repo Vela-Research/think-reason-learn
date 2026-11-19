@@ -5,7 +5,8 @@ Unreleased
 ----------
 - ``think_reason_learn.policy``: decisions with 2 to 4 ordered outcomes (``NO < MAYBE < YES``) from a written policy,
   labelled cases, or both. ``PolicyClassifier(policy, answerer=..., teacher=..., writer=...)`` builds yes/no checks
-  from the policy's criteria, has a teacher label the cases you did not (your labels are never sent to it), optionally
+  from the policy's criteria, has a teacher label the cases you did not (it never relabels yours, and judges a sample of them only to report
+  how often it agrees), optionally
   has a writer add checks from the cases it gets wrong, and weighs the answers with an ordinal model, one weight per
   check. ``explain`` gives points by criterion that add up to each case's score, ``report_`` the agreement out of
   fold for your labels and the teacher's apart, and ``refit`` weighs the kept answers again (new labels, muted or

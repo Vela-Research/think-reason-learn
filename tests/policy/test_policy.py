@@ -198,18 +198,40 @@ def test_your_labels_are_never_sent_to_the_teacher(
 ) -> None:
     teacher, _, _ = fakes
     y = [label if i % 3 == 0 else None for i, label in enumerate(LABELS)]
-    clf = model().fit(CASES, y)
+    clf = model(teacher_check=0).fit(CASES, y)
     judged = {c.prompt for c in teacher.calls}
-    gold = {
-        f"Case:\n{text}"
-        for text, label in zip(CASES, y, strict=False)
-        if label is not None
-    }
+    gold = {f"Case:\n{text}" for text, label in zip(CASES, y, strict=True) if label}
     assert len(judged) == 32 and not judged & gold
     assert (clf.labels_["source"] == "gold").sum() == 16
     report = clf.report_
     assert report["cases"] == {"gold": 16, "teacher": 32, "unlabelled": 0}
+    assert "policy_vs_labels" not in report
     assert all(c.prefix and "C1 [positive]" in c.prefix for c in teacher.calls)
+
+
+def test_the_teacher_is_checked_against_your_labels(
+    fakes: tuple[FakeLLM, FakeLLM, FakeLLM],
+) -> None:
+    teacher, _, _ = fakes
+    y = [label if i % 3 == 0 else None for i, label in enumerate(LABELS)]
+    y[0] = "YES"  # the teacher says NO here
+    priced = LLM("fake:teacher", price=Price(1.0, 4.0))
+    usage = model(teacher=priced, teacher_check=10).estimate_cost(CASES, y)
+    assert {(r.role, r.calls) for r in usage} >= {("teacher", 32 + 10)}
+    clf = model(teacher_check=10).fit(CASES, y)
+    assert teacher.n_calls == 32 + 10
+    assert clf.policy_vs_labels_ is not None and clf.policy_vs_labels_["n"] == 10
+    assert clf.report_["policy_vs_labels"] == clf.policy_vs_labels_
+    # Measured only: your labels stay, and the teacher's verdicts are not used.
+    assert (clf.labels_["source"] == "gold").sum() == 16
+    assert clf.labels_["outcome"][0] == "YES"
+    everything = model(teacher_check=100).fit(CASES, y)
+    assert everything.report_["policy_vs_labels"] == {
+        "n": 16,
+        "exact": 15 / 16,
+        "kappa": everything.policy_vs_labels_["kappa"],  # pyright: ignore[reportOptionalSubscript]  # set above
+    }
+    assert model(teacher=None).fit(CASES, LABELS).policy_vs_labels_ is None
 
 
 def test_a_criterion_the_teacher_cannot_judge_is_dropped(

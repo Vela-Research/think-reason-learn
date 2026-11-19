@@ -73,7 +73,7 @@ class Persistable:
             "format": FORMAT,
             "library": _library_version(),
             "class": type(self).__name__,
-            "params": encode(self.get_params(deep=False)),
+            "params": encode(self._saved_params()),
             "fitted": encode(fitted),
             "summary": json.loads(json.dumps(self._readable(), default=_jsonable)),
         }
@@ -113,6 +113,10 @@ class Persistable:
     def _summary(self) -> Mapping[str, object]:
         """What the model learned, for people reading ``model.json``."""
         return {}
+
+    def _saved_params(self) -> Mapping[str, object]:
+        """The settings ``save`` writes: all of them, by default."""
+        return self.get_params(deep=False)
 
     def _save_apart(self, folder: Path) -> None:
         """Save the attributes in ``_saved_apart``; there are none by default."""

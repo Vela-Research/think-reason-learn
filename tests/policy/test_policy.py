@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import itertools
+import json
 import logging
 from collections.abc import Iterator
 from dataclasses import replace
@@ -441,7 +442,10 @@ def test_save_and_load_round_trip(
     fakes: tuple[FakeLLM, FakeLLM, FakeLLM], tmp_path: Path
 ) -> None:
     clf = model(decision="balanced").fit(CASES)
-    loaded = PolicyClassifier.load(clf.save(tmp_path / "gifts"))
+    folder = clf.save(tmp_path / "gifts")
+    text = (folder / "model.json").read_text()
+    assert "NaN" not in text and json.loads(text)  # strict JSON, NaN answers and all
+    loaded = PolicyClassifier.load(folder)
     assert loaded.get_params()["policy"] == GIFTS
     assert (loaded.predict_proba(CASES) == clf.predict_proba(CASES)).all()
     assert (loaded.predict(CASES) == clf.predict(CASES)).all()

@@ -1,4 +1,4 @@
-"""Typed doors into scikit-learn, whose own annotations are partial.
+"""Typed doors into scikit-learn and SciPy, whose own annotations are partial.
 
 Each function states the types this library relies on. The few ``pyright:
 ignore`` comments that scikit-learn's partial annotations need sit here, so the
@@ -10,12 +10,15 @@ from __future__ import annotations
 
 import inspect
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Final
 
 import numpy as np
 import numpy.typing as npt
 import sklearn
+from scipy.optimize import (
+    minimize,  # pyright: ignore[reportUnknownVariableType]  # partial annotation
+)
 from sklearn.base import (
     clone,  # pyright: ignore[reportUnknownVariableType]  # partial annotation
 )
@@ -36,6 +39,9 @@ from sklearn.utils.validation import (
 
 type Floats = npt.NDArray[np.float64]
 type Bools = npt.NDArray[np.bool_]
+type Codes = npt.NDArray[np.intp]
+type Objective = Callable[[Floats], tuple[float, Floats]]
+"""A loss and its gradient at a point."""
 
 _NEW_CV_ATTRIBUTES: Final = (
     "use_legacy_attributes" in inspect.signature(LogisticRegressionCV).parameters
@@ -80,7 +86,7 @@ def penalty() -> str:
 
 
 def stratified_folds(
-    splitter: StratifiedKFold, features: npt.NDArray[np.generic], y: Bools
+    splitter: StratifiedKFold, features: npt.NDArray[np.generic], y: Bools | Codes
 ) -> list[tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]]]:
     """(train, held-out) row indices of each fold."""
     folds = splitter.split(features, y)  # pyright: ignore[reportUnknownMemberType]  # partial annotation
@@ -127,3 +133,25 @@ def chosen(
     c = np.asarray(search.C_, dtype=float).ravel()[0]  # pyright: ignore[reportUnknownMemberType]  # partial annotation
     l1_ratio = np.asarray(search.l1_ratio_, dtype=float).ravel()[0]  # pyright: ignore[reportUnknownMemberType]  # partial annotation
     return float(c), float(l1_ratio)
+
+
+def minimize_bounded(
+    objective: Objective,
+    start: Floats,
+    bounds: Sequence[tuple[float | None, float | None]],
+    *,
+    max_iter: int,
+) -> Floats:
+    """The point L-BFGS-B reaches from ``start``, within ``bounds``.
+
+    ``objective`` returns the loss and its gradient together.
+    """
+    result = minimize(  # pyright: ignore[reportUnknownVariableType]  # partial annotation
+        objective,
+        start,
+        jac=True,
+        method="L-BFGS-B",
+        bounds=list(bounds),
+        options={"maxiter": max_iter},
+    )
+    return np.asarray(result.x, dtype=float)  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]  # partial annotation

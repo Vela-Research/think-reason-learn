@@ -723,7 +723,8 @@ class PolicyClassifier(TRLClassifier):
         answers = np.full((len(texts), len(checks)), np.nan)
         if len(used):
             answerer = self._models("answerer", "answer")
-            asked = [checks[j] for j in used.tolist()]
+            indices: list[int] = used.tolist()
+            asked = [checks[j] for j in indices]
             answers[:, used] = await self._ask(session, answerer, texts, asked)
         return answers
 

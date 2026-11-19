@@ -154,4 +154,4 @@ def minimize_bounded(
         bounds=list(bounds),
         options={"maxiter": max_iter},
     )
-    return np.asarray(result.x, dtype=float)  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]  # partial annotation
+    return np.asarray(result.x, dtype=float)  # pyright: ignore[reportUnknownMemberType]  # partial annotation

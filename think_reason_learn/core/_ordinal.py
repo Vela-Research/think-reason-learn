@@ -488,7 +488,8 @@ def _mean_and_spread(answers: Floats) -> tuple[Floats, Floats]:
     answered = ~np.isnan(answers)
     counts = answered.sum(axis=0)
     totals = np.where(answered, answers, 0.0).sum(axis=0)
-    mean = np.divide(totals, counts, out=np.zeros(answers.shape[1]), where=counts > 0)
+    mean = np.zeros(len(totals))
+    np.divide(totals, counts, out=mean, where=counts > 0)
     filled = np.where(answered, answers, mean)
     return mean, filled.std(axis=0)
 

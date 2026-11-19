@@ -20,7 +20,7 @@ import pandas as pd
 from pandas.api.types import is_scalar
 from pydantic import BaseModel
 
-from think_reason_learn.core._data import LabelInput, TextInput, to_texts
+from think_reason_learn.core._data import LabelInput, TextInput, take, to_texts
 from think_reason_learn.exceptions import DataError, NoOutputError
 from think_reason_learn.llm import (
     Endpoint,
@@ -126,7 +126,7 @@ async def label_rows(
         for c in codes.tolist()
     ]
     if teacher is not None and len(asked):
-        cases = [texts[i] for i in asked.tolist()]
+        cases = take(texts, asked)
         first = await verdicts(session, teacher, policy, cases, draw=0)
         second = (
             await verdicts(session, teacher, policy, cases, draw=1)

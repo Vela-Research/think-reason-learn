@@ -221,6 +221,8 @@ def test_your_labels_are_never_sent_to_the_teacher(
     assert report["cases"] == {"gold": 16, "teacher": 32, "unlabelled": 0}
     assert "policy_vs_labels" not in report
     assert all(c.prefix and "C1 [positive]" in c.prefix for c in teacher.calls)
+    # Each call carries one case's text, not a list of them.
+    assert all(c.prompt in {f"Case:\n{text}" for text in CASES} for c in teacher.calls)
 
 
 def test_the_teacher_is_checked_against_your_labels(
@@ -407,7 +409,7 @@ def test_scikit_learn_scorers_read_the_probabilities(
     assert explained.probabilities["MAYBE"] == proba[5, 0]
     assert get_scorer("roc_auc_ovr")(clf, CASES, LABELS) == 1.0
     out_of_fold = np.asarray(
-        cross_val_predict(  # pyright: ignore[reportUnknownArgumentType]  # partial annotation
+        cross_val_predict(
             model(teacher=None), CASES, LABELS, cv=2, method="predict_proba"
         ),
         dtype=float,

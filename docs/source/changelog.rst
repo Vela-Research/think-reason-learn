@@ -3,6 +3,17 @@ Changelog
 
 Unreleased
 ----------
+- ``think_reason_learn.policy``: decisions with 2 to 4 ordered outcomes (``NO < MAYBE < YES``) from a written policy,
+  labelled cases, or both. ``PolicyClassifier(policy, answerer=..., teacher=..., writer=...)`` builds yes/no checks
+  from the policy's criteria, has a teacher label the cases you did not (your labels are never sent to it), optionally
+  has a writer add checks from the cases it gets wrong, and weighs the answers with an ordinal model, one weight per
+  check. ``explain`` gives points by criterion that add up to each case's score, ``report_`` the agreement out of
+  fold for your labels and the teacher's apart, and ``refit`` weighs the kept answers again (new labels, muted or
+  locked criteria) without calling a model. ``label_cases``, ``write_checks`` and ``answer_checks`` (the library's
+  answering path as a matrix of yes probabilities) work on their own. See :doc:`getting_started/policy_decisions`.
+- ``think_reason_learn.core.fit_ordinal`` and ``OrdinalScorer``: a cumulative-logit model over answers, for ordered
+  outcomes. With two outcomes it is L2 logistic regression.
+- ``FakeCall`` records the cached ``prefix`` of a generation.
 - The one-line package description on PyPI now opens with the website's headline and says what the library is.
 - ``ChoiceQuestion`` takes optional ``descriptions``, by label, of what each option means. System One models get
   them in ``criteria`` (``null`` used to be sent for every option), OpenAI's Decisions API on each choice, and

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import numbers
 from collections.abc import Collection, Generator, Mapping, Sequence
 from contextlib import contextmanager, nullcontext
 from typing import Final, Literal, Self
@@ -23,6 +24,7 @@ from typing import Final, Literal, Self
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
+from pandas.api.types import is_scalar
 
 from think_reason_learn.core._answers import yes_probabilities
 from think_reason_learn.core._classifier import Labels, Proba, TRLClassifier, Work
@@ -117,6 +119,10 @@ class PolicyClassifier(TRLClassifier):
     current ones get wrong. Every prediction can be explained in points, by
     criterion.
 
+    As in scikit-learn, ``classes_`` holds the outcomes sorted and
+    ``predict_proba``'s columns follow it; ``outcomes_`` holds them lowest
+    first, as the policy orders them.
+
     Args:
         policy: The policy: its text, its ordered outcomes and its criteria.
         answerer: Model(s) that answer the checks. Defaults to Jev.
@@ -192,6 +198,7 @@ class PolicyClassifier(TRLClassifier):
     templates: tuple[Form, ...]
     signs: Signs
     decision: Decision
+    outcomes_: npt.NDArray[np.str_]
     labels_: pd.DataFrame
     checks_: pd.DataFrame
     answers_: pd.DataFrame
@@ -322,13 +329,13 @@ class PolicyClassifier(TRLClassifier):
 
     def _encode_labels(self, texts: list[str], y: LabelInput) -> tuple[Classes, Labels]:
         policy = self._policy()
-        codes = outcome_codes(policy, y, len(texts))
+        codes = outcome_codes(policy, _named_labels(y, policy), len(texts))
         if (codes == UNLABELLED).any() and self.teacher is None:
             raise DataError(
                 f"{int((codes == UNLABELLED).sum())} cases have no label: give "
                 "teacher=... to label them by the policy, or a label for every case."
             )
-        return np.asarray(policy.names), codes
+        return np.unique(np.asarray(policy.names)), codes
 
     def _task(self) -> str:
         return self._policy().text
@@ -361,6 +368,7 @@ class PolicyClassifier(TRLClassifier):
 
     async def _afit(self, texts: list[str], y: Labels, session: LLMSession) -> None:
         policy = self._policy()
+        self.outcomes_ = np.asarray(policy.names)
         answerer = self._models("answerer", "answer")
         teacher = resolve_teacher(self.teacher) if self.teacher is not None else None
         labels = await label_rows(
@@ -671,7 +679,10 @@ class PolicyClassifier(TRLClassifier):
     # Predicting and explaining.
 
     async def _apredict_proba(self, texts: list[str], session: LLMSession) -> Proba:
-        return self.scorer_.proba(await self._answered(texts, session))
+        proba = self.scorer_.proba(await self._answered(texts, session))
+        in_classes = np.empty_like(proba)
+        in_classes[:, self._class_columns()] = proba
+        return in_classes
 
     async def _answered(self, texts: list[str], session: LLMSession) -> Floats:
         """Answers to every check, asking only those with a weight (NaN elsewhere)."""
@@ -685,7 +696,14 @@ class PolicyClassifier(TRLClassifier):
         return answers
 
     def _decide(self, proba: Proba) -> Labels:
-        return _decided(proba, self.cut_points_)
+        """Class codes from probabilities in ``classes_`` order."""
+        columns = self._class_columns()
+        return columns[_decided(proba[:, columns], self.cut_points_)]
+
+    def _class_columns(self) -> npt.NDArray[np.intp]:
+        """Where each outcome, lowest first, sits in ``classes_``."""
+        classes: list[str] = self.classes_.tolist()
+        return np.array([classes.index(o) for o in self.outcomes_.tolist()], np.intp)
 
     def _explanations(self, answers: Floats) -> list[Explanation]:
         policy = self._policy()
@@ -693,7 +711,7 @@ class PolicyClassifier(TRLClassifier):
         used = self.checks_["used"].to_numpy(dtype=bool)
         points = POINTS * self.scorer_.contributions(answers)
         proba = self.scorer_.proba(answers)
-        outcomes = self._decide(proba)
+        outcomes = _decided(proba, self.cut_points_)
         cutoffs = {
             name: float(POINTS * t)
             for name, t in zip(policy.names[1:], self.scorer_.thresholds, strict=True)
@@ -853,6 +871,31 @@ def _warn_if_lopsided(codes: Labels, policy: Policy) -> None:
             "there is little to learn the other outcomes from: the policy may be "
             "too strict or too loose for these cases."
         )
+
+
+def _named_labels(y: LabelInput, policy: Policy) -> LabelInput:
+    """``y``, with class codes read as the outcomes they stand for.
+
+    scikit-learn's ``cross_val_predict`` fits on labels encoded as 0, 1, ...
+    in ``classes_`` (sorted) order. Labels that are all such codes, and none an
+    outcome's name, are read that way.
+    """
+    values: list[object] = np.asarray(y, dtype=object).ravel().tolist()
+    names, ordered = set(policy.names), sorted(policy.names)
+    read: list[str | None] = []
+    for value in values:
+        if is_scalar(value) and bool(pd.isna([value])[0]):
+            read.append(None)
+        elif (
+            not isinstance(value, bool)  # a bool is an Integral too
+            and isinstance(value, numbers.Integral)
+            and str(value) not in names
+            and 0 <= int(value) < len(ordered)
+        ):
+            read.append(ordered[int(value)])
+        else:
+            return y  # a name, or not a class code
+    return read if any(r is not None for r in read) else y
 
 
 def _decided(proba: Floats, cuts: Floats | None) -> Labels:

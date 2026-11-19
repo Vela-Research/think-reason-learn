@@ -59,10 +59,13 @@ case you labelled. It does judge a sample of them, to measure how often it agree
    clf.fit(X, y)
 
    clf.predict(["A climbing chalk bag for a climber."])
-   clf.predict_proba(X)       # one column per outcome, lowest first
+   clf.predict_proba(X)       # one column per outcome, in classes_ order
+   clf.outcomes_              # the outcomes, lowest first
 
 If one outcome has more than 90% of the training labels, ``fit`` warns: there is little to learn the others from,
-and the policy may be too strict or too loose for the cases. With labels for every case no teacher is needed; with no labels at all, call ``fit(X)``. To estimate a fit with no
+and the policy may be too strict or too loose for the cases. As in scikit-learn, ``classes_`` holds the outcomes sorted, and ``predict_proba``'s columns follow it, so
+scikit-learn's scorers and ``cross_val_predict`` read them right; ``outcomes_`` holds them in the policy's order. With
+labels for every case no teacher is needed; with no labels at all, call ``fit(X)``. To estimate a fit with no
 labels, pass ``estimate_cost(X, [None] * len(X))``. ``max_cost_usd=`` caps each fit and predict, like
 ``config_context(max_cost_usd=...)``.
 

@@ -10,6 +10,13 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.metrics import (
+    get_scorer,  # pyright: ignore[reportUnknownVariableType]  # partial annotation
+    roc_auc_score,  # pyright: ignore[reportUnknownVariableType]  # partial annotation
+)
+from sklearn.model_selection import (
+    cross_val_predict,  # pyright: ignore[reportUnknownVariableType]  # partial annotation
+)
 
 from think_reason_learn import LLM, Price
 from think_reason_learn.exceptions import BudgetExceededError, DataError
@@ -177,7 +184,7 @@ def test_it_learns_the_gift_policy_from_the_teacher(
     fakes: tuple[FakeLLM, FakeLLM, FakeLLM],
 ) -> None:
     clf = model().fit(CASES)
-    assert list(clf.classes_) == ["NO", "MAYBE", "YES"]  # the policy's order
+    assert list(clf.outcomes_) == ["NO", "MAYBE", "YES"]  # the policy's order
     assert (clf.predict(CASES) == np.array(LABELS)).mean() == 1.0
     proba = clf.predict_proba(CASES)
     assert proba.shape == (48, 3) and np.allclose(proba.sum(axis=1), 1)
@@ -330,6 +337,32 @@ def test_a_check_with_one_answer_for_every_case_gets_no_weight(
     [row] = clf.checks_[clf.checks_["id"] == "Q1"].to_dict("records")
     assert row["flat"] and not row["used"] and row["points"] == 0
     assert not clf.checks_[clf.checks_["group"] == "C1"]["flat"].any()
+
+
+def test_scikit_learn_scorers_read_the_probabilities(
+    fakes: tuple[FakeLLM, FakeLLM, FakeLLM],
+) -> None:
+    clf = model(teacher=None).fit(CASES, LABELS)
+    assert list(clf.classes_) == ["MAYBE", "NO", "YES"]  # sorted, as scikit-learn's
+    assert list(clf.outcomes_) == ["NO", "MAYBE", "YES"]  # the policy's, lowest first
+    proba = clf.predict_proba(CASES)
+    assert (clf.classes_[proba.argmax(axis=1)] == clf.predict(CASES)).all()
+    [explained] = clf.explain(CASES[5:6])
+    assert list(explained.probabilities) == ["NO", "MAYBE", "YES"]
+    assert explained.probabilities["MAYBE"] == proba[5, 0]
+    assert get_scorer("roc_auc_ovr")(clf, CASES, LABELS) == 1.0
+    out_of_fold = np.asarray(
+        cross_val_predict(  # pyright: ignore[reportUnknownArgumentType]  # partial annotation
+            model(teacher=None), CASES, LABELS, cv=2, method="predict_proba"
+        ),
+        dtype=float,
+    )
+    assert roc_auc_score(LABELS, out_of_fold, multi_class="ovr") > 0.99
+    keep = Policy(GIFTS.text, (Outcome("RETURN"), Outcome("KEEP")), (HOBBY, OWNS))
+    kept = ["KEEP" if "matches a hobby" in text else "RETURN" for text in CASES]
+    two = model(policy=keep, teacher=None).fit(CASES, kept)
+    assert list(two.classes_) == ["KEEP", "RETURN"]
+    assert get_scorer("roc_auc")(two, CASES, kept) == 1.0
 
 
 @pytest.mark.asyncio

@@ -61,7 +61,8 @@ case you labelled. It does judge a sample of them, to measure how often it agree
    clf.predict(["A climbing chalk bag for a climber."])
    clf.predict_proba(X)       # one column per outcome, lowest first
 
-With labels for every case no teacher is needed; with no labels at all, call ``fit(X)``. To estimate a fit with no
+If one outcome has more than 90% of the training labels, ``fit`` warns: there is little to learn the others from,
+and the policy may be too strict or too loose for the cases. With labels for every case no teacher is needed; with no labels at all, call ``fit(X)``. To estimate a fit with no
 labels, pass ``estimate_cost(X, [None] * len(X))``. ``max_cost_usd=`` caps each fit and predict, like
 ``config_context(max_cost_usd=...)``.
 

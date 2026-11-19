@@ -96,6 +96,8 @@ DECISIONS: Final[tuple[Decision, ...]] = ("likely", "balanced")
 POINTS: Final = 10.0
 """Points per unit of the ordinal model's score, so explanations read as whole
 numbers."""
+LOPSIDED_SHARE: Final = 0.9
+"""Above this share of the training labels on one outcome, fit warns."""
 _SHOWN_TOKENS: Final = 25
 """Cases the writer is shown in full, for estimates."""
 
@@ -512,6 +514,7 @@ class PolicyClassifier(TRLClassifier):
         rows = np.flatnonzero((codes != UNLABELLED) & answered)
         if len(np.unique(codes[rows])) < 2:
             raise DataError("The labelled cases need at least two different outcomes.")
+        _warn_if_lopsided(codes[rows], policy)
         scorer, out_of_fold = self._fit_scorer(
             checks, answers[rows], codes[rows], fixed, rows
         )
@@ -833,6 +836,18 @@ class PolicyClassifier(TRLClassifier):
             "cut_points": self.cut_points_,
             "report": self.report_,
         }
+
+
+def _warn_if_lopsided(codes: Labels, policy: Policy) -> None:
+    """Warn when one outcome has nearly every training label."""
+    shares = np.bincount(codes, minlength=len(policy.names)) / len(codes)
+    top = int(np.argmax(shares))
+    if shares[top] > LOPSIDED_SHARE:
+        logger.warning(
+            f"{shares[top]:.0%} of the training labels are {policy.names[top]}, so "
+            "there is little to learn the other outcomes from: the policy may be "
+            "too strict or too loose for these cases."
+        )
 
 
 def _decided(proba: Floats, cuts: Floats | None) -> Labels:

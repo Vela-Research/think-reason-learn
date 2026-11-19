@@ -309,6 +309,19 @@ def test_sample_weights_multiply_the_teachers(
         model().fit(CASES, sample_weight=[-1.0] * 48)
 
 
+def test_it_warns_when_one_outcome_has_nearly_every_label(
+    fakes: tuple[FakeLLM, FakeLLM, FakeLLM], caplog: pytest.LogCaptureFixture
+) -> None:
+    lopsided = ["NO"] * 45 + ["MAYBE"] * 3
+    with caplog.at_level(logging.WARNING):
+        model(teacher=None).fit(CASES, lopsided)
+    assert "94% of the training labels are NO" in caplog.text
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        model(teacher=None).fit(CASES, LABELS)
+    assert "training labels" not in caplog.text
+
+
 @pytest.mark.asyncio
 async def test_async_twins(fakes: tuple[FakeLLM, FakeLLM, FakeLLM]) -> None:
     clf = await model().afit(CASES)

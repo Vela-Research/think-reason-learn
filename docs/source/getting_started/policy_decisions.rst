@@ -74,8 +74,8 @@ What fit does
    the two draws agreed.
 2. **Checks.** Each criterion becomes yes/no checks by the ``templates``: ``"reach"`` asks, once per boundary,
    whether judging by that criterion alone the case reaches the outcome; ``"applies"`` asks whether the criterion bears
-   on the case. ``"met"`` and ``"policy"`` (the whole policy, once per boundary) can be added. Checks of your own go in
-   ``checks=``, asked as written.
+   on the case; ``"met"`` asks whether the case meets it; and ``"policy"`` asks the first of these for the whole policy,
+   once per boundary. All four are used by default. Checks of your own go in ``checks=``, asked as written.
 3. **Written checks.** With a writer, a model reads the cases the current checks get wrong, out of fold, with the
    teacher's reasons, and writes new concrete checks. ``writer_rounds`` sets how many rounds; one by default.
 4. **Weights.** The answerer answers every check for every labelled case, and an ordinal model weighs the answers, one

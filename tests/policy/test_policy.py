@@ -219,7 +219,9 @@ def test_a_criterion_the_teacher_cannot_judge_is_dropped(
     clf = model().fit(CASES)
     assert "C4" not in set(clf.checks_["group"])
     assert clf.dropped_criteria_ == ("C4",) and clf.unjudged_["C4"] == 1.0
-    assert not any(LOCAL.text in q for c in judge.calls for q in c.questions)
+    # Its own checks quote it; the whole-policy checks still read the policy as written.
+    quoted = f'"{LOCAL.text}"'
+    assert not any(quoted in q for c in judge.calls for q in c.questions)
     assert clf.explain(CASES[:1])[0].unassessed == ("C4",)
 
 
@@ -231,12 +233,12 @@ def test_reasons_add_up_to_the_points(fakes: tuple[FakeLLM, FakeLLM, FakeLLM]) -
         assert explained.baseline + sum(explained.reasons.values()) == explained.points
         assert np.isclose(sum(explained.checks.values()), explained.points)
         assert explained.outcome == predicted
-        assert set(explained.reasons) <= {"C1", "C2", "C3"}
+        assert set(explained.reasons) <= {"C1", "C2", "C3", "policy"}
         assert list(explained.cutoffs) == ["MAYBE", "YES"]
     [loved] = clf.explain([case(99, "hm")])
     assert loved.outcome == "YES" and loved.reasons["C1"] > 0
     _, unknown = clf.explain([CASES[0], "unanswerable"])
-    assert set(unknown.unassessed) == {"C4", "C1", "C2", "C3"}
+    assert set(unknown.unassessed) >= {"C4", "C1", "C2", "C3"}
     assert unknown.points == 0.0  # no answers: an average case
 
 

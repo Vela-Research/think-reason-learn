@@ -118,8 +118,8 @@ class PolicyClassifier(TRLClassifier):
         writer: Reasoning model(s) that write new checks. ``None`` writes none.
         templates: The checks built from each criterion (see ``Form``):
             ``"reach"`` (once per boundary), ``"applies"``, ``"met"``, and
-            ``"policy"`` (the whole policy, once per boundary). A policy with
-            no criteria is judged as a whole.
+            ``"policy"`` (the whole policy, once per boundary); all four by
+            default. A policy with no criteria is judged as a whole.
         writer_rounds: Rounds of written checks; ``None`` is 1 with a writer
             and 0 without.
         checks: Yes/no checks of your own, asked as written: ``Criterion(id,
@@ -147,7 +147,7 @@ class PolicyClassifier(TRLClassifier):
         *,
         teacher: Models | Teacher | None = None,
         writer: Models | None = None,
-        templates: tuple[Form, ...] = ("reach", "applies"),
+        templates: tuple[Form, ...] = ("reach", "applies", "met", "policy"),
         writer_rounds: int | None = None,
         checks: tuple[Criterion, ...] = (),
         signs: Signs = "criteria",

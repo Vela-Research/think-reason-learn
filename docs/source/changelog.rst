@@ -1,8 +1,8 @@
 Changelog
 =========
 
-Unreleased
-----------
+0.4.0 (2026-11-19)
+------------------
 - ``think_reason_learn.policy``: decisions with 2 to 4 ordered outcomes (``NO < MAYBE < YES``) from a written policy,
   labelled cases, or both. ``PolicyClassifier(policy, answerer=..., teacher=..., writer=...)`` builds yes/no checks
   from the policy's criteria, has a teacher label the cases you did not (it never relabels yours, and judges a sample of them only to report

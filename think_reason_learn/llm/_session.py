@@ -33,6 +33,7 @@ from ._cache import JSON, Cache, cache_key, open_cache
 from ._calls import Skipped, send
 from ._config import get_config
 from ._estimate import (
+    GENERATE_OUTPUT_TOKENS,
     answer_output_tokens,
     call_tokens,
     generate_output_tokens,
@@ -104,6 +105,7 @@ class LLMSession:
         instructions: str | None = None,
         prefix: str | None = None,
         draw: int = 0,
+        reply_tokens: int = GENERATE_OUTPUT_TOKENS,
     ) -> S: ...
 
     @overload
@@ -117,6 +119,7 @@ class LLMSession:
         instructions: str | None = None,
         prefix: str | None = None,
         draw: int = 0,
+        reply_tokens: int = GENERATE_OUTPUT_TOKENS,
     ) -> str: ...
 
     async def generate(
@@ -129,6 +132,7 @@ class LLMSession:
         instructions: str | None = None,
         prefix: str | None = None,
         draw: int = 0,
+        reply_tokens: int = GENERATE_OUTPUT_TOKENS,
     ) -> BaseModel | str:
         """Text, or an instance of ``schema``, from the first model that gives it.
 
@@ -141,6 +145,10 @@ class LLMSession:
             prefix: Text sent before the prompt and marked for prompt caching.
             draw: Different draws of one request are different calls; the same
                 draw is answered from the cache.
+            reply_tokens: The most the reply writes, thinking aside. With the
+                model's reasoning effort it sizes what the call holds of the
+                cost cap; a short structured reply holds less. It is not sent:
+                the model may write more.
 
         Raises:
             LLMError: No model gave usable output.
@@ -162,13 +170,13 @@ class LLMSession:
                     partial(adapter.generate, endpoint, request),
                     TokenCounts(
                         input=call_tokens(prompt, instructions, prefix),
-                        output=self._engine.writing_output(endpoint),
+                        output=self._engine.writing_output(endpoint, reply_tokens),
                     ),
                 )
             except ProviderError as error:
                 errors.append(f"{endpoint.name}: {error}")
                 continue
-            self._engine.wrote(endpoint, reply.tokens.output)
+            self._engine.wrote(endpoint, reply_tokens, reply.tokens.output)
             if _usable(reply.output, schema):
                 self._engine.store({key: _dump(reply.output)}, now=True)
                 self._engine.budget.check()
@@ -249,7 +257,7 @@ class _Engine:
             open_cache(self.config.cache_path) if self.config.cache else None
         )
         self._configured: set[str] = set()
-        self._written: dict[Endpoint, int] = {}
+        self._written: dict[tuple[Endpoint, int], int] = {}
         self._served: dict[str, set[str]] = {}
         self._pending: dict[str, JSON] = {}
         self._flushed = time.monotonic()
@@ -272,7 +280,7 @@ class _Engine:
         """
         if endpoint.key not in self._configured:
             self._first_call(endpoint, estimate)
-        held = self.budget.reserve(call_cost(endpoint, estimate, None)[0])
+        held = await self.budget.hold(call_cost(endpoint, estimate, None)[0])
         start, cost = time.perf_counter(), None
         sent = False  # a request is out and no error has come back
 
@@ -321,23 +329,28 @@ class _Engine:
         finally:
             self.budget.settle(held, cost)
 
-    def writing_output(self, endpoint: Endpoint) -> int:
+    def writing_output(
+        self, endpoint: Endpoint, reply_tokens: int = GENERATE_OUTPUT_TOKENS
+    ) -> int:
         """Output tokens to hold for a writing call of ``endpoint``.
 
-        The most an earlier writing call of it output in this run, plus a
-        margin; before any, the planned estimate, which counts its reasoning
-        effort. Never more than its ``max_output_tokens``.
+        The most an earlier call of it of the same ``reply_tokens`` output in
+        this run, plus a margin; before any, the planned estimate, which counts
+        its reasoning effort. Short replies and long ones are sized apart, so a
+        long one never holds what short ones wrote. Never more than its
+        ``max_output_tokens``.
         """
-        if (most := self._written.get(endpoint)) is None:
-            return generate_output_tokens(endpoint)
+        if (most := self._written.get((endpoint, reply_tokens))) is None:
+            return generate_output_tokens(endpoint, reply_tokens)
         tokens = math.ceil(most * _WRITING_MARGIN)
         cap = endpoint.settings.max_output_tokens
         return tokens if cap is None else min(tokens, cap)
 
-    def wrote(self, endpoint: Endpoint, output_tokens: int) -> None:
+    def wrote(self, endpoint: Endpoint, reply_tokens: int, output_tokens: int) -> None:
         """Note what a writing call of ``endpoint`` output, to size later ones."""
         if output_tokens > 0:  # some report none
-            self._written[endpoint] = max(self._written.get(endpoint, 0), output_tokens)
+            key = (endpoint, reply_tokens)
+            self._written[key] = max(self._written.get(key, 0), output_tokens)
 
     def _first_call(self, endpoint: Endpoint, estimate: TokenCounts) -> None:
         """Refuse a model the cap cannot count (each call, until one passes)."""

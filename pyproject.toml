@@ -1,6 +1,6 @@
 [project]
 name = "think-reason-learn"
-version = "0.4.0"
+version = "0.4.1"
 description = "The decision harness for predictions, built as scikit-learn models that use language-model reasoning and show the reasons behind every prediction"
 readme = "README.md"
 license = "MIT"

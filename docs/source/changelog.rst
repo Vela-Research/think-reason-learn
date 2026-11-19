@@ -1,6 +1,19 @@
 Changelog
 =========
 
+0.4.1 (2026-11-19)
+------------------
+- ``max_cost_usd`` no longer stops a run that fits under it. Each call in flight holds its worst-case estimate of
+  the cap, and many at once could hold all of it with nothing spent: 70 teacher calls in ``label_cases`` under a $3
+  cap stopped within two seconds ("the next call ($0.17) would pass its cap of $3.00 ($0.00 spent)"). A call that
+  would fit but for what others hold now waits for them to finish and checks again. It is refused only when what is
+  already spent plus its own estimate passes the cap. The check right before sending is unchanged, so the bill
+  passes the cap by at most what the calls in flight when it was crossed cost, as before.
+- Writing calls hold a reply of their own size. ``LLMSession.generate`` takes ``reply_tokens``, the most a reply
+  writes besides thinking (2,000 by default, as before), and later calls are sized by what earlier ones of the same
+  size wrote. The policy teacher's verdict holds 400 tokens and the writer 60 per check it is asked for plus 200, in
+  the cost estimate too. Answering calls were already sized by their questions.
+
 0.4.0 (2026-11-19)
 ------------------
 - ``think_reason_learn.policy``: decisions with 2 to 4 ordered outcomes (``NO < MAYBE < YES``) from a written policy,

@@ -129,8 +129,9 @@ tree.usage_.by("role", "model")    # calls, tokens and dollars
   above $1.
 - `max_cost_usd` refuses work estimated over the cap and a model with no known price, since it could not count it.
   A call is sent only if spending plus its estimate stays within the cap, checked right before it goes out, so no
-  call starts once spending passes it. Writing calls are estimated by their reasoning effort, then by what the run's
-  earlier writing calls wrote. Calls already sent finish, and one can cost more than estimated (a reasoning model
+  call starts once spending passes it. Each call in flight holds its estimate, and a call that fits only once others
+  settle waits for them rather than stopping the run. Writing calls are estimated by their reasoning effort and the
+  size of their reply, then by what the run's earlier calls like them wrote. Calls already sent finish, and one can cost more than estimated (a reasoning model
   thinking long), so the bill can pass the cap by at most what the calls in flight when it was crossed cost. Models
   on your own machine or network are free.
 - A failed call is retried up to 5 times, within 5 minutes of its first failure. When the last model left fails 5

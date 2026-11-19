@@ -80,6 +80,7 @@ from ._checks import (
 )
 from ._labels import (
     MIN_JUDGED,
+    TEACHER_REPLY_TOKENS,
     UNJUDGED_SHARE,
     UNLABELLED,
     TeacherSpec,
@@ -91,7 +92,7 @@ from ._labels import (
 )
 from ._prompts import TEACHER_INSTRUCTIONS, policy_block
 from ._types import Criterion, Explanation, Mistake, Policy, Teacher
-from ._writer import CHECKS_PER_ROUND, written_checks
+from ._writer import CHECKS_PER_ROUND, writer_reply_tokens, written_checks
 
 logger = logging.getLogger(__name__)
 
@@ -807,7 +808,13 @@ class PolicyClassifier(TRLClassifier):
             )
             calls = asked * self.teacher_draws + checked
             planned.append(
-                estimate_generations(teacher, prompt, calls=calls, role="teacher")
+                estimate_generations(
+                    teacher,
+                    prompt,
+                    calls=calls,
+                    role="teacher",
+                    reply_tokens=TEACHER_REPLY_TOKENS,
+                )
             )
         planned.append(estimate_answers(answerer, texts, [c.question for c in checks]))
         if rounds := self._rounds():
@@ -818,7 +825,11 @@ class PolicyClassifier(TRLClassifier):
             )
             planned += [
                 estimate_generations(
-                    self._writer(), prompt, calls=rounds, role="writer"
+                    self._writer(),
+                    prompt,
+                    calls=rounds,
+                    role="writer",
+                    reply_tokens=writer_reply_tokens(CHECKS_PER_ROUND),
                 ),
                 estimate_answers(
                     answerer, texts, [QUESTION_TOKENS] * CHECKS_PER_ROUND, times=rounds

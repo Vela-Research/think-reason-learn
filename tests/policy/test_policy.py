@@ -21,7 +21,7 @@ from sklearn.model_selection import (
 )
 
 from think_reason_learn import LLM, Price
-from think_reason_learn.exceptions import BudgetExceededError, DataError
+from think_reason_learn.exceptions import BudgetExceededError, DataError, NoOutputError
 from think_reason_learn.llm import (
     Question,
     Usage,
@@ -639,6 +639,55 @@ def test_teacher_and_writer_calls_hold_their_reply_size(
     planned = {r.role: r for r in clf.estimate_cost(CASES, [None] * 48)}
     assert planned["teacher"].output_tokens == 48 * TEACHER_REPLY_TOKENS == 48 * 400
     assert planned["writer"].output_tokens == 60 * 30 + 200
+
+
+def test_each_case_keeps_why_the_teacher_failed(
+    fakes: tuple[FakeLLM, FakeLLM, FakeLLM], caplog: pytest.LogCaptureFixture
+) -> None:
+    def fenced(request: GenerateRequest) -> dict[str, object] | str:
+        if "Gift idea 0:" in request.prompt:
+            return '```json\n{"outcome": "YES"}\n```'  # JSON in a code fence
+        if "Gift idea 1:" in request.prompt:
+            return {**teach(request), "outcome": "LOVE IT"}
+        return teach(request)
+
+    with fake_llms(teacher=FakeLLM(generate=fenced)), caplog.at_level(logging.WARNING):
+        labels = label_cases(GIFTS, CASES[:6], "fake:teacher")
+    failure: list[str | None] = labels["failure"].tolist()
+    assert failure[0] is not None and "is not a valid _Verdict" in failure[0]
+    assert failure[0].startswith("fake:teacher: no usable output (")
+    assert (
+        failure[1]
+        == "the outcome 'LOVE IT' is not one of the policy's ['NO', 'MAYBE', 'YES']"
+    )
+    assert labels["failure"][2:].isna().all() and labels["outcome"][2:].notna().all()
+    assert "Most common reason (1 of 2)" in caplog.text
+
+
+def test_a_teacher_that_always_fails_raises_its_reason(
+    fakes: tuple[FakeLLM, FakeLLM, FakeLLM],
+) -> None:
+    empty = FakeLLM(generate=teach, failures=["empty"] * 3 + ["bad_request"] * 2)
+    with fake_llms(teacher=empty), pytest.raises(NoOutputError) as raised:
+        label_cases(GIFTS, CASES[:5], "fake:teacher")
+    message = str(raised.value)
+    assert "no usable verdict for any of the 5 cases" in message
+    assert "Most common reason (3 of 5)" in message and "the reply was empty" in message
+    assert len(raised.value.reasons) == 5
+    silent = FakeLLM(generate=teach, failures=["empty"] * 20)
+    with fake_llms(teacher=silent), pytest.raises(NoOutputError, match="any of the"):
+        model().fit(CASES[:8])  # the fit says so too, instead of an empty frame
+
+
+def test_a_writer_that_fails_raises_its_reason(
+    fakes: tuple[FakeLLM, FakeLLM, FakeLLM],
+) -> None:
+    mistakes = [Mistake(CASES[5], "YES", "MAYBE", "Handmade gifts are loved.")]
+    prose = FakeLLM(generate=lambda request: "Here are some checks: ...")
+    with fake_llms(writer=prose), pytest.raises(NoOutputError) as raised:
+        write_checks(GIFTS, mistakes, "fake:writer")
+    assert "is not a valid _Checks" in str(raised.value)
+    assert "'Here are some checks" in str(raised.value)
 
 
 def test_label_cases_tops_up_a_short_outcome(

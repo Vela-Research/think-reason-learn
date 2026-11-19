@@ -113,7 +113,8 @@ both your labels and a teacher, the teacher also judges up to ``teacher_check`` 
 often it gives your label: ``report_["policy_vs_labels"]`` has the share it matches, the quadratic kappa and how many
 it judged. Your labels stay as they are, and these verdicts are not learned from.
 Written checks were written from these same cases, so with a writer the report is optimistic: keep some labelled
-cases apart to measure it. ``clf.labels_`` has each training case's outcome, source, confidence and reason, and
+cases apart to measure it. ``clf.labels_`` has each training case's outcome, source, confidence and reason (and, in ``failure``, why the
+teacher gave no verdict, if it gave none), and
 ``clf.checks_`` each check with its points. A check that answered the same for nearly every training case
 (``flat``) gets no weight: it tells the cases apart too little to trust.
 

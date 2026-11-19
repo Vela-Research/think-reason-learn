@@ -85,13 +85,14 @@ from ._labels import (
     UNLABELLED,
     TeacherSpec,
     label_rows,
+    most_common,
     outcome_codes,
     resolve_teacher,
     unjudged_shares,
     verdicts,
 )
 from ._prompts import TEACHER_INSTRUCTIONS, policy_block
-from ._types import Criterion, Explanation, Mistake, Policy, Teacher
+from ._types import Criterion, Explanation, Mistake, Policy, Teacher, TeacherVerdict
 from ._writer import CHECKS_PER_ROUND, writer_reply_tokens, written_checks
 
 logger = logging.getLogger(__name__)
@@ -463,9 +464,14 @@ class PolicyClassifier(TRLClassifier):
         pairs = [
             (int(y[r]), policy.names.index(v.outcome))
             for r, v in zip(rows.tolist(), found, strict=True)
-            if v is not None
+            if isinstance(v, TeacherVerdict)
         ]
         if not pairs:
+            failures = [v for v in found if isinstance(v, str)]
+            logger.warning(
+                "The teacher gave no usable verdict on any of your labelled cases, "
+                f"so it is not measured against them. {most_common(failures)}"
+            )
             return None
         labelled = np.array([gold for gold, _ in pairs], dtype=np.intp)
         judged = np.array([verdict for _, verdict in pairs], dtype=np.intp)
@@ -959,6 +965,7 @@ def _relabelled(frame: pd.DataFrame, policy: Policy, codes: Labels) -> pd.DataFr
             "criteria": (),
             "unjudged": (),
             "second": None,
+            "failure": None,
             "sample_weight": weight,
             "weight": 0.0 if new == UNLABELLED else weight,
         }

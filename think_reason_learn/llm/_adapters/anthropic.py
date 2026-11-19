@@ -8,12 +8,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Final, Literal, TypedDict
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
 from .._config import get_config
 from .._spec import Endpoint
 from .._usage import TokenCounts
-from ._base import GenerateRequest, Reply, classify, read_reply
+from ._base import GenerateRequest, Reply, classify, parsed, read_reply
 from ._http import cached, http_client
 from ._prompted import ReasoningAdapter
 
@@ -58,17 +58,19 @@ class AnthropicAdapter(ReasoningAdapter):
             raise classify(exc.status_code, exc.message, exc.response.headers) from exc
         except anthropic.APIConnectionError as exc:
             raise classify(None, str(exc), {}) from exc
-        return await read_reply(
-            raw.parse,
-            anthropic.types.Message,
-            lambda message: Reply(
-                _output(message, request.schema),
+
+        def read(message: Message) -> Reply[str | BaseModel | None]:
+            output, unusable = _output(message, request.schema)
+            return Reply(
+                output,
                 _tokens(message.usage),
                 message.model,
                 None,
                 dict(raw.headers),
-            ),
-        )
+                unusable=unusable,
+            )
+
+        return await read_reply(raw.parse, anthropic.types.Message, read)
 
 
 class _Params(TypedDict):
@@ -154,17 +156,18 @@ def _output_config(
     return config
 
 
-def _output(message: Message, schema: type[BaseModel] | None) -> str | BaseModel | None:
-    """The reply as text or ``schema``; ``None`` if refused, truncated or invalid."""
+def _output(
+    message: Message, schema: type[BaseModel] | None
+) -> tuple[str | BaseModel | None, str | None]:
+    """The reply as text or ``schema``; else ``None`` and why it is unusable."""
     if message.stop_reason in _UNUSABLE:
-        return None
+        return None, f"the reply stopped with stop_reason={message.stop_reason}"
     text = "".join(block.text for block in message.content if block.type == "text")
-    if schema is None or not text:
-        return text or None
-    try:
-        return schema.model_validate_json(text)
-    except ValidationError:
-        return None
+    if not text.strip():
+        return None, f"the reply was empty (stop_reason={message.stop_reason})"
+    if schema is None:
+        return text, None
+    return parsed(schema, text)
 
 
 def _tokens(usage: Usage) -> TokenCounts:

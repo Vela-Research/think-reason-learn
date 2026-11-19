@@ -181,9 +181,11 @@ class LLMSession:
                 self._engine.store({key: _dump(reply.output)}, now=True)
                 self._engine.budget.check()
                 return reply.output
-            errors.append(f"{endpoint.name}: no usable output")
+            why = reply.unusable or _not_usable(reply.output, schema)
+            errors.append(f"{endpoint.name}: no usable output ({why})")
         raise NoOutputError(
-            f"No model gave usable output for {role}: {'; '.join(errors)}"
+            f"No model gave usable output for {role}: {'; '.join(errors)}",
+            reasons=tuple(errors),
         )
 
     async def answer(
@@ -733,6 +735,14 @@ def _generation_key(endpoint: Endpoint, request: GenerateRequest, draw: int) -> 
         schema=schema,
         draw=draw,
     )
+
+
+def _not_usable(output: object, schema: type[BaseModel] | None) -> str:
+    """Why an output that came with no reason is unusable."""
+    if output is None or (isinstance(output, str) and not output.strip()):
+        return "the reply was empty"
+    wanted = schema.__name__ if schema is not None else "text"
+    return f"the reply is a {type(output).__name__}, not a {wanted}"
 
 
 def _usable(output: object, schema: type[BaseModel] | None) -> TypeIs[BaseModel | str]:

@@ -19,12 +19,12 @@ from openai.types import CompletionUsage
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 from openai.types.chat.completion_create_params import ResponseFormat
 from openai.types.shared import ReasoningEffort
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
 from .._config import get_config
 from .._spec import Endpoint
 from .._usage import TokenCounts
-from ._base import GenerateRequest, Reply, classify, read_reply
+from ._base import GenerateRequest, Reply, classify, parsed, read_reply
 from ._http import cached, http_client
 from ._prompted import ReasoningAdapter
 
@@ -52,17 +52,19 @@ class OpenAICompatAdapter(ReasoningAdapter):
             raise classify(exc.status_code, exc.message, exc.response.headers) from exc
         except openai.APIConnectionError as exc:
             raise classify(None, str(exc), {}) from exc
-        return await read_reply(
-            raw.parse,
-            ChatCompletion,
-            lambda completion: Reply(
-                _output(completion, request.schema),
+
+        def read(completion: ChatCompletion) -> Reply[str | BaseModel | None]:
+            output, unusable = _output(completion, request.schema)
+            return Reply(
+                output,
                 _tokens(completion.usage),
                 completion.model,
                 _provider_cost(completion.usage),
                 dict(raw.headers),
-            ),
-        )
+                unusable=unusable,
+            )
+
+        return await read_reply(raw.parse, ChatCompletion, read)
 
 
 def openai_client(endpoint: Endpoint) -> openai.AsyncOpenAI:
@@ -137,20 +139,22 @@ def _response_format(
 
 def _output(
     completion: ChatCompletion, schema: type[BaseModel] | None
-) -> str | BaseModel | None:
-    """The reply as text or ``schema``; ``None`` if truncated, refused or invalid."""
+) -> tuple[str | BaseModel | None, str | None]:
+    """The reply as text or ``schema``; else ``None`` and why it is unusable."""
     if not completion.choices:
-        return None
+        return None, "the reply has no choices"
     choice = completion.choices[0]
     content = choice.message.content
-    if choice.finish_reason == "length" or content is None:
-        return None
+    if choice.finish_reason == "length":
+        return None, "the reply was cut off at the output limit"
+    if content is None or not content.strip():
+        refusal = choice.message.refusal
+        if refusal:
+            return None, f"the model refused: {refusal[:200]}"
+        return None, f"the reply was empty (finish_reason={choice.finish_reason})"
     if schema is None:
-        return content
-    try:
-        return schema.model_validate_json(content)
-    except ValidationError:
-        return None
+        return content, None
+    return parsed(schema, content)
 
 
 def _tokens(usage: CompletionUsage | None) -> TokenCounts:

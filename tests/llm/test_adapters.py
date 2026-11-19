@@ -9,8 +9,9 @@ from collections.abc import Callable, Mapping
 
 import httpx2
 import pytest
+from pydantic import BaseModel
 
-from think_reason_learn.exceptions import LLMError, ProviderAuthError
+from think_reason_learn.exceptions import LLMError, NoOutputError, ProviderAuthError
 from think_reason_learn.llm import (
     LLM,
     Answers,
@@ -625,3 +626,36 @@ def test_claude_gets_the_service_tier(wire: Wire) -> None:
     sent = wire(lambda r: _message('{"a1": "YES"}'))
     _answer(LLM("anthropic:claude-haiku-4-5", api_key="k", service_tier="auto"))
     assert json.loads(sent[0].content)["service_tier"] == "auto"
+
+
+class _Gift(BaseModel):
+    outcome: str
+
+
+@pytest.mark.parametrize(
+    ("content", "finish", "reason"),
+    [
+        ('```json\n{"outcome": "YES"}\n```', "stop", "is not a valid _Gift"),
+        ('{"verdict": "YES"}', "stop", "outcome: Field required"),
+        ('{"outcome": "YE', "length", "cut off at the output limit"),
+        ("", "stop", "the reply was empty (finish_reason=stop)"),
+    ],
+)
+def test_an_unusable_reply_says_why(
+    wire: Wire, content: str, finish: str, reason: str
+) -> None:
+    def reply(request: httpx2.Request) -> httpx2.Response:
+        response = _chat(content)
+        body = json.loads(response.content)
+        body["choices"][0]["finish_reason"] = finish
+        return httpx2.Response(200, json=body)
+
+    wire(reply)
+    models = resolve_models(
+        LLM("openrouter:anthropic/a-model", api_key="k"), param="g", task="generate"
+    )
+    with pytest.raises(NoOutputError) as raised:
+        run_sync(LLMSession().generate(models, "p", role="g", schema=_Gift))
+    [why] = raised.value.reasons
+    assert why.startswith("openrouter:anthropic/a-model: no usable output (")
+    assert reason in why and reason in str(raised.value)

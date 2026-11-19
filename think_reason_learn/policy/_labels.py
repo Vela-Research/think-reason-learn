@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+from collections import Counter
 from collections.abc import Sequence
 from typing import Final
 
@@ -59,11 +60,13 @@ COLUMNS: Final = (
     "criteria",
     "unjudged",
     "second",
+    "failure",
     "weight",
 )
 """Per case: its outcome (``None`` if it has none), ``"gold"`` for your label or
 ``"teacher"``, the teacher's confidence, reason, deciding criteria and criteria
-it could not judge, its second draw's outcome, and the case's weight."""
+it could not judge, its second draw's outcome, why the teacher gave no verdict
+(``None`` if it gave one), and the case's weight."""
 _POOL_BATCH: Final = 20
 TEACHER_REPLY_TOKENS: Final = 400
 """The most a teacher's verdict writes, thinking aside: a short JSON object. It
@@ -123,9 +126,9 @@ async def label_rows(
             "a label for every case."
         )
     rows: list[list[object]] = [
-        [policy.names[c], "gold", 1.0, "", (), (), None, 1.0]
+        [policy.names[c], "gold", 1.0, "", (), (), None, None, 1.0]
         if c != UNLABELLED
-        else [None, None, math.nan, "", (), (), None, 0.0]
+        else [None, None, math.nan, "", (), (), None, None, 0.0]
         for c in codes.tolist()
     ]
     if teacher is not None and len(asked):
@@ -138,12 +141,26 @@ async def label_rows(
         )
         for i, one, two in zip(asked.tolist(), first, second, strict=True):
             rows[i] = _teacher_row(one, two)
-        if missing := sum(v is None for v in first):
+        failures = [v for v in first if isinstance(v, str)]
+        if len(failures) == len(cases):
+            raise NoOutputError(
+                f"The teacher gave no usable verdict for any of the {len(cases)} "
+                f"cases. {most_common(failures)}",
+                reasons=tuple(failures),
+            )
+        if failures:
             logger.warning(
-                f"The teacher gave no usable verdict for {missing} of {len(cases)} "
-                "cases; they are left out of the fit."
+                f"The teacher gave no usable verdict for {len(failures)} of "
+                f"{len(cases)} cases; they are left out of the fit (see the "
+                f"failure column). {most_common(failures)}"
             )
     return pd.DataFrame(rows, columns=pd.Index(COLUMNS))
+
+
+def most_common(failures: Sequence[str]) -> str:
+    """The most common of ``failures``, and how often it came."""
+    reason, count = Counter(failures).most_common(1)[0]
+    return f"Most common reason ({count} of {len(failures)}): {reason}"
 
 
 async def verdicts(
@@ -153,11 +170,11 @@ async def verdicts(
     cases: Sequence[str],
     *,
     draw: int,
-) -> list[TeacherVerdict | None]:
-    """The teacher's verdict on each case; ``None`` where it gave none usable."""
+) -> list[TeacherVerdict | str]:
+    """The teacher's verdict on each case, or why it gave none usable."""
     models: tuple[Endpoint, ...] = () if callable(teacher) else teacher
 
-    async def one(case: str) -> TeacherVerdict | None:
+    async def one(case: str) -> TeacherVerdict | str:
         if callable(teacher):
             return _checked(await asyncio.to_thread(teacher, policy, case), policy)
         try:
@@ -171,8 +188,8 @@ async def verdicts(
                 draw=draw,
                 reply_tokens=TEACHER_REPLY_TOKENS,
             )
-        except NoOutputError:
-            return None
+        except NoOutputError as error:
+            return "; ".join(error.reasons) or str(error)
         return _verdict(reply, policy)
 
     try:
@@ -237,8 +254,14 @@ def label_cases(
         One row per case of ``X``, then per pool case kept: ``case`` (its text),
         the columns ``outcome``, ``source`` (``"gold"`` or ``"teacher"``),
         ``confidence``, ``why``, ``criteria``, ``unjudged``, ``second``,
-        ``sampling_weight``, ``weight`` (sampling weight times half for a case
-        judged two ways) and ``pool``.
+        ``failure`` (why the teacher gave no verdict: the provider's error, an
+        empty or cut-off reply, a reply that is not the JSON asked for, or an
+        outcome the policy does not have), ``sampling_weight``, ``weight``
+        (sampling weight times half for a case judged two ways) and ``pool``.
+
+    Raises:
+        NoOutputError: The teacher gave no usable verdict for any case; the
+            message names the most common reason, and ``reasons`` has each.
     """
     return run_sync(
         alabel_cases(
@@ -339,11 +362,11 @@ async def _topped_up(
 
 
 def _teacher_row(
-    first: TeacherVerdict | None, second: TeacherVerdict | None
+    first: TeacherVerdict | str, second: TeacherVerdict | str | None
 ) -> list[object]:
-    if first is None:
-        return [None, "teacher", math.nan, "", (), (), None, 0.0]
-    again = second.outcome if second is not None else None
+    if isinstance(first, str):
+        return [None, "teacher", math.nan, "", (), (), None, first, 0.0]
+    again = second.outcome if isinstance(second, TeacherVerdict) else None
     weight = DISAGREED_WEIGHT if again is not None and again != first.outcome else 1.0
     return [
         first.outcome,
@@ -353,16 +376,20 @@ def _teacher_row(
         first.criteria,
         first.unjudged,
         again,
+        None,
         weight,
     ]
 
 
-def _verdict(reply: _Verdict, policy: Policy) -> TeacherVerdict | None:
+def _verdict(reply: _Verdict, policy: Policy) -> TeacherVerdict | str:
     """The reply as a verdict, its outcome matched without regard to case."""
     by_name = {name.lower(): name for name in policy.names}
     outcome = by_name.get(reply.outcome.strip().lower())
     if outcome is None:
-        return None
+        return (
+            f"the outcome {reply.outcome!r} is not one of the policy's "
+            f"{list(policy.names)}"
+        )
     ids = {c.id for c in policy.criteria}
     return TeacherVerdict(
         outcome=outcome,

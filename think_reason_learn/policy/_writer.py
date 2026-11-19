@@ -96,6 +96,11 @@ def write_checks(
     Returns:
         The checks, as criteria of kind ``"positive"`` or ``"negative"``: pass
         them to ``PolicyClassifier(checks=...)`` to ask them as written.
+
+    Raises:
+        NoOutputError: No writer gave a usable reply; the message says why for
+            each (the provider's error, an empty or cut-off reply, or a reply
+            that is not the JSON asked for).
     """
     return run_sync(
         awrite_checks(

@@ -202,7 +202,7 @@ class PolicyClassifier(TRLClassifier):
     templates: tuple[Form, ...]
     signs: Signs
     decision: Decision
-    outcomes_: npt.NDArray[np.str_]
+    outcomes_: Classes
     labels_: pd.DataFrame
     checks_: pd.DataFrame
     answers_: pd.DataFrame

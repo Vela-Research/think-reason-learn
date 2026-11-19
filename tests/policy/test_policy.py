@@ -261,6 +261,15 @@ def test_a_criterion_the_teacher_cannot_judge_is_dropped(
     assert clf.explain(CASES[:1])[0].unassessed == ("C4",)
 
 
+def test_a_criterion_is_dropped_only_on_enough_teacher_cases(
+    fakes: tuple[FakeLLM, FakeLLM, FakeLLM],
+) -> None:
+    y = [label if i < 28 else None for i, label in enumerate(LABELS)]  # 20 to judge
+    clf = model(teacher_check=0).fit(CASES, y)
+    assert clf.unjudged_["C4"] == 1.0  # reported
+    assert clf.dropped_criteria_ == () and "C4" in set(clf.checks_["group"])
+
+
 def test_reasons_add_up_to_the_points(fakes: tuple[FakeLLM, FakeLLM, FakeLLM]) -> None:
     clf = model().fit(CASES)
     for explained, predicted in zip(

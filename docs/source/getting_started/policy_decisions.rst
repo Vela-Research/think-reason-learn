@@ -73,7 +73,8 @@ What fit does
 ~~~~~~~~~~~~~
 
 1. **Labels.** Your labels are kept; the teacher labels the rest and says which criteria it could not judge from a
-   case's text. A criterion it could not judge on more than 80% of its cases is reported and left out. With
+   case's text. A criterion it could not judge on more than 80% of its cases is reported and left out, once it has labelled at least
+   30 cases. With
    ``teacher_draws=2`` it judges each case twice: a case judged two ways weighs half, and the report gives how often
    the two draws agreed.
 2. **Checks.** Each criterion becomes yes/no checks by the ``templates``: ``"reach"`` asks, once per boundary,

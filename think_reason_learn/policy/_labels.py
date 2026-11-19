@@ -48,6 +48,9 @@ DISAGREED_WEIGHT: Final = 0.5
 UNJUDGED_SHARE: Final = 0.8
 """A criterion the teacher could not judge on more than this share of the cases
 it labelled is reported, and its checks are dropped."""
+MIN_JUDGED: Final = 30
+"""Cases the teacher must have labelled before a criterion is dropped: a share
+of a handful of cases says too little to give up on a criterion."""
 COLUMNS: Final = (
     "outcome",
     "source",

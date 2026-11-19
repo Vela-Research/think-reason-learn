@@ -79,6 +79,7 @@ from ._checks import (
     weight_bounds,
 )
 from ._labels import (
+    MIN_JUDGED,
     UNJUDGED_SHARE,
     UNLABELLED,
     TeacherSpec,
@@ -386,7 +387,17 @@ class PolicyClassifier(TRLClassifier):
             session, policy, texts, y, teacher
         )
         shares = unjudged_shares(labels, policy)
+        judged = int(
+            ((labels["source"] == "teacher") & labels["outcome"].notna()).sum()
+        )
         dropped = [cid for cid, share in shares.items() if share > UNJUDGED_SHARE]
+        if dropped and judged < MIN_JUDGED:
+            logger.warning(
+                f"The teacher could not judge criteria {dropped} on most of its "
+                f"{judged} cases; they are kept, since fewer than {MIN_JUDGED} "
+                "cases cannot show a criterion is unjudgeable."
+            )
+            dropped = []
         if dropped:
             logger.warning(
                 f"The teacher could not judge criteria {dropped} on more than "

@@ -29,7 +29,9 @@ from think_reason_learn.core._classifier import Labels, Proba, TRLClassifier, Wo
 from think_reason_learn.core._data import Classes, LabelInput, TextInput, take, to_texts
 from think_reason_learn.core._ordinal import (
     CS,
+    MIN_SPREAD,
     OrdinalScorer,
+    answer_spread,
     balanced_accuracy,
     balanced_cuts,
     boundary_aucs,
@@ -525,6 +527,7 @@ class PolicyClassifier(TRLClassifier):
         frame = to_frame(checks)
         frame["points"] = POINTS * scorer.coef / scorer.scale
         frame["used"] = scorer.coef != 0
+        frame["flat"] = answer_spread(answers[rows]) < MIN_SPREAD
         self.checks_ = frame
         self.answers_ = pd.DataFrame(answers, columns=pd.Index(frame["id"]))
         self.report_ = self._report(

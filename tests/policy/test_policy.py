@@ -322,6 +322,16 @@ def test_it_warns_when_one_outcome_has_nearly_every_label(
     assert "training labels" not in caplog.text
 
 
+def test_a_check_with_one_answer_for_every_case_gets_no_weight(
+    fakes: tuple[FakeLLM, FakeLLM, FakeLLM],
+) -> None:
+    wrapped = Criterion("Q1", "The gift is wrapped in paper.", "positive")
+    clf = model(checks=(wrapped,)).fit(CASES)  # the answerer says 0.5 to all
+    [row] = clf.checks_[clf.checks_["id"] == "Q1"].to_dict("records")
+    assert row["flat"] and not row["used"] and row["points"] == 0
+    assert not clf.checks_[clf.checks_["group"] == "C1"]["flat"].any()
+
+
 @pytest.mark.asyncio
 async def test_async_twins(fakes: tuple[FakeLLM, FakeLLM, FakeLLM]) -> None:
     clf = await model().afit(CASES)

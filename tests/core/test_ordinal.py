@@ -156,3 +156,19 @@ def test_balanced_cuts_are_the_best_there_are(k: int) -> None:
         )
         assert np.all(np.diff(cuts) >= 0)
         assert np.isclose(balanced(scores, y, cuts.tolist()), best)
+
+
+def test_a_near_constant_column_cannot_swing_the_outcome() -> None:
+    rng = np.random.default_rng(1)
+    x, y = synthetic(300, [1.0, 1.0], [-0.5, 0.5], seed=5)
+    informative = 1 / (1 + np.exp(-x))  # on [0, 1], like answers
+    flat = np.clip(0.01 + rng.normal(0, 0.002, (300, 5)), 0, 1)  # always "no"
+    narrow = 0.5 + rng.normal(0, 0.02, (300, 1))  # varies, but barely
+    answers = np.hstack([informative, flat, narrow])
+    bounds = [(0.0, np.inf)] * answers.shape[1]
+    scorer, _ = fit_ordinal(answers, y, bounds=bounds, cv=3, random_state=0)
+    assert (scorer.coef[2:7] == 0).all()
+    odd = answers[:1].copy()
+    odd[0, 2:7] = 0.9  # one unusual "yes" to every flat check
+    assert scorer.eta(odd)[0] == scorer.eta(answers[:1])[0]
+    assert scorer.scale[7] == 0.05  # floored: 0.02 would scale it up 2.5 more

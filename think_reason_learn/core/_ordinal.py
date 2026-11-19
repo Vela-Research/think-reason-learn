@@ -42,6 +42,14 @@ type Bounds = Sequence[tuple[float, float]]
 CS: Final = (0.003, 0.01, 0.03, 0.1, 0.3, 1.0, 3.0, 10.0, 30.0)
 """Inverse L2 strengths tried by default."""
 
+MIN_SCALE: Final = 0.05
+"""Least scale a column is standardised by. Answers are probabilities on
+[0, 1]; a check that answers 0.01 +- 0.002 would otherwise be scaled up
+hundreds of times, and one unusual answer would swing the outcome."""
+MIN_SPREAD: Final = 0.01
+"""A column whose training answers spread less than this gets no weight: it
+says the same about every case."""
+
 _MAX_ITER: Final = 2000
 _GAP_BOUNDS: Final = (-30.0, 10.0)
 """Bounds on the log gaps between cut-points: an outcome no training row has
@@ -115,6 +123,8 @@ def fit_ordinal(
     cv: int = 5,
     sample_weight: Floats | None = None,
     random_state: int | None = None,
+    min_scale: float = MIN_SCALE,
+    min_spread: float = MIN_SPREAD,
 ) -> tuple[OrdinalScorer, Floats]:
     """Fit the cumulative-logit model, choosing ``C`` by stratified folds.
 
@@ -139,6 +149,10 @@ def fit_ordinal(
         cv: Folds for choosing ``C``.
         sample_weight: A weight per row; 1 each by default.
         random_state: Seed for the folds.
+        min_scale: The least standard deviation a column is divided by, for
+            answers on [0, 1]; 0 for none.
+        min_spread: A column whose answers' standard deviation is below this
+            gets weight 0 (see ``answer_spread``).
 
     Returns:
         The fitted scorer, and each row's outcome probabilities from a model
@@ -153,8 +167,20 @@ def fit_ordinal(
     weights = (
         np.ones(len(y)) if sample_weight is None else np.asarray(sample_weight, float)
     )
-    allowed = _checked_bounds(bounds, answers.shape[1])
     _check(answers, y, k, weights)
+    flat = answer_spread(answers) < min_spread
+    allowed = [
+        (0.0, 0.0) if is_flat else bound
+        for is_flat, bound in zip(
+            flat.tolist(), _checked_bounds(bounds, answers.shape[1]), strict=True
+        )
+    ]
+
+    def fitted(rows: npt.NDArray[np.intp] | slice, c: float) -> OrdinalScorer:
+        return _fit_once(
+            answers[rows], y[rows], k, allowed, c, weights[rows], min_scale=min_scale
+        )
+
     if not Cs:
         raise ValueError("Cs needs at least one value.")
     folds = _n_folds(cv, y, k)
@@ -163,7 +189,7 @@ def fit_ordinal(
             "Too few rows of an outcome for folds; fitting once, so the reported "
             "agreement is on rows the model learned from."
         )
-        scorer = _fit_once(answers, y, k, allowed, Cs[len(Cs) // 2], weights)
+        scorer = fitted(slice(None), Cs[len(Cs) // 2])
         return scorer, scorer.proba(answers)
     splitter = StratifiedKFold(folds, shuffle=True, random_state=random_state)
     splits = stratified_folds(splitter, answers, y)
@@ -172,7 +198,7 @@ def fit_ordinal(
         out_of_fold = np.empty((len(y), k))
         eta = np.empty(len(y))
         for train, held_out in splits:
-            fold = _fit_once(answers[train], y[train], k, allowed, c, weights[train])
+            fold = fitted(train, c)
             eta[held_out] = fold.eta(answers[held_out])
             out_of_fold[held_out] = fold.proba(answers[held_out])
         score = (mean_auc(boundary_aucs(y, eta, k)), -_log_loss(out_of_fold, y))
@@ -180,8 +206,13 @@ def fit_ordinal(
             best = (score, c, out_of_fold)
     assert best is not None  # Cs is not empty
     score, c, out_of_fold = best
-    scorer = _fit_once(answers, y, k, allowed, c, weights)
+    scorer = fitted(slice(None), c)
     return replace(scorer, cv_auc=score[0]), out_of_fold
+
+
+def answer_spread(answers: Floats) -> Floats:
+    """Each column's standard deviation, a missing answer counted as the mean."""
+    return _mean_and_spread(answers)[1]
 
 
 def boundary_aucs(y: Codes, scores: Floats, n_outcomes: int) -> list[float | None]:
@@ -288,9 +319,13 @@ def _fit_once(
     bounds: Bounds,
     c: float,
     weights: Floats,
+    *,
+    min_scale: float = MIN_SCALE,
 ) -> OrdinalScorer:
     """The model fitted on these rows with one ``C``, standardised on them."""
-    mean, scale = _standardisation(answers)
+    mean, spread = _mean_and_spread(answers)
+    scale = np.maximum(spread, min_scale)
+    scale = np.where(scale > 1e-12, scale, 1.0)
     z = np.where(np.isnan(answers), 0.0, (answers - mean) / scale)
     m = z.shape[1]
     start = np.concatenate([np.zeros(m), _start_thresholds(y, k, weights)])
@@ -381,19 +416,18 @@ def _outcome_proba(cumulative: Floats) -> Floats:
     return np.clip(upper - lower, 0.0, 1.0)
 
 
-def _standardisation(answers: Floats) -> tuple[Floats, Floats]:
+def _mean_and_spread(answers: Floats) -> tuple[Floats, Floats]:
     """Each column's mean and standard deviation, missing answers left out.
 
     A missing answer counts as the mean, so it does not widen the deviation; a
-    column with no answers has mean 0, and a constant one scale 1.
+    column with no answers has mean 0.
     """
     answered = ~np.isnan(answers)
     counts = answered.sum(axis=0)
     totals = np.where(answered, answers, 0.0).sum(axis=0)
     mean = np.divide(totals, counts, out=np.zeros(answers.shape[1]), where=counts > 0)
     filled = np.where(answered, answers, mean)
-    scale = filled.std(axis=0)
-    return mean, np.where(scale > 1e-12, scale, 1.0)
+    return mean, filled.std(axis=0)
 
 
 def _auc(scores: Floats, positive: npt.NDArray[np.bool_]) -> float | None:

@@ -110,7 +110,8 @@ often it gives your label: ``report_["policy_vs_labels"]`` has the share it matc
 it judged. Your labels stay as they are, and these verdicts are not learned from.
 Written checks were written from these same cases, so with a writer the report is optimistic: keep some labelled
 cases apart to measure it. ``clf.labels_`` has each training case's outcome, source, confidence and reason, and
-``clf.checks_`` each check with its points.
+``clf.checks_`` each check with its points. A check that answered the same for nearly every training case
+(``flat``) gets no weight: it tells the cases apart too little to trust.
 
 Change the weights without calling a model
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

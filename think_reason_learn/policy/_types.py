@@ -159,7 +159,10 @@ class Explanation:
         points: The case's score.
         baseline: The score of an average training case.
         cutoffs: For each outcome above the lowest, the score from which the
-            case more likely than not reaches it.
+            model predicts it or a higher one, by the decision it uses
+            (``decision``): ``inf`` if never, ``-inf`` if always. A case's
+            outcome is the highest whose cutoff its ``points`` reach (the
+            lowest if none).
         reasons: Points by criterion id, largest effect first.
         checks: Points by check id, in the order of ``checks_``.
         unassessed: Criteria that could not be judged for this case: their

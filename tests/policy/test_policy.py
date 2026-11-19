@@ -5,6 +5,7 @@ from __future__ import annotations
 import itertools
 import logging
 from collections.abc import Iterator
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -363,6 +364,26 @@ def test_scikit_learn_scorers_read_the_probabilities(
     two = model(policy=keep, teacher=None).fit(CASES, kept)
     assert list(two.classes_) == ["KEEP", "RETURN"]
     assert get_scorer("roc_auc")(two, CASES, kept) == 1.0
+
+
+@pytest.mark.parametrize("decision", ["likely", "balanced"])
+def test_each_outcome_falls_in_its_cutoffs(
+    fakes: tuple[FakeLLM, FakeLLM, FakeLLM], decision: str
+) -> None:
+    clf = model(decision=decision).fit(CASES)
+    rng = np.random.default_rng(0)
+    answers = rng.uniform(0, 1, (300, len(clf.checks_)))  # cases of every score
+    fitted = clf.scorer_
+    # Close cut-points: MAYBE is never the most probable, so P(>= k) = 0.5 is no
+    # longer where the most probable outcome changes.
+    close = replace(fitted, thresholds=np.array([0.0, 0.3]) + fitted.thresholds[0])
+    for scorer in (fitted, close):
+        clf.scorer_ = scorer
+        for why in [*clf.explain(CASES), *clf._explanations(answers)]:
+            cutoffs = list(why.cutoffs.values())
+            band = sum(why.points >= c for c in cutoffs)
+            assert clf.outcomes_[band] == why.outcome
+            assert cutoffs == sorted(cutoffs)
 
 
 @pytest.mark.asyncio

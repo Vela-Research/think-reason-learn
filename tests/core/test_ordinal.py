@@ -15,6 +15,8 @@ from think_reason_learn.core._ordinal import (
     _fit_once,
     balanced_cuts,
     boundary_aucs,
+    decide,
+    decision_bounds,
     ordinal_loss,
     quadratic_kappa,
 )
@@ -172,3 +174,20 @@ def test_a_near_constant_column_cannot_swing_the_outcome() -> None:
     odd[0, 2:7] = 0.9  # one unusual "yes" to every flat check
     assert scorer.eta(odd)[0] == scorer.eta(answers[:1])[0]
     assert scorer.scale[7] == 0.05  # floored: 0.02 would scale it up 2.5 more
+
+
+@pytest.mark.parametrize("balanced", [False, True])
+def test_the_decision_rises_with_eta_through_its_bounds(balanced: bool) -> None:  # noqa: FBT001
+    rng = np.random.default_rng(int(balanced))
+    for k in (2, 3, 4):
+        thresholds = np.sort(rng.normal(0, 2, k - 1))
+        cuts = np.sort(rng.uniform(0, k - 1, k - 1)) if balanced else None
+        bounds = decision_bounds(thresholds, cuts)
+        eta = np.linspace(-15, 15, 4001)
+        proba = OrdinalScorer(
+            np.zeros(1), np.ones(1), np.ones(1), thresholds, C=1.0
+        ).proba(eta[:, None])
+        decided = decide(proba, cuts)
+        assert (np.diff(decided) >= 0).all()
+        assert (np.diff(bounds) >= 0).all()
+        assert (decided == (eta[:, None] >= bounds[None, :]).sum(axis=1)).all()

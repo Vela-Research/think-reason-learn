@@ -215,6 +215,54 @@ def answer_spread(answers: Floats) -> Floats:
     return _mean_and_spread(answers)[1]
 
 
+def decide(proba: Floats, cuts: Floats | None = None) -> Codes:
+    """Outcome codes from probabilities (columns lowest first).
+
+    The most probable outcome; or, with ``cuts`` (see ``balanced_cuts``), the
+    number of cut-offs the expected outcome reaches.
+    """
+    if cuts is None:
+        return np.argmax(proba, axis=1).astype(np.intp)
+    reached = expected_outcome(proba)[:, None] >= cuts[None, :] - 1e-12
+    return reached.sum(axis=1).astype(np.intp)
+
+
+def expected_outcome(proba: Floats) -> Floats:
+    """The expected outcome index of each row, from 0 to ``K - 1``."""
+    return proba @ np.arange(proba.shape[1], dtype=float)
+
+
+def decision_bounds(thresholds: Floats, cuts: Floats | None = None) -> Floats:
+    """Where on ``eta`` ``decide`` starts giving each outcome above the lowest.
+
+    Entry ``k - 1`` is the least ``eta`` from which the decision is outcome
+    ``k`` or higher: ``inf`` if never, ``-inf`` if always. Both rules rise with
+    ``eta`` (the most probable outcome of a cumulative-logit model never falls
+    as ``eta`` grows, and the expected outcome rises), so a case's decision is
+    the number of bounds its ``eta`` reaches, and the bounds never decrease.
+    """
+    lowest, highest = float(thresholds[0]) - 60.0, float(thresholds[-1]) + 60.0
+
+    def reaches(eta: float, k: int) -> bool:
+        proba = _outcome_proba(_cumulative(np.array([eta]), thresholds))
+        return int(decide(proba, cuts)[0]) >= k
+
+    bounds: list[float] = []
+    for k in range(1, len(thresholds) + 1):
+        if reaches(lowest, k):
+            bounds.append(-np.inf)
+            continue
+        if not reaches(highest, k):
+            bounds.append(np.inf)
+            continue
+        below, above = lowest, highest
+        for _ in range(100):  # the gap halves each time: far below float precision
+            middle = (below + above) / 2
+            below, above = (below, middle) if reaches(middle, k) else (middle, above)
+        bounds.append(above)
+    return np.array(bounds)
+
+
 def boundary_aucs(y: Codes, scores: Floats, n_outcomes: int) -> list[float | None]:
     """The AUC of ``scores`` for each boundary: outcome >= k against below.
 

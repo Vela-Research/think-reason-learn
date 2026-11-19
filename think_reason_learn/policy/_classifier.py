@@ -37,6 +37,9 @@ from think_reason_learn.core._ordinal import (
     balanced_accuracy,
     balanced_cuts,
     boundary_aucs,
+    decide,
+    decision_bounds,
+    expected_outcome,
     fit_ordinal,
     mean_auc,
     quadratic_kappa,
@@ -469,7 +472,7 @@ class PolicyClassifier(TRLClassifier):
         _, out_of_fold = await asyncio.to_thread(
             self._fit_scorer, checks, answers[rows], codes, {}, rows
         )
-        predicted = _decided(out_of_fold, self._oof_cuts(out_of_fold, codes))
+        predicted = decide(out_of_fold, self._oof_cuts(out_of_fold, codes))
         wrong = np.flatnonzero(predicted != codes)
         # The worst first: the least probability on the right outcome.
         wrong = wrong[np.argsort(out_of_fold[wrong, codes[wrong]], kind="stable")]
@@ -579,7 +582,7 @@ class PolicyClassifier(TRLClassifier):
         """The ``"balanced"`` cut-offs, tuned on out-of-fold expected outcomes."""
         if self.decision != "balanced":
             return None
-        return balanced_cuts(_expected(out_of_fold), codes, out_of_fold.shape[1])
+        return balanced_cuts(expected_outcome(out_of_fold), codes, out_of_fold.shape[1])
 
     def _report(
         self,
@@ -600,7 +603,7 @@ class PolicyClassifier(TRLClassifier):
         outcome = self.labels_["outcome"].to_numpy(dtype=object)
         labelled = self.labels_["outcome"].notna().to_numpy(dtype=bool)
         drawn = (source == "teacher") & labelled & self.labels_["second"].notna()
-        predicted = _decided(out_of_fold, self.cut_points_)
+        predicted = decide(out_of_fold, self.cut_points_)
         by_source = source[rows]
 
         def agreement(mask: npt.NDArray[np.bool_]) -> dict[str, object] | None:
@@ -698,7 +701,7 @@ class PolicyClassifier(TRLClassifier):
     def _decide(self, proba: Proba) -> Labels:
         """Class codes from probabilities in ``classes_`` order."""
         columns = self._class_columns()
-        return columns[_decided(proba[:, columns], self.cut_points_)]
+        return columns[decide(proba[:, columns], self.cut_points_)]
 
     def _class_columns(self) -> npt.NDArray[np.intp]:
         """Where each outcome, lowest first, sits in ``classes_``."""
@@ -711,10 +714,11 @@ class PolicyClassifier(TRLClassifier):
         used = self.checks_["used"].to_numpy(dtype=bool)
         points = POINTS * self.scorer_.contributions(answers)
         proba = self.scorer_.proba(answers)
-        outcomes = _decided(proba, self.cut_points_)
+        outcomes = decide(proba, self.cut_points_)
+        bounds = decision_bounds(self.scorer_.thresholds, self.cut_points_)
         cutoffs = {
-            name: float(POINTS * t)
-            for name, t in zip(policy.names[1:], self.scorer_.thresholds, strict=True)
+            name: float(POINTS * bound)
+            for name, bound in zip(policy.names[1:], bounds, strict=True)
         }
         dropped = self.dropped_criteria_
         explanations: list[Explanation] = []
@@ -896,19 +900,6 @@ def _named_labels(y: LabelInput, policy: Policy) -> LabelInput:
         else:
             return y  # a name, or not a class code
     return read if any(r is not None for r in read) else y
-
-
-def _decided(proba: Floats, cuts: Floats | None) -> Labels:
-    """Outcome codes: the most probable, or the cut-offs the expected one reaches."""
-    if cuts is None:
-        return np.argmax(proba, axis=1).astype(np.intp)
-    reached = _expected(proba)[:, None] >= cuts[None, :] - 1e-12
-    return reached.sum(axis=1).astype(np.intp)
-
-
-def _expected(proba: Floats) -> Floats:
-    """The expected outcome index of each row."""
-    return proba @ np.arange(proba.shape[1], dtype=float)
 
 
 def _relabelled(frame: pd.DataFrame, policy: Policy, codes: Labels) -> pd.DataFrame:

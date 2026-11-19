@@ -96,7 +96,7 @@ Explain a prediction
    why.outcome        # the predicted outcome
    why.points         # the case's score
    why.reasons        # points by criterion id, largest effect first
-   why.cutoffs        # the score from which each outcome is more likely than not reached
+   why.cutoffs        # the score from which the model predicts each outcome or a higher one
    why.unassessed     # criteria that could not be judged for this case
 
 ``why.baseline + sum(why.reasons.values()) == why.points``, exactly. The baseline is the score of a case whose every

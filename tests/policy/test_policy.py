@@ -43,6 +43,7 @@ from think_reason_learn.policy import (
 from think_reason_learn.policy._checks import policy_checks, weight_bounds
 from think_reason_learn.policy._labels import TEACHER_REPLY_TOKENS, outcome_codes
 from think_reason_learn.testing import (
+    FakeFailure,
     FakeLLM,
     GenerateRequest,
     check_classifier,
@@ -667,7 +668,14 @@ def test_each_case_keeps_why_the_teacher_failed(
 def test_a_teacher_that_always_fails_raises_its_reason(
     fakes: tuple[FakeLLM, FakeLLM, FakeLLM],
 ) -> None:
-    empty = FakeLLM(generate=teach, failures=["empty"] * 3 + ["bad_request"] * 2)
+    failures: list[FakeFailure] = [
+        "empty",
+        "empty",
+        "empty",
+        "bad_request",
+        "bad_request",
+    ]
+    empty = FakeLLM(generate=teach, failures=failures)
     with fake_llms(teacher=empty), pytest.raises(NoOutputError) as raised:
         label_cases(GIFTS, CASES[:5], "fake:teacher")
     message = str(raised.value)

@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 type Bounds = Sequence[tuple[float, float]]
 """Per column, the lowest and highest weight allowed; ``-inf``/``inf`` for none."""
 
-CS: Final = (0.003, 0.01, 0.03, 0.1, 0.3, 1.0, 3.0)
+CS: Final = (0.003, 0.01, 0.03, 0.1, 0.3, 1.0, 3.0, 10.0, 30.0)
 """Inverse L2 strengths tried by default."""
 
 _MAX_ITER: Final = 2000

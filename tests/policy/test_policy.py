@@ -301,6 +301,23 @@ def test_refit_calls_no_model(fakes: tuple[FakeLLM, FakeLLM, FakeLLM]) -> None:
     assert clf.checks_.set_index("id")["points"]["C3.applies"] == before
 
 
+def test_refit_says_which_new_labels_it_cannot_use(
+    fakes: tuple[FakeLLM, FakeLLM, FakeLLM], caplog: pytest.LogCaptureFixture
+) -> None:
+    def stuck(request: GenerateRequest) -> dict[str, object]:
+        verdict = teach(request)
+        if "Gift idea 0:" in request.prompt or "Gift idea 1:" in request.prompt:
+            verdict["outcome"] = "NOT AN OUTCOME"  # no usable verdict
+        return verdict
+
+    with fake_llms(teacher=FakeLLM(generate=stuck)):
+        clf = model(teacher_check=0).fit(CASES)
+    assert clf.labels_["outcome"][:2].isna().all()
+    with caplog.at_level(logging.WARNING):
+        clf.refit(labels=LABELS)
+    assert "2 labelled cases are left out" in caplog.text
+
+
 def test_sample_weights_multiply_the_teachers(
     fakes: tuple[FakeLLM, FakeLLM, FakeLLM],
 ) -> None:

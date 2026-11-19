@@ -527,6 +527,12 @@ class PolicyClassifier(TRLClassifier):
             else np.ones(len(codes), dtype=bool)
         )
         rows = np.flatnonzero((codes != UNLABELLED) & answered)
+        if unasked := int(((codes != UNLABELLED) & ~answered).sum()):
+            logger.warning(
+                f"{unasked} labelled cases are left out: no check was answered for "
+                "them at fit (they had no label then, or every answer failed). Fit "
+                "again to use them."
+            )
         if len(np.unique(codes[rows])) < 2:
             raise DataError("The labelled cases need at least two different outcomes.")
         _warn_if_lopsided(codes[rows], policy)

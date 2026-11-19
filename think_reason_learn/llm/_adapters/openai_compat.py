@@ -120,11 +120,25 @@ def _params(
         model=endpoint.model_id,
         messages=messages,
         temperature=kept("temperature", settings.temperature),
-        reasoning_effort=kept("reasoning_effort", settings.reasoning_effort),
+        reasoning_effort=kept("reasoning_effort", _effort(endpoint)),
         max_completion_tokens=kept("max_completion_tokens", settings.max_output_tokens),
         prompt_cache_key=kept("prompt_cache_key", cache_key),
         extra_body=None if isinstance(tier, Omit) else {"service_tier": tier},
     )
+
+
+def _effort(endpoint: Endpoint) -> ReasoningEffort | None:
+    """The reasoning effort to send.
+
+    Claude's lowest is ``"low"``: through OpenRouter, ``"none"`` is refused with
+    "Reasoning is mandatory for this endpoint", so ``"none"`` and ``"minimal"``
+    ask for ``"low"``, as they do when Claude is called directly.
+    """
+    effort = endpoint.settings.reasoning_effort
+    claude = endpoint.provider == "openrouter" and endpoint.model_id.startswith(
+        "anthropic/"
+    )
+    return "low" if claude and effort in ("none", "minimal") else effort
 
 
 def _response_format(

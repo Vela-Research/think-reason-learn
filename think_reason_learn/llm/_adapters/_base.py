@@ -235,6 +235,8 @@ _QUOTA_WORDS: Final = (
     "spend limit",
 )
 _PARAM_RE: Final = re.compile("|".join([*OPTIONAL_PARAMS, "effort"]))
+_MANDATORY_REASONING: Final = ("reasoning is mandatory",)
+"""A model that refuses to have reasoning turned off, as OpenRouter's 400 says."""
 _REJECTION_WORDS: Final = (
     "unsupported",
     "not supported",
@@ -249,6 +251,8 @@ _REJECTION_WORDS: Final = (
 
 def _rejected_param(message: str) -> str | None:
     """The setting a 400 says the model does not support, if it says so."""
+    if _mentions(message, _MANDATORY_REASONING):
+        return "reasoning_effort"  # it reasons anyway: call it with its default
     if not _mentions(message, _REJECTION_WORDS):
         return None
     match = _PARAM_RE.search(message)

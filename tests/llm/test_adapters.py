@@ -19,6 +19,7 @@ from think_reason_learn.llm import (
     Endpoint,
     LLMSession,
     Model,
+    ReasoningEffort,
     YesNoQuestion,
     resolve_models,
     run_sync,
@@ -659,3 +660,45 @@ def test_an_unusable_reply_says_why(
     [why] = raised.value.reasons
     assert why.startswith("openrouter:anthropic/a-model: no usable output (")
     assert reason in why and reason in str(raised.value)
+
+
+def _verdict_reply(request: httpx2.Request) -> httpx2.Response:
+    return _chat('{"outcome": "YES"}')
+
+
+@pytest.mark.parametrize(
+    ("model", "effort", "sent"),
+    [
+        ("openrouter:anthropic/claude-opus-5.5", "none", "low"),
+        ("openrouter:anthropic/claude-opus-5.5", "minimal", "low"),
+        ("openrouter:anthropic/claude-opus-5.5", "high", "high"),
+        ("openrouter:openai/gpt-5-mini", "none", "none"),
+    ],
+)
+def test_claude_through_openrouter_gets_its_lowest_effort(
+    wire: Wire, model: str, effort: ReasoningEffort, sent: str
+) -> None:
+    requests = wire(_verdict_reply)
+    llm = LLM(model, api_key="k", reasoning_effort=effort, kind="reasoning")
+    models = resolve_models(llm, param="g", task="generate")
+    run_sync(LLMSession().generate(models, "p", role="g", schema=_Gift))
+    assert json.loads(requests[0].content)["reasoning_effort"] == sent
+
+
+def test_a_model_that_must_reason_is_called_without_an_effort(wire: Wire) -> None:
+    def must_reason(request: httpx2.Request) -> httpx2.Response:
+        if "reasoning_effort" in json.loads(request.content):
+            return _error(
+                400, "Reasoning is mandatory for this endpoint and cannot be disabled."
+            )
+        return _verdict_reply(request)
+
+    requests = wire(must_reason)
+    llm = LLM("openrouter:some/thinker", api_key="k", reasoning_effort="none")
+    models = resolve_models(llm, param="g", task="generate")
+    reply = run_sync(LLMSession().generate(models, "p", role="g", schema=_Gift))
+    assert reply.outcome == "YES" and len(requests) == 2
+    assert "reasoning_effort" not in json.loads(requests[1].content)
+    assert classify(400, "Reasoning is mandatory for this endpoint.", {}).param == (
+        "reasoning_effort"
+    )

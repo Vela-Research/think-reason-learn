@@ -17,6 +17,7 @@ from typing import Final
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
+from pandas.api.types import is_scalar
 from pydantic import BaseModel
 
 from think_reason_learn.core._data import LabelInput, TextInput, to_texts
@@ -78,7 +79,7 @@ def outcome_codes(policy: Policy, y: LabelInput | None, n: int) -> Codes:
     codes = np.full(n, UNLABELLED, dtype=np.intp)
     unknown: set[str] = set()
     for i, value in enumerate(values):
-        if value is None or (isinstance(value, float) and math.isnan(value)):
+        if is_scalar(value) and bool(pd.isna([value])[0]):  # None, NaN, pd.NA
             continue
         if (code := index.get(str(value))) is None:
             unknown.add(str(value))

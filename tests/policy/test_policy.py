@@ -8,6 +8,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from think_reason_learn import LLM, Price
@@ -25,6 +26,7 @@ from think_reason_learn.policy import (
     write_checks,
 )
 from think_reason_learn.policy._checks import policy_checks, weight_bounds
+from think_reason_learn.policy._labels import outcome_codes
 from think_reason_learn.testing import (
     FakeLLM,
     GenerateRequest,
@@ -148,6 +150,8 @@ def test_a_policy_is_checked() -> None:
     with pytest.raises(ValueError, match="kind"):
         Criterion("C9", "text", "sideways")  # pyright: ignore[reportArgumentType]  # the wrong kind on purpose
     assert Policy(outcomes=OUTCOMES, criteria=(HOBBY,)).names == ("NO", "MAYBE", "YES")
+    missing = pd.Series(["YES", None, np.nan, pd.NA], dtype=object)
+    assert outcome_codes(GIFTS, missing, 4).tolist() == [2, -1, -1, -1]
 
 
 def test_templates_build_checks_per_criterion_and_boundary() -> None:

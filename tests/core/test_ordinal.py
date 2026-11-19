@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import itertools
+from collections.abc import Sequence
+
 import numpy as np
 import numpy.typing as npt
 import pytest
@@ -132,3 +135,24 @@ def test_a_scorer_checks_its_input() -> None:
     scorer = OrdinalScorer(np.zeros(2), np.ones(2), np.ones(2), np.array([0.0]), C=1.0)
     with pytest.raises(Exception, match="2 checks"):
         scorer.eta(np.zeros((1, 3)))
+
+
+def balanced(scores: Floats, y: Codes, cuts: Sequence[float]) -> float:
+    predicted = (scores[:, None] >= np.array(cuts)[None, :]).sum(axis=1)
+    return float(np.mean([(predicted[y == c] == c).mean() for c in np.unique(y)]))
+
+
+@pytest.mark.parametrize("k", [2, 3, 4])
+def test_balanced_cuts_are_the_best_there_are(k: int) -> None:
+    rng = np.random.default_rng(k)
+    for _ in range(20):
+        y = rng.integers(0, k, 14).astype(np.intp)
+        scores = np.round(y + rng.normal(0, 1.2, 14), 1)  # ties included
+        cuts = balanced_cuts(scores, y, k)
+        candidates = [*np.unique(scores).tolist(), np.inf]
+        best = max(
+            balanced(scores, y, cut)
+            for cut in itertools.combinations_with_replacement(candidates, k - 1)
+        )
+        assert np.all(np.diff(cuts) >= 0)
+        assert np.isclose(balanced(scores, y, cuts.tolist()), best)

@@ -1,6 +1,22 @@
 Changelog
 =========
 
+0.4.2 (2026-11-19)
+------------------
+- Claude through OpenRouter with ``reasoning_effort="none"`` works. OpenRouter refuses ``"none"`` for Claude ("Reasoning
+  is mandatory for this endpoint and cannot be disabled."), so a teacher such as
+  ``LLM("openrouter:anthropic/claude-opus-5.5", reasoning_effort="none")`` failed on every case. ``"none"`` and
+  ``"minimal"`` now ask for ``"low"``, Claude's lowest, as they already did when Claude is called directly. A model
+  that answers that reasoning is mandatory is now called without an effort, with a warning, like any other setting
+  a model rejects.
+- Failures say why. A reply that is cut off, refused, empty, or not the JSON asked for now says which, with how the
+  reply began, and ``NoOutputError`` lists each model's reason (also in its new ``reasons``). ``label_cases`` and
+  ``PolicyClassifier.labels_`` have a ``failure`` column with why the teacher gave no verdict for a case. When it
+  gives none for any case, ``label_cases`` and ``fit`` raise ``NoOutputError`` naming the most common reason,
+  instead of returning labels that are all ``None``. ``write_checks`` raises with the writer's reason in the same way.
+- ``think_reason_learn.testing``: a fake's text reply to a structured request is parsed as JSON, as a real model's
+  is.
+
 0.4.1 (2026-11-19)
 ------------------
 - ``max_cost_usd`` no longer stops a run that fits under it. Each call in flight holds its worst-case estimate of

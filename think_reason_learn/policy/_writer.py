@@ -22,6 +22,13 @@ from ._types import Criterion, Mistake, Policy
 
 CHECKS_PER_ROUND: Final = 30
 """Checks the writer is asked for at most, per round."""
+_TOKENS_PER_CHECK: Final = 60
+_REPLY_HEADROOM: Final = 200
+
+
+def writer_reply_tokens(n_checks: int) -> int:
+    """The most a reply of ``n_checks`` written checks writes, thinking aside."""
+    return _TOKENS_PER_CHECK * n_checks + _REPLY_HEADROOM
 
 
 async def written_checks(
@@ -46,6 +53,7 @@ async def written_checks(
         role="writer",
         schema=_Checks,
         instructions=WRITER_INSTRUCTIONS,
+        reply_tokens=writer_reply_tokens(n_checks),
     )
     seen = {text.strip().lower() for text in current}
     checks: list[Criterion] = []

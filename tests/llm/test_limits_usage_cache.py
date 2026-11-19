@@ -242,15 +242,31 @@ class TestUsageAndPrices:
             with pytest.raises(ValueError, match="finite and 0 or more"):
                 Price(price)
 
-    def test_budget(self) -> None:
+    @pytest.mark.asyncio
+    async def test_budget(self) -> None:
         budget = Budget(1.0)
-        held = budget.reserve(0.6)
+        held = await budget.hold(0.6)
         with pytest.raises(BudgetExceededError):
-            budget.reserve(0.6)
+            await budget.hold(1.5)  # never fits, whatever settles
         budget.settle(held, 1.2)
         with pytest.raises(BudgetExceededError, match="cap"):
             budget.check()
-        assert Budget(None).reserve(1e9) == 1e9
+        assert await Budget(None).hold(1e9) == 1e9
+
+    @pytest.mark.asyncio
+    async def test_a_call_waits_for_reservations_to_settle(self) -> None:
+        budget = Budget(1.0)
+        first = await budget.hold(0.6)
+        second = asyncio.ensure_future(budget.hold(0.6))  # fits once first settles
+        await asyncio.sleep(0)
+        assert not second.done()
+        budget.settle(first, 0.1)  # the call cost far less than it held
+        assert await second == 0.6 and budget.spent_usd == 0.1
+        third = asyncio.ensure_future(budget.hold(0.6))
+        await asyncio.sleep(0)
+        budget.settle(0.6, 0.5)  # spent 0.6 now: 0.6 more would pass the cap
+        with pytest.raises(BudgetExceededError, match=r"\$0\.60 spent"):
+            await third
 
     def test_usage_summary_and_export(self, tmp_path: Path) -> None:
         with fake_llms(judge=FakeLLM(answer=lambda s, q: "YES")):

@@ -65,6 +65,9 @@ COLUMNS: Final = (
 ``"teacher"``, the teacher's confidence, reason, deciding criteria and criteria
 it could not judge, its second draw's outcome, and the case's weight."""
 _POOL_BATCH: Final = 20
+TEACHER_REPLY_TOKENS: Final = 400
+"""The most a teacher's verdict writes, thinking aside: a short JSON object. It
+sizes what each call holds of the cost cap."""
 
 
 def outcome_codes(policy: Policy, y: LabelInput | None, n: int) -> Codes:
@@ -166,6 +169,7 @@ async def verdicts(
                 instructions=TEACHER_INSTRUCTIONS,
                 prefix=policy_block(policy),
                 draw=draw,
+                reply_tokens=TEACHER_REPLY_TOKENS,
             )
         except NoOutputError:
             return None

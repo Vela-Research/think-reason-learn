@@ -5,7 +5,7 @@ from __future__ import annotations
 import itertools
 import json
 import logging
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import replace
 from pathlib import Path
 
@@ -22,7 +22,13 @@ from sklearn.model_selection import (
 
 from think_reason_learn import LLM, Price
 from think_reason_learn.exceptions import BudgetExceededError, DataError
-from think_reason_learn.llm import Question, Usage
+from think_reason_learn.llm import (
+    Question,
+    Usage,
+    config_context,
+    estimate_generations,
+    resolve_models,
+)
 from think_reason_learn.policy import (
     Criterion,
     Mistake,
@@ -35,13 +41,15 @@ from think_reason_learn.policy import (
     write_checks,
 )
 from think_reason_learn.policy._checks import policy_checks, weight_bounds
-from think_reason_learn.policy._labels import outcome_codes
+from think_reason_learn.policy._labels import TEACHER_REPLY_TOKENS, outcome_codes
 from think_reason_learn.testing import (
     FakeLLM,
     GenerateRequest,
     check_classifier,
     fake_llms,
 )
+
+type SlowWrites = Callable[[Callable[[str], float]], list[str]]
 
 HOBBY = Criterion("C1", "The gift matches a hobby the recipient has.", "positive")
 OWNS = Criterion(
@@ -597,6 +605,40 @@ def test_cost_estimates_and_the_cap(fakes: tuple[FakeLLM, FakeLLM, FakeLLM]) -> 
     priced.max_cost_usd = 1e-6
     with pytest.raises(BudgetExceededError):
         priced.fit(CASES)
+
+
+def test_seventy_teacher_calls_fit_a_cap_their_real_cost_fits(
+    fakes: tuple[FakeLLM, FakeLLM, FakeLLM], slow_writes: SlowWrites
+) -> None:
+    # Priced like a large model: each call holds its worst case, about $0.13,
+    # and costs about $0.008. Seventy at once hold $9; they spend $0.56.
+    slow_writes(lambda prompt: 0.01)  # so the calls are in flight together
+    large = LLM("fake:large", price=Price(4.0, 20.0))
+    teacher = FakeLLM(generate=teach, tokens=(1_500, 100))
+    cases = [case(i, TRAITS[i % len(TRAITS)]) for i in range(70)]
+    [endpoint] = resolve_models(large, param="teacher", task="generate")
+    held = estimate_generations(
+        [endpoint], 300, calls=70, reply_tokens=TEACHER_REPLY_TOKENS
+    )
+    assert held.cost_usd is not None and held.cost_usd > 5.0
+    usage = Usage()
+    with fake_llms(large=teacher), config_context(max_cost_usd=1.0):
+        labels = label_cases(GIFTS, cases, large, usage=usage)
+    assert teacher.n_calls == 70 and labels["outcome"].notna().all()
+    assert usage.cost_usd <= 1.0
+
+
+def test_teacher_and_writer_calls_hold_their_reply_size(
+    fakes: tuple[FakeLLM, FakeLLM, FakeLLM],
+) -> None:
+    quick = {"reasoning_effort": "none", "price": Price(1.0, 4.0)}
+    clf = model(
+        teacher=LLM("fake:teacher", **quick),  # pyright: ignore[reportArgumentType]  # the settings above
+        writer=LLM("fake:writer", **quick),  # pyright: ignore[reportArgumentType]  # the settings above
+    )
+    planned = {r.role: r for r in clf.estimate_cost(CASES, [None] * 48)}
+    assert planned["teacher"].output_tokens == 48 * TEACHER_REPLY_TOKENS == 48 * 400
+    assert planned["writer"].output_tokens == 60 * 30 + 200
 
 
 def test_label_cases_tops_up_a_short_outcome(

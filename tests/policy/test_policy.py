@@ -318,6 +318,22 @@ def test_refit_says_which_new_labels_it_cannot_use(
     assert "2 labelled cases are left out" in caplog.text
 
 
+def test_labels_made_by_label_cases_go_to_a_fit_without_a_teacher(
+    fakes: tuple[FakeLLM, FakeLLM, FakeLLM],
+) -> None:
+    teacher, _, _ = fakes
+    pool = [case(100 + i, "hm") for i in range(5)]
+    labels = label_cases(
+        GIFTS, CASES[:24], "fake:teacher", pool=pool, min_per_outcome=6
+    )
+    labels = labels[labels["outcome"].notna()]
+    asked = teacher.n_calls
+    clf = PolicyClassifier(GIFTS, answerer="fake:judge", cv=3)  # as the docs show
+    clf.fit(labels["case"], labels["outcome"], sample_weight=labels["weight"])
+    assert teacher.n_calls == asked  # nothing asked of the teacher again
+    assert "policy_vs_labels" not in clf.report_
+
+
 def test_sample_weights_multiply_the_teachers(
     fakes: tuple[FakeLLM, FakeLLM, FakeLLM],
 ) -> None:

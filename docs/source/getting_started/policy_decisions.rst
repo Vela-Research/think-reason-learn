@@ -153,4 +153,9 @@ on to the fit:
 .. code-block:: python
 
    labels = label_cases(policy, X, "anthropic:claude-sonnet-5-5", pool=more, min_per_outcome=30)
+   labels = labels[labels["outcome"].notna()]  # cases the teacher could not judge
+   clf = PolicyClassifier(policy, answerer="jev")  # no teacher: the labels are made
    clf.fit(labels["case"], labels["outcome"], sample_weight=labels["weight"])
+
+The fit takes these labels as given (``source`` ``"gold"`` in ``labels_``), so this classifier has no teacher. With
+one, ``teacher_check`` would ask the same teacher about its own labels and report it agreeing with itself.

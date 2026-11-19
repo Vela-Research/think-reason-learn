@@ -45,7 +45,7 @@ from think_reason_learn.core._ordinal import (
     quadratic_kappa,
 )
 from think_reason_learn.core._sklearn import require_fitted
-from think_reason_learn.exceptions import DataError
+from think_reason_learn.exceptions import DataError, NoOutputError
 from think_reason_learn.llm import (
     LLM,
     QUESTION_TOKENS,
@@ -407,9 +407,16 @@ class PolicyClassifier(TRLClassifier):
         self.labels_ = labels
         self.unjudged_, self.dropped_criteria_ = shares, tuple(dropped)
         for round_ in range(1, self._rounds() + 1):
-            written = await self._write(
-                session, answerer, texts, rows, checks, answers, round_
-            )
+            try:
+                written = await self._write(
+                    session, answerer, texts, rows, checks, answers, round_
+                )
+            except NoOutputError as error:
+                logger.warning(
+                    f"The writer wrote nothing usable in round {round_} ({error}); "
+                    "fitting with the checks so far."
+                )
+                break
             if not written:
                 break
             more = np.full((len(texts), len(written)), np.nan)

@@ -454,6 +454,19 @@ def test_the_writer_adds_checks_from_the_mistakes(
     assert (without.predict(CASES) == np.array(LABELS)).mean() < 1.0
 
 
+def test_a_writer_with_nothing_usable_does_not_stop_the_fit(
+    fakes: tuple[FakeLLM, FakeLLM, FakeLLM], caplog: pytest.LogCaptureFixture
+) -> None:
+    partial = Policy(GIFTS.text, OUTCOMES, (HOBBY, OWNS))  # so there are mistakes
+    silent = FakeLLM(generate=lambda request: None)
+    with fake_llms(writer=silent), caplog.at_level(logging.WARNING):
+        clf = model(policy=partial, writer="fake:writer", writer_rounds=2)
+        clf.fit(CASES)
+    assert "wrote nothing usable in round 1" in caplog.text
+    assert not (clf.checks_["form"] == "written").any()
+    assert clf.predict(CASES).shape == (48,)
+
+
 def test_two_draws_measure_the_teacher(
     fakes: tuple[FakeLLM, FakeLLM, FakeLLM],
 ) -> None:

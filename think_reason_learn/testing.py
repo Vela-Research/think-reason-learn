@@ -98,6 +98,7 @@ class FakeCall:
     schema: type[BaseModel] | None = None
     sample: str | None = None
     questions: tuple[str, ...] = ()
+    prefix: str | None = None
 
 
 @dataclass(slots=True)
@@ -225,7 +226,13 @@ class _FakeAdapter:
     ) -> Reply[str | BaseModel | None]:
         fake = _fake(endpoint)
         fake.calls.append(
-            FakeCall("generate", request.prompt, request.instructions, request.schema)
+            FakeCall(
+                "generate",
+                request.prompt,
+                request.instructions,
+                request.schema,
+                prefix=request.prefix,
+            )
         )
         if _failed(fake) or fake.generate is None:
             return Reply(None, _tokens(fake))

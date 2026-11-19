@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from pathlib import Path
+from typing import cast
 
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 import pytest
 
@@ -15,6 +17,7 @@ from think_reason_learn.core._classifier import TRLClassifier
 from think_reason_learn.core._persistence import FORMAT, decode, encode
 from think_reason_learn.exceptions import DataError
 from think_reason_learn.llm import ChoiceQuestion
+from think_reason_learn.llm._cache import JSON
 from think_reason_learn.rrf import RRF
 from think_reason_learn.testing import FakeLLM
 
@@ -173,3 +176,56 @@ def test_choice_questions_come_back_with_their_descriptions() -> None:
     assert isinstance(saved, dict) and isinstance(saved["fields"], dict)
     del saved["fields"]["descriptions"]
     assert decode(saved) == plain
+
+
+def strict(text: str) -> JSON:
+    """``json.loads`` as a strict reader (such as JavaScript's) does it."""
+
+    def refuse(constant: str) -> object:
+        raise ValueError(f"not strict JSON: {constant}")
+
+    parsed: JSON = json.loads(text, parse_constant=refuse)
+    return parsed
+
+
+def test_non_finite_floats_are_strict_json() -> None:
+    value: dict[str, object] = {
+        "floats": [np.nan, np.inf, -np.inf, 1.5],
+        "array": np.array([np.nan, 2.0]),
+        "frame": pd.DataFrame({"score": [np.nan, 0.5]}),
+        "scalar": np.float64("nan"),
+    }
+    text = json.dumps(encode(value), allow_nan=False)
+    back = cast(dict[str, object], decode(strict(text)))
+    assert json.dumps(encode(back), allow_nan=False) == text
+    floats = cast(list[float], back["floats"])
+    array = cast(npt.NDArray[np.float64], back["array"])
+    frame = cast(pd.DataFrame, back["frame"])
+    assert np.isnan(floats[0]) and floats[1:] == [np.inf, -np.inf, 1.5]
+    assert np.isnan(array[0]) and array.dtype == np.float64
+    assert frame["score"].isna().tolist() == [True, False]
+
+
+def test_files_with_bare_nan_still_load() -> None:
+    old = '{"x": NaN, "a": {"__trl__": "array", "dtype": "<f8", "items": [NaN, 1.0]}}'
+    back = cast(dict[str, object], decode(json.loads(old)))
+    array = cast(npt.NDArray[np.float64], back["a"])
+    assert np.isnan(cast(float, back["x"])) and np.isnan(array[0])
+    with pytest.raises(DataError, match="not a float"):
+        decode({"__trl__": "float", "value": "1e999"})
+
+
+def test_a_saved_model_is_strict_json(
+    generic_fakes: tuple[FakeLLM, FakeLLM], tmp_path: Path
+) -> None:
+    X = [f"Review {i} is {'good' if i % 2 else 'bad'}." for i in range(40)]
+    y = ["good" if i % 2 else "bad" for i in range(40)]
+    model = RRF(
+        task="t", generator="fake:writer", answerer="fake:judge", n_prompts=3, cv=2
+    )
+    model.fit(X, y)
+    model.threshold_ = float("inf")  # a value strict JSON cannot hold as is
+    saved = (model.save(tmp_path / "m") / "model.json").read_text()
+    document = cast(dict[str, dict[str, object]], strict(saved))
+    assert document["summary"]["threshold"] is None
+    assert RRF.load(tmp_path / "m").threshold_ == float("inf")

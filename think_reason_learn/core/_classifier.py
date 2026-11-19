@@ -144,7 +144,7 @@ class TRLClassifier(Persistable, ClassifierMixin, BaseEstimator, ABC):
                 require_fitted(self)
                 planned = self._predict_plan(texts)
             else:
-                classes, codes = _encoded(texts, y)
+                classes, codes = self._encode_labels(texts, y)
                 self._task()
                 self._check_classes(classes)
                 planned = self._fit_plan(texts, codes, classes)
@@ -272,7 +272,7 @@ class TRLClassifier(Persistable, ClassifierMixin, BaseEstimator, ABC):
 
     async def _fit(self, X: TextInput, y: LabelInput) -> Self:
         texts, names = to_texts(X)
-        classes, codes = _encoded(texts, y)
+        classes, codes = self._encode_labels(texts, y)
         self._task()
         self._check_classes(classes)
         self._announce(lambda: self._fit_plan(texts, codes, classes), "fitting")
@@ -288,6 +288,10 @@ class TRLClassifier(Persistable, ClassifierMixin, BaseEstimator, ABC):
                 self._forget_fitted(keep="usage_")  # what the failed fit spent
                 raise
         return self
+
+    def _encode_labels(self, texts: list[str], y: LabelInput) -> tuple[Classes, Labels]:
+        """The classes, and each text's label code: by default, the sorted labels."""
+        return _encoded(texts, y)
 
     def _check_classes(self, classes: Classes) -> None:
         """Raise before any call if the model cannot learn ``classes``."""

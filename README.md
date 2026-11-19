@@ -27,6 +27,9 @@ Every model splits the work three ways:
 - **Policy Induction**: a short policy of rules refined batch by batch, its rules weighed to predict.
 - **Reasoned Rule Mining**: rules mined from reasoning, applied in a cheap-then-strict cascade.
 - **VerifiableRL**: learns which information to reveal, one slot at a time, at a cost.
+- **PolicyClassifier**: decisions with 2 to 4 ordered outcomes (say NO < MAYBE < YES) from a written policy, labelled
+  cases or both; each prediction is explained in points per criterion. See
+  [policy decisions](https://thinkreasonlearn.com/docs/getting_started/policy_decisions.html).
 
 The papers are on our [research page](https://thinkreasonlearn.com/research).
 

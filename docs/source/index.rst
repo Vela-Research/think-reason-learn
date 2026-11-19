@@ -24,6 +24,7 @@ Start with the installation guide, then the quick start, which fits a small GPTr
       - :doc:`About <getting_started/about>`
       - :doc:`Installation guide <getting_started/installation_guide>`
       - :doc:`Quick start <getting_started/quick_start>`
+      - :doc:`Policy decisions <getting_started/policy_decisions>`
       - :doc:`Migrating from 0.2 <getting_started/migration>`
 
    .. grid-item-card:: Reference
@@ -45,6 +46,7 @@ The papers behind the methods are on the `research page <https://thinkreasonlear
    getting_started/about
    getting_started/installation_guide
    getting_started/quick_start
+   getting_started/policy_decisions
    getting_started/migration
    modules
    contributing

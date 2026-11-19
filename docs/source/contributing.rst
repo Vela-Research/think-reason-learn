@@ -33,7 +33,8 @@ How the code is laid out
   session around it does fallbacks, retries, limits, the cache, usage and budgets for all of them.
 - ``think_reason_learn/core``: ``TRLClassifier``, the scikit-learn base every model builds on, and the helpers models
   share (rendering samples, labels, example batches, prompts, logistic combiners and thresholds).
-- One package per model (``gptree``, ``rrf``, ``policy_induction``, ``reasoned_rule_mining``, ``verifiable_rl``).
+- One package per model (``gptree``, ``rrf``, ``policy_induction``, ``reasoned_rule_mining``, ``verifiable_rl``,
+  ``policy``).
 - ``tests/`` mirrors the packages.
 - ``examples/``: one notebook per model for users, run offline by the tests with fake models.
 - ``lab/``: your own experiments (scripts, notebooks, data, real models). Git ignores it, so nothing there is shared

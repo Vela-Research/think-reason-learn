@@ -287,6 +287,28 @@ def test_refit_calls_no_model(fakes: tuple[FakeLLM, FakeLLM, FakeLLM]) -> None:
     assert clf.labels_ is labels  # a failed refit changes nothing
 
 
+def test_sample_weights_multiply_the_teachers(
+    fakes: tuple[FakeLLM, FakeLLM, FakeLLM],
+) -> None:
+    pool = [case(100 + i, "hm") for i in range(5)]
+    labels = label_cases(
+        GIFTS, CASES[:24], "fake:teacher", pool=pool, min_per_outcome=6
+    )
+    clf = model().fit(labels["case"], labels["outcome"], sample_weight=labels["weight"])
+    assert np.allclose(clf.labels_["sample_weight"], labels["weight"])
+    assert np.allclose(clf.labels_["weight"], labels["weight"])
+    assert (clf.labels_["weight"] < 1).any()
+    weights = np.linspace(0.5, 1.5, 48)
+    clf = model(teacher_check=0).fit(CASES, sample_weight=weights)
+    assert np.allclose(clf.labels_["weight"], weights)
+    clf.refit(labels=["YES", *LABELS[1:]])
+    assert clf.labels_["weight"][0] == clf.labels_["sample_weight"][0] == 0.5
+    with pytest.raises(DataError, match="sample_weight"):
+        model().fit(CASES, sample_weight=[1.0] * 3)
+    with pytest.raises(DataError, match="sample_weight"):
+        model().fit(CASES, sample_weight=[-1.0] * 48)
+
+
 @pytest.mark.asyncio
 async def test_async_twins(fakes: tuple[FakeLLM, FakeLLM, FakeLLM]) -> None:
     clf = await model().afit(CASES)

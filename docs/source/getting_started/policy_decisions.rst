@@ -142,4 +142,10 @@ Each step can be used alone, through the same cache, retries and cost cap.
    scorer.proba(answers)  # one column per outcome, lowest first
 
 ``label_cases`` can also top up an outcome with few labels from a pool of more cases (``pool=``,
-``min_per_outcome=``), and records the sampling weights that undo the extra share it gives that outcome.
+``min_per_outcome=``), and records the sampling weights that undo the extra share it gives that outcome. Pass them
+on to the fit:
+
+.. code-block:: python
+
+   labels = label_cases(policy, X, "anthropic:claude-sonnet-5-5", pool=more, min_per_outcome=30)
+   clf.fit(labels["case"], labels["outcome"], sample_weight=labels["weight"])

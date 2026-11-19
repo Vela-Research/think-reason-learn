@@ -195,8 +195,15 @@ class PolicyClassifier(TRLClassifier):
     policy_vs_labels_: dict[str, float | int | None] | None
     dropped_criteria_: tuple[str, ...]
     report_: dict[str, object]
+    _fit_weights: Floats | None = None
+    """The running fit's ``sample_weight``; never saved."""
 
-    def fit(self, X: TextInput, y: LabelInput | None = None) -> Self:
+    def fit(
+        self,
+        X: TextInput,
+        y: LabelInput | None = None,
+        sample_weight: npt.ArrayLike | None = None,
+    ) -> Self:
         """Fit the model.
 
         Args:
@@ -204,15 +211,23 @@ class PolicyClassifier(TRLClassifier):
                 value``).
             y: Each case's outcome name, ``None`` for a case the teacher
                 labels. With no ``y`` the teacher labels every case.
+            sample_weight: A weight per case, 1 each by default. It multiplies
+                the half weight of a case the teacher judged two ways. Pass
+                ``label_cases(...)["weight"]`` to undo a pool top-up.
 
         Returns:
             The fitted model.
         """
-        return run_sync(self._fit(X, self._every_label(X, y)))
+        return run_sync(self._weighted_fit(X, y, sample_weight))
 
-    async def afit(self, X: TextInput, y: LabelInput | None = None) -> Self:
+    async def afit(
+        self,
+        X: TextInput,
+        y: LabelInput | None = None,
+        sample_weight: npt.ArrayLike | None = None,
+    ) -> Self:
         """Fit the model, from async code. See ``fit``."""
-        return await run_async(self._fit(X, self._every_label(X, y)))
+        return await run_async(self._weighted_fit(X, y, sample_weight))
 
     def explain(self, X: TextInput) -> list[Explanation]:
         """Why each case gets its outcome: points by criterion, and what is unknown.
@@ -284,6 +299,17 @@ class PolicyClassifier(TRLClassifier):
         with self._cost_cap():
             return await super()._fit(X, y)
 
+    async def _weighted_fit(
+        self, X: TextInput, y: LabelInput | None, sample_weight: npt.ArrayLike | None
+    ) -> Self:
+        """``_fit`` with ``sample_weight``, checked first and held for ``_afit``."""
+        n = len(to_texts(X)[0])
+        self._fit_weights = _checked_weights(sample_weight, n)
+        try:
+            return await self._fit(X, [None] * n if y is None else y)
+        finally:
+            del self._fit_weights
+
     async def _arun[T](self, X: TextInput, doing: str, work: Work[T]) -> T:
         with self._cost_cap():
             return await super()._arun(X, doing, work)
@@ -334,6 +360,11 @@ class PolicyClassifier(TRLClassifier):
         labels = await label_rows(
             session, policy, texts, y, teacher, draws=self.teacher_draws
         )
+        weights = self._fit_weights
+        labels.insert(len(labels.columns) - 1, "sample_weight", 1.0)
+        if weights is not None:
+            labels["sample_weight"] = weights
+            labels["weight"] = labels["weight"] * weights
         self.policy_vs_labels_ = await self._check_teacher(
             session, policy, texts, y, teacher
         )
@@ -780,10 +811,6 @@ class PolicyClassifier(TRLClassifier):
         with config_context(max_cost_usd=cap) if cap is not None else nullcontext():
             yield
 
-    def _every_label(self, X: TextInput, y: LabelInput | None) -> LabelInput:
-        """``y``, or no label for any case."""
-        return [None] * len(to_texts(X)[0]) if y is None else y
-
     def _saved_params(self) -> Mapping[str, object]:
         """The settings, without a teacher function, which cannot be saved."""
         params = dict(super()._saved_params())
@@ -822,18 +849,38 @@ def _expected(proba: Floats) -> Floats:
 
 
 def _relabelled(frame: pd.DataFrame, policy: Policy, codes: Labels) -> pd.DataFrame:
-    """``frame`` with new outcomes; a changed one becomes yours."""
+    """``frame`` with new outcomes; a changed one becomes yours, its weight kept."""
     old = outcome_codes(policy, frame["outcome"], len(frame)).tolist()
-    rows: list[list[object]] = frame.to_numpy(dtype=object).tolist()
+    rows: list[dict[str, object]] = frame.to_dict("records")  # pyright: ignore[reportAssignmentType]  # string column names
     for i, (new, before) in enumerate(zip(codes.tolist(), old, strict=True)):
         if new == before:
             continue
-        rows[i] = (
-            [None, None, np.nan, "", (), (), None, 0.0]
-            if new == UNLABELLED
-            else [policy.names[new], "gold", 1.0, "", (), (), None, 1.0]
-        )
+        weight = rows[i]["sample_weight"]
+        rows[i] = {
+            "outcome": None if new == UNLABELLED else policy.names[new],
+            "source": None if new == UNLABELLED else "gold",
+            "confidence": np.nan if new == UNLABELLED else 1.0,
+            "why": "",
+            "criteria": (),
+            "unjudged": (),
+            "second": None,
+            "sample_weight": weight,
+            "weight": 0.0 if new == UNLABELLED else weight,
+        }
     return pd.DataFrame(rows, columns=frame.columns)
+
+
+def _checked_weights(sample_weight: npt.ArrayLike | None, n: int) -> Floats | None:
+    """``sample_weight`` as floats, one per case, finite and 0 or more."""
+    if sample_weight is None:
+        return None
+    weights = np.asarray(sample_weight, dtype=float)
+    if weights.shape != (n,) or not np.isfinite(weights).all() or (weights < 0).any():
+        raise DataError(
+            f"sample_weight needs one finite weight of 0 or more per case, for {n}; "
+            f"got shape {weights.shape}."
+        )
+    return weights
 
 
 def _check_ids(checks: Sequence[Check], policy: Policy) -> None:

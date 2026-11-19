@@ -293,6 +293,12 @@ def test_refit_calls_no_model(fakes: tuple[FakeLLM, FakeLLM, FakeLLM]) -> None:
     with pytest.raises(DataError, match="two different outcomes"):
         clf.refit(labels=["NO"] * 48)
     assert clf.labels_ is labels  # a failed refit changes nothing
+    # Locked while other cases are left out: its points stay exactly as they were.
+    before = clf.checks_.set_index("id")["points"]["C3.applies"]
+    handmade = [i for i, text in enumerate(CASES) if "handmade" in text][:10]
+    fewer = [None if i in handmade else label for i, label in enumerate(LABELS)]
+    clf.refit(labels=fewer, lock=["C3.applies"])  # the handmade answers' spread moves
+    assert clf.checks_.set_index("id")["points"]["C3.applies"] == before
 
 
 def test_sample_weights_multiply_the_teachers(

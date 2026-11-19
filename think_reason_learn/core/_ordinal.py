@@ -125,6 +125,7 @@ def fit_ordinal(
     random_state: int | None = None,
     min_scale: float = MIN_SCALE,
     min_spread: float = MIN_SPREAD,
+    standardise: tuple[Floats, Floats] | None = None,
 ) -> tuple[OrdinalScorer, Floats]:
     """Fit the cumulative-logit model, choosing ``C`` by stratified folds.
 
@@ -153,6 +154,9 @@ def fit_ordinal(
             answers on [0, 1]; 0 for none.
         min_spread: A column whose answers' standard deviation is below this
             gets weight 0 (see ``answer_spread``).
+        standardise: The mean and scale of each column to standardise by,
+            e.g. an earlier fit's, so weights held by ``bounds`` keep their
+            meaning; by default each fit's own rows'.
 
     Returns:
         The fitted scorer, and each row's outcome probabilities from a model
@@ -178,7 +182,14 @@ def fit_ordinal(
 
     def fitted(rows: npt.NDArray[np.intp] | slice, c: float) -> OrdinalScorer:
         return _fit_once(
-            answers[rows], y[rows], k, allowed, c, weights[rows], min_scale=min_scale
+            answers[rows],
+            y[rows],
+            k,
+            allowed,
+            c,
+            weights[rows],
+            min_scale=min_scale,
+            standardise=standardise,
         )
 
     if not Cs:
@@ -369,11 +380,15 @@ def _fit_once(
     weights: Floats,
     *,
     min_scale: float = MIN_SCALE,
+    standardise: tuple[Floats, Floats] | None = None,
 ) -> OrdinalScorer:
     """The model fitted on these rows with one ``C``, standardised on them."""
-    mean, spread = _mean_and_spread(answers)
-    scale = np.maximum(spread, min_scale)
-    scale = np.where(scale > 1e-12, scale, 1.0)
+    if standardise is not None:
+        mean, scale = standardise
+    else:
+        mean, spread = _mean_and_spread(answers)
+        scale = np.maximum(spread, min_scale)
+        scale = np.where(scale > 1e-12, scale, 1.0)
     z = np.where(np.isnan(answers), 0.0, (answers - mean) / scale)
     m = z.shape[1]
     start = np.concatenate([np.zeros(m), _start_thresholds(y, k, weights)])

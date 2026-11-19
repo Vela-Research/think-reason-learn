@@ -530,8 +530,10 @@ class PolicyClassifier(TRLClassifier):
         if len(np.unique(codes[rows])) < 2:
             raise DataError("The labelled cases need at least two different outcomes.")
         _warn_if_lopsided(codes[rows], policy)
+        # A locked weight means what it meant at fit only on the fit's scale.
+        kept = (self.scorer_.mean, self.scorer_.scale) if locked else None
         scorer, out_of_fold = self._fit_scorer(
-            checks, answers[rows], codes[rows], fixed, rows
+            checks, answers[rows], codes[rows], fixed, rows, standardise=kept
         )
         self.scorer_ = scorer
         self.cut_points_ = self._oof_cuts(out_of_fold, codes[rows])
@@ -563,6 +565,8 @@ class PolicyClassifier(TRLClassifier):
         codes: Labels,
         fixed: Mapping[int, tuple[float, float]],
         rows: npt.NDArray[np.intp],
+        *,
+        standardise: tuple[Floats, Floats] | None = None,
     ) -> tuple[OrdinalScorer, Floats]:
         bounds = weight_bounds(checks, self.signs)
         bounds = [fixed.get(j, b) for j, b in enumerate(bounds)]
@@ -576,6 +580,7 @@ class PolicyClassifier(TRLClassifier):
             cv=self.cv,
             sample_weight=weights,
             random_state=self.random_state,
+            standardise=standardise,
         )
 
     def _oof_cuts(self, out_of_fold: Floats, codes: Labels) -> Floats | None:

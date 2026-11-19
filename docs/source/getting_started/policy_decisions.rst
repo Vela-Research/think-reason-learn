@@ -77,7 +77,7 @@ What fit does
    ``teacher_draws=2`` it judges each case twice: a case judged two ways weighs half, and the report gives how often
    the two draws agreed.
 2. **Checks.** Each criterion becomes yes/no checks by the ``templates``: ``"reach"`` asks, once per boundary,
-   whether judging by that criterion alone the case reaches the outcome; ``"applies"`` asks whether the criterion bears
+   whether judging by that criterion alone the case reaches at least that outcome; ``"applies"`` asks whether the criterion bears
    on the case; ``"met"`` asks whether the case meets it; and ``"policy"`` asks the first of these for the whole policy,
    once per boundary. All four are used by default. Checks of your own go in ``checks=``, asked as written.
 3. **Written checks.** With a writer, a model reads the cases the current checks get wrong, out of fold, with the

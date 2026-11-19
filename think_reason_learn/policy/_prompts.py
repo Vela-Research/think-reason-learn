@@ -86,8 +86,16 @@ def writer_prompt(
 
 
 def reach_check(text: str, outcome: Outcome) -> str:
-    """Whether a case reaches ``outcome``, judged by ``text`` alone."""
-    return f'Policy: "{text}"\nJudged by this policy alone: {_sentence(outcome)}.'
+    """Whether a case reaches ``outcome`` or a higher one, judged by ``text`` alone.
+
+    Asked as "at least", a yes always points up, so its weight may only raise
+    the outcome.
+    """
+    meaning = f": {_sentence(outcome)}" if outcome.meaning.strip() else ""
+    return (
+        f'Policy: "{text}"\nJudged by this policy alone, the case reaches at least '
+        f"{outcome.name}{meaning}."
+    )
 
 
 def applies_check(criterion: Criterion) -> str:

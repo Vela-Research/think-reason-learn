@@ -166,9 +166,14 @@ def test_templates_build_checks_per_criterion_and_boundary() -> None:
     checks = policy_checks(GIFTS, ("reach", "applies", "met"))
     ids = [c.id for c in checks if c.group == "C2"]
     assert ids == ["C2.reach1", "C2.reach2", "C2.applies", "C2.met"]
-    assert "Judged by this policy alone: the recipient will love the gift." in next(
-        c.question for c in checks if c.id == "C1.reach2"
+    reach2 = next(c.question for c in checks if c.id == "C1.reach2")
+    assert reach2 == (
+        f'Policy: "{HOBBY.text}"\nJudged by this policy alone, the case reaches at '
+        "least YES: the recipient will love the gift."
     )
+    bare = Policy("Keep it?", (Outcome("NO"), Outcome("YES")), (HOBBY,))
+    [plain] = [c.question for c in policy_checks(bare, ("reach",))][:1]
+    assert plain.endswith("the case reaches at least YES.")
     bounds = dict(
         zip([c.id for c in checks], weight_bounds(checks, "criteria"), strict=False)
     )

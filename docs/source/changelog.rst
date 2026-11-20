@@ -1,6 +1,17 @@
 Changelog
 =========
 
+0.4.3 (2026-11-20)
+------------------
+- Claude through OpenRouter caches the prompt's prefix. OpenRouter caches Claude's input only up to an explicit
+  breakpoint, so a policy that every teacher call repeats was paid in full each time: 15,000 tokens of a long
+  policy cost about $0.075 a case. The prefix now goes in its own message part marked ``cache_control``
+  (``{"type": "ephemeral"}``), as the Anthropic adapter already did. Measured on that policy: the first call writes
+  the cache ($0.09), and the next cost $0.012-0.019 each. Other models through OpenRouter, and calls without a
+  prefix, are sent as before.
+- A teacher's outcome written with its meaning counts: ``"REJECT: not a fit"`` or ``"YES - they'll love it"`` is
+  read as its name before the colon or dash. Before, the case got no verdict.
+
 0.4.2 (2026-11-19)
 ------------------
 - Claude through OpenRouter with ``reasoning_effort="none"`` works. OpenRouter refuses ``"none"`` for Claude ("Reasoning

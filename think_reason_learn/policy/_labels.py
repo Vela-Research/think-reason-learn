@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import re
 from collections import Counter
 from collections.abc import Sequence
 from typing import Final
@@ -381,10 +382,19 @@ def _teacher_row(
     ]
 
 
+# What may follow an outcome's name when a model adds its meaning: a colon or dash.
+_SEPARATOR: Final = re.compile(r"\s*[:\u2013\u2014]\s*|\s+-\s+")
+
+
 def _verdict(reply: _Verdict, policy: Policy) -> TeacherVerdict | str:
-    """The reply as a verdict, its outcome matched without regard to case."""
+    """The reply as a verdict, its outcome matched without regard to case.
+
+    A model sometimes writes the outcome with its meaning (``"REJECT: not a
+    fit"``, ``"ACCEPT - engage"``): the name before the separator counts.
+    """
     by_name = {name.lower(): name for name in policy.names}
-    outcome = by_name.get(reply.outcome.strip().lower())
+    said = reply.outcome.strip().lower()
+    outcome = by_name.get(said) or by_name.get(_SEPARATOR.split(said, maxsplit=1)[0])
     if outcome is None:
         return (
             f"the outcome {reply.outcome!r} is not one of the policy's "

@@ -193,12 +193,18 @@ async def verdicts(
             return "; ".join(error.reasons) or str(error)
         return _verdict(reply, policy)
 
+    # The policy is the prefix of every call, and a model can only read it from its
+    # cache once a call has written it: calls sent all at once would each pay for the
+    # whole policy. So one case goes first, then the rest together.
+    first: list[TeacherVerdict | str] = []
+    if len(cases) > 1 and not callable(teacher):
+        first = [await one(cases[0])]
     try:
         async with asyncio.TaskGroup() as group:  # the first error cancels the rest
-            tasks = [group.create_task(one(case)) for case in cases]
+            tasks = [group.create_task(one(case)) for case in cases[len(first) :]]
     except BaseExceptionGroup as errors:
         raise errors.exceptions[0] from None
-    return [task.result() for task in tasks]
+    return first + [task.result() for task in tasks]
 
 
 def unjudged_shares(labels: pd.DataFrame, policy: Policy) -> dict[str, float]:

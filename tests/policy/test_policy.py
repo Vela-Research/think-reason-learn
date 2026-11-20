@@ -774,3 +774,29 @@ def test_a_teacher_outcome_written_with_its_meaning_counts(
         assert isinstance(got, str) and "is not one of the policy's" in got
     else:
         assert not isinstance(got, str) and got.outcome == outcome
+
+
+def test_the_teacher_sends_one_case_before_the_rest() -> None:
+    """The policy is cached by the first call: the rest go together only after it."""
+    import asyncio
+
+    from think_reason_learn.policy._labels import _Verdict, verdicts
+
+    in_flight: set[str] = set()
+    started_with: dict[str, set[str]] = {}
+
+    class Session:
+        async def generate(self, models: object, prompt: str, **kw: object) -> _Verdict:
+            started_with[prompt] = set(in_flight)
+            in_flight.add(prompt)
+            await asyncio.sleep(0.01)
+            in_flight.discard(prompt)
+            return _Verdict(outcome="YES")
+
+    cases = [f"gift {i}" for i in range(4)]
+    got = asyncio.run(verdicts(Session(), (), GIFTS, cases, draw=0))  # type: ignore[arg-type]
+    assert [v.outcome for v in got if not isinstance(v, str)] == ["YES"] * 4
+    first, *rest = [p for p in started_with]
+    assert started_with[first] == set()  # alone
+    assert all(first not in started_with[p] for p in rest)  # finished before the rest
+    assert any(started_with[p] for p in rest)  # and the rest overlap

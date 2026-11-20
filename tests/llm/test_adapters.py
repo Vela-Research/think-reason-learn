@@ -702,3 +702,47 @@ def test_a_model_that_must_reason_is_called_without_an_effort(wire: Wire) -> Non
     assert classify(400, "Reasoning is mandatory for this endpoint.", {}).param == (
         "reasoning_effort"
     )
+
+
+def test_claude_through_openrouter_caches_the_prefix(wire: Wire) -> None:
+    """Claude through OpenRouter caches only up to a breakpoint.
+
+    The prefix goes in its own part, marked as the breakpoint.
+    """
+    requests = wire(_verdict_reply)
+    llm = LLM("openrouter:anthropic/claude-opus-5.5", api_key="k", kind="reasoning")
+    models = resolve_models(llm, param="g", task="generate")
+    run_sync(
+        LLMSession().generate(
+            models, "the case", role="g", schema=_Gift, prefix="the policy"
+        )
+    )
+    [user] = [
+        m for m in json.loads(requests[0].content)["messages"] if m["role"] == "user"
+    ]
+    assert user["content"] == [
+        {"type": "text", "text": "the policy", "cache_control": {"type": "ephemeral"}},
+        {"type": "text", "text": "the case"},
+    ]
+
+
+@pytest.mark.parametrize(
+    ("model", "prefix"),
+    [
+        ("openrouter:openai/gpt-5-mini", "the policy"),
+        ("openrouter:anthropic/claude-opus-5.5", None),
+    ],
+)
+def test_other_models_and_no_prefix_get_one_plain_string(
+    wire: Wire, model: str, prefix: str | None
+) -> None:
+    requests = wire(_verdict_reply)
+    llm = LLM(model, api_key="k", kind="reasoning")
+    models = resolve_models(llm, param="g", task="generate")
+    run_sync(
+        LLMSession().generate(models, "the case", role="g", schema=_Gift, prefix=prefix)
+    )
+    [user] = [
+        m for m in json.loads(requests[0].content)["messages"] if m["role"] == "user"
+    ]
+    assert user["content"] == ("the policy\n\nthe case" if prefix else "the case")

@@ -10,13 +10,17 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Final, TypedDict
+from typing import Final, TypedDict, cast
 
 import openai
 from openai import Omit, omit
 from openai.lib import type_to_response_format_param
 from openai.types import CompletionUsage
-from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
+from openai.types.chat import (
+    ChatCompletion,
+    ChatCompletionContentPartTextParam,
+    ChatCompletionMessageParam,
+)
 from openai.types.chat.completion_create_params import ResponseFormat
 from openai.types.shared import ReasoningEffort
 from pydantic import BaseModel
@@ -108,8 +112,7 @@ def _params(
     messages: list[ChatCompletionMessageParam] = []
     if instructions:
         messages.append({"role": "system", "content": instructions})
-    user = f"{request.prefix}\n\n{request.prompt}" if request.prefix else request.prompt
-    messages.append({"role": "user", "content": user})
+    messages.append({"role": "user", "content": _user_content(endpoint, request)})
     cache_key = (
         hashlib.sha256(request.prefix.encode()).hexdigest()[:32]
         if request.prefix and endpoint.provider == "openai"
@@ -127,6 +130,39 @@ def _params(
     )
 
 
+def _claude_via_openrouter(endpoint: Endpoint) -> bool:
+    return endpoint.provider == "openrouter" and endpoint.model_id.startswith(
+        "anthropic/"
+    )
+
+
+def _user_content(
+    endpoint: Endpoint, request: GenerateRequest
+) -> str | list[ChatCompletionContentPartTextParam]:
+    """The prefix, then the prompt.
+
+    Claude through OpenRouter caches only up to an explicit breakpoint, so the
+    prefix (a policy every call repeats) goes in its own part, marked as the
+    breakpoint: later calls read it from the cache at a tenth of the input
+    price. Other providers cache a repeated prefix by themselves (OpenAI with
+    ``prompt_cache_key``), so they get one plain string.
+    """
+    if not request.prefix:
+        return request.prompt
+    if not _claude_via_openrouter(endpoint):
+        return f"{request.prefix}\n\n{request.prompt}"
+    # cache_control is OpenRouter's (and Anthropic's), not in the OpenAI SDK's types.
+    prefix = cast(
+        ChatCompletionContentPartTextParam,
+        {
+            "type": "text",
+            "text": request.prefix,
+            "cache_control": {"type": "ephemeral"},
+        },
+    )
+    return [prefix, {"type": "text", "text": request.prompt}]
+
+
 def _effort(endpoint: Endpoint) -> ReasoningEffort | None:
     """The reasoning effort to send.
 
@@ -135,9 +171,7 @@ def _effort(endpoint: Endpoint) -> ReasoningEffort | None:
     ask for ``"low"``, as they do when Claude is called directly.
     """
     effort = endpoint.settings.reasoning_effort
-    claude = endpoint.provider == "openrouter" and endpoint.model_id.startswith(
-        "anthropic/"
-    )
+    claude = _claude_via_openrouter(endpoint)
     return "low" if claude and effort in ("none", "minimal") else effort
 
 

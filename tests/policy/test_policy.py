@@ -746,3 +746,31 @@ def test_write_checks_names_and_dedupes(
     )
     assert again == ()
     assert write_checks(GIFTS, [], "fake:writer") == ()
+
+
+@pytest.mark.parametrize(
+    ("said", "outcome"),
+    [
+        ("YES", "YES"),
+        ("maybe", "MAYBE"),
+        ("NO: the recipient will not like the gift", "NO"),
+        ("Yes - they'll love it", "YES"),
+        ("MAYBE – may like it", "MAYBE"),
+        ("NOPE", None),
+        ("YES-ish", None),
+    ],
+)
+def test_a_teacher_outcome_written_with_its_meaning_counts(
+    said: str, outcome: str | None
+) -> None:
+    """A model sometimes adds the outcome's meaning.
+
+    Seen with a long policy: "REJECT: not a fit".
+    """
+    from think_reason_learn.policy._labels import _Verdict, _verdict
+
+    got = _verdict(_Verdict(outcome=said), GIFTS)
+    if outcome is None:
+        assert isinstance(got, str) and "is not one of the policy's" in got
+    else:
+        assert not isinstance(got, str) and got.outcome == outcome

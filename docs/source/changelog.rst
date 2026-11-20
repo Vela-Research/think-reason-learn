@@ -1,6 +1,13 @@
 Changelog
 =========
 
+0.4.4 (2026-11-20)
+------------------
+- The teacher sends one case first, then the rest together. A model can read the policy from its cache only once a
+  call has written it, so calls sent all at once each paid for the whole policy (with 16 in flight, a 15,000-token
+  policy written 16 times, about $1.30 more on Claude). The first case costs one call's wait; every later one reads
+  the policy from the cache.
+
 0.4.3 (2026-11-20)
 ------------------
 - Claude through OpenRouter caches the prompt's prefix. OpenRouter caches Claude's input only up to an explicit

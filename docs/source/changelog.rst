@@ -3,8 +3,24 @@ Changelog
 
 0.3.1
 -----
-Fixes for decision models, the cost cap and cancelling a run.
+Fixes for decision models, the cost cap, cancelling a run, and Claude through OpenRouter.
 
+- ``max_cost_usd`` no longer stops a run that fits under it. Each call in flight holds its worst-case estimate of
+  the cap, and many at once could hold all of it with nothing spent. A call that would fit but for what others hold
+  now waits for them to finish and checks again. It is refused only when what is already spent plus its own estimate
+  passes the cap.
+- Writing calls hold a reply of their own size. ``LLMSession.generate`` takes ``reply_tokens``, the most a reply
+  writes besides thinking (2,000 by default, as before), and later calls are sized by what earlier ones of the same
+  size wrote.
+- Claude through OpenRouter with ``reasoning_effort="none"`` works. OpenRouter refuses ``"none"`` for Claude, so
+  ``"none"`` and ``"minimal"`` now ask for ``"low"``, Claude's lowest, as they already did when Claude is called
+  directly. A model that answers that reasoning is mandatory is now called without an effort, with a warning.
+- Failures say why. A reply that is cut off, refused, empty, or not the JSON asked for now says which, with how the
+  reply began, and ``NoOutputError`` lists each model's reason (also in its new ``reasons``).
+- Claude through OpenRouter caches a long shared prompt. The OpenAI-compatible adapter marks the prefix with
+  ``cache_control``, as the Anthropic adapter already did, so repeated calls read it from the cache.
+- ``think_reason_learn.testing``: a fake's text reply to a structured request is parsed as JSON, as a real model's
+  is.
 - The one-line package description on PyPI now opens with the website's headline and says what the library is.
 - ``ChoiceQuestion`` takes optional ``descriptions``, by label, of what each option means. System One models get
   them in ``criteria`` (``null`` used to be sent for every option), OpenAI's Decisions API on each choice, and

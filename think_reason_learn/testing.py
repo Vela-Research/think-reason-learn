@@ -45,7 +45,7 @@ from think_reason_learn.llm._adapters import (
     ProviderError,
     Reply,
 )
-from think_reason_learn.llm._adapters._base import DecisionAdapter, Failure
+from think_reason_learn.llm._adapters._base import DecisionAdapter, Failure, parsed
 from think_reason_learn.llm._spec import extra_provider
 from think_reason_learn.llm._usage import TokenCounts
 
@@ -98,6 +98,7 @@ class FakeCall:
     schema: type[BaseModel] | None = None
     sample: str | None = None
     questions: tuple[str, ...] = ()
+    prefix: str | None = None
 
 
 @dataclass(slots=True)
@@ -225,17 +226,28 @@ class _FakeAdapter:
     ) -> Reply[str | BaseModel | None]:
         fake = _fake(endpoint)
         fake.calls.append(
-            FakeCall("generate", request.prompt, request.instructions, request.schema)
+            FakeCall(
+                "generate",
+                request.prompt,
+                request.instructions,
+                request.schema,
+                prefix=request.prefix,
+            )
         )
         if _failed(fake) or fake.generate is None:
-            return Reply(None, _tokens(fake))
+            return Reply(None, _tokens(fake), unusable="the reply was empty")
         output = fake.generate(request)
         if isinstance(output, dict) and request.schema is not None:
             output = request.schema.model_validate(output)
+        unusable = None
+        if isinstance(output, str) and request.schema is not None:
+            # Text for a structured request is parsed as a real model's would be.
+            output, unusable = parsed(request.schema, output)
         return Reply(
             output if not isinstance(output, dict) else None,
             _tokens(fake),
             endpoint.model_id,
+            unusable=unusable,
         )
 
     async def answer(

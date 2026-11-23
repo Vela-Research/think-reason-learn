@@ -49,7 +49,9 @@ class LLM:
             it writes or casts votes to average. A model that rejects a
             temperature is called without one, with a warning.
         reasoning_effort: Reasoning effort for models that support it. Claude's
-            lowest is ``"low"``, which ``"none"`` and ``"minimal"`` ask for.
+            lowest is ``"low"``, which ``"none"`` and ``"minimal"`` ask for,
+            directly or through OpenRouter. A model that refuses to turn
+            reasoning off is called without an effort, with a warning.
         max_output_tokens: Cap on output tokens per call.
         service_tier: Provider service tier, e.g. ``"flex"`` for half price on
             OpenAI and Gemini at slower speed.

@@ -30,7 +30,5 @@ Core algorithms
 - **Reasoned Rule Mining**: plain-language if-then rules mined from a model's reasoning, applied in a calibrated,
   two-stage cascade.
 - **Verifiable RL**: a learned policy decides which information to reveal next, or when to stop, and a classifier predicts from what it has seen.
-- **Policy decisions**: a written policy, labelled cases or both put each case in one of 2 to 4 ordered outcomes, with
-  points per criterion behind every prediction.
 
 The papers behind these methods are on the `research page <https://thinkreasonlearn.com/research>`_.

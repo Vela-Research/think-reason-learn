@@ -5,10 +5,6 @@ settings, everything the model learned, and a readable summary. ``load``
 rebuilds the model from it without running code from the file: values are plain
 JSON, and the only objects it builds are this library's data classes, numpy
 arrays and pandas frames. Network weights go in a file of their own.
-
-The file is strict JSON, so any reader can parse it: NaN and infinities are
-written as tagged values (and as ``null`` in the summary). Files written before,
-with bare ``NaN``, still load.
 """
 
 from __future__ import annotations
@@ -16,7 +12,6 @@ from __future__ import annotations
 import dataclasses
 import json
 import logging
-import math
 import sys
 from collections.abc import Callable, Iterable, Mapping
 from os import PathLike
@@ -37,8 +32,7 @@ FORMAT: Final = 1
 """The save format; ``load`` reads only this one."""
 
 _TAG: Final = "__trl__"
-"""Marks a JSON object that stands for a tuple, array, frame, data class, or a
-float that is NaN or infinite."""
+"""Marks a JSON object that stands for a tuple, array, frame or data class."""
 
 _OLD_FILES: Final = (
     "rrf.json",
@@ -79,14 +73,12 @@ class Persistable:
             "format": FORMAT,
             "library": _library_version(),
             "class": type(self).__name__,
-            "params": encode(self._saved_params()),
+            "params": encode(self.get_params(deep=False)),
             "fitted": encode(fitted),
-            "summary": _finite(
-                json.loads(json.dumps(self._readable(), default=_jsonable))
-            ),
+            "summary": json.loads(json.dumps(self._readable(), default=_jsonable)),
         }
         (folder / "model.json").write_text(
-            json.dumps(document, indent=2, allow_nan=False), encoding="utf-8"
+            json.dumps(document, indent=2), encoding="utf-8"
         )
         self._save_apart(folder)
         return folder
@@ -122,10 +114,6 @@ class Persistable:
         """What the model learned, for people reading ``model.json``."""
         return {}
 
-    def _saved_params(self) -> Mapping[str, object]:
-        """The settings ``save`` writes: all of them, by default."""
-        return self.get_params(deep=False)
-
     def _save_apart(self, folder: Path) -> None:
         """Save the attributes in ``_saved_apart``; there are none by default."""
 
@@ -145,8 +133,6 @@ def encode(value: object) -> JSON:
         TypeError: ``value`` holds something that cannot be saved.
     """
     match value:
-        case float() if not math.isfinite(value):
-            return {_TAG: "float", "value": str(value)}  # strict JSON has no NaN
         case None | bool() | int() | float() | str():
             return value
         case np.generic():
@@ -274,8 +260,6 @@ def _without_password(value: object) -> object:
 
 def _decode_tagged(value: dict[str, JSON]) -> object:
     match value[_TAG]:
-        case "float":
-            return _non_finite(value["value"])
         case "tuple":
             return tuple(_items(value))
         case "pairs":
@@ -299,26 +283,6 @@ def _decode_tagged(value: dict[str, JSON]) -> object:
             return _decode_data(str(value["class"]), value["fields"])
         case tag:
             raise DataError(f"model.json is damaged: unknown value type {tag!r}.")
-
-
-def _non_finite(text: JSON) -> float:
-    """NaN or an infinity, as ``encode`` writes it."""
-    if text not in ("nan", "inf", "-inf"):
-        raise DataError(f"model.json is damaged: {text!r} is not a float.")
-    return float(text)
-
-
-def _finite(value: JSON) -> JSON:
-    """``value`` with NaN and infinities as ``null``, for the readable summary."""
-    match value:
-        case float() if not math.isfinite(value):
-            return None
-        case list():
-            return [_finite(item) for item in value]
-        case dict():
-            return {key: _finite(item) for key, item in value.items()}
-        case _:
-            return value
 
 
 def _decode_data(path: str, fields: JSON) -> object:

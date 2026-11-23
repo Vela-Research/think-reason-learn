@@ -1,67 +1,26 @@
 Changelog
 =========
 
-0.4.4 (2026-11-20)
-------------------
-- The teacher sends one case first, then the rest together. A model can read the policy from its cache only once a
-  call has written it, so calls sent all at once each paid for the whole policy (with 16 in flight, a 15,000-token
-  policy written 16 times, about $1.30 more on Claude). The first case costs one call's wait; every later one reads
-  the policy from the cache.
+0.3.1
+-----
+Fixes for decision models, the cost cap, cancelling a run, and Claude through OpenRouter.
 
-0.4.3 (2026-11-20)
-------------------
-- Claude through OpenRouter caches the prompt's prefix. OpenRouter caches Claude's input only up to an explicit
-  breakpoint, so a policy that every teacher call repeats was paid in full each time: 15,000 tokens of a long
-  policy cost about $0.075 a case. The prefix now goes in its own message part marked ``cache_control``
-  (``{"type": "ephemeral"}``), as the Anthropic adapter already did. Measured on that policy: the first call writes
-  the cache ($0.09), and the next cost $0.012-0.019 each. Other models through OpenRouter, and calls without a
-  prefix, are sent as before.
-- A teacher's outcome written with its meaning counts: ``"REJECT: not a fit"`` or ``"YES - they'll love it"`` is
-  read as its name before the colon or dash. Before, the case got no verdict.
-
-0.4.2 (2026-11-19)
-------------------
-- Claude through OpenRouter with ``reasoning_effort="none"`` works. OpenRouter refuses ``"none"`` for Claude ("Reasoning
-  is mandatory for this endpoint and cannot be disabled."), so a teacher such as
-  ``LLM("openrouter:anthropic/claude-opus-5.5", reasoning_effort="none")`` failed on every case. ``"none"`` and
-  ``"minimal"`` now ask for ``"low"``, Claude's lowest, as they already did when Claude is called directly. A model
-  that answers that reasoning is mandatory is now called without an effort, with a warning, like any other setting
-  a model rejects.
-- Failures say why. A reply that is cut off, refused, empty, or not the JSON asked for now says which, with how the
-  reply began, and ``NoOutputError`` lists each model's reason (also in its new ``reasons``). ``label_cases`` and
-  ``PolicyClassifier.labels_`` have a ``failure`` column with why the teacher gave no verdict for a case. When it
-  gives none for any case, ``label_cases`` and ``fit`` raise ``NoOutputError`` naming the most common reason,
-  instead of returning labels that are all ``None``. ``write_checks`` raises with the writer's reason in the same way.
-- ``think_reason_learn.testing``: a fake's text reply to a structured request is parsed as JSON, as a real model's
-  is.
-
-0.4.1 (2026-11-19)
-------------------
 - ``max_cost_usd`` no longer stops a run that fits under it. Each call in flight holds its worst-case estimate of
-  the cap, and many at once could hold all of it with nothing spent: 70 teacher calls in ``label_cases`` under a $3
-  cap stopped within two seconds ("the next call ($0.17) would pass its cap of $3.00 ($0.00 spent)"). A call that
-  would fit but for what others hold now waits for them to finish and checks again. It is refused only when what is
-  already spent plus its own estimate passes the cap. The check right before sending is unchanged, so the bill
-  passes the cap by at most what the calls in flight when it was crossed cost, as before.
+  the cap, and many at once could hold all of it with nothing spent. A call that would fit but for what others hold
+  now waits for them to finish and checks again. It is refused only when what is already spent plus its own estimate
+  passes the cap.
 - Writing calls hold a reply of their own size. ``LLMSession.generate`` takes ``reply_tokens``, the most a reply
   writes besides thinking (2,000 by default, as before), and later calls are sized by what earlier ones of the same
-  size wrote. The policy teacher's verdict holds 400 tokens and the writer 60 per check it is asked for plus 200, in
-  the cost estimate too. Answering calls were already sized by their questions.
-
-0.4.0 (2026-11-19)
-------------------
-- ``think_reason_learn.policy``: decisions with 2 to 4 ordered outcomes (``NO < MAYBE < YES``) from a written policy,
-  labelled cases, or both. ``PolicyClassifier(policy, answerer=..., teacher=..., writer=...)`` builds yes/no checks
-  from the policy's criteria, has a teacher label the cases you did not (it never relabels yours, and judges a sample of them only to report
-  how often it agrees), optionally
-  has a writer add checks from the cases it gets wrong, and weighs the answers with an ordinal model, one weight per
-  check. ``explain`` gives points by criterion that add up to each case's score, ``report_`` the agreement out of
-  fold for your labels and the teacher's apart, and ``refit`` weighs the kept answers again (new labels, muted or
-  locked criteria) without calling a model. ``label_cases``, ``write_checks`` and ``answer_checks`` (the library's
-  answering path as a matrix of yes probabilities) work on their own. See :doc:`getting_started/policy_decisions`.
-- ``think_reason_learn.core.fit_ordinal`` and ``OrdinalScorer``: a cumulative-logit model over answers, for ordered
-  outcomes. With two outcomes it is L2 logistic regression.
-- ``FakeCall`` records the cached ``prefix`` of a generation.
+  size wrote.
+- Claude through OpenRouter with ``reasoning_effort="none"`` works. OpenRouter refuses ``"none"`` for Claude, so
+  ``"none"`` and ``"minimal"`` now ask for ``"low"``, Claude's lowest, as they already did when Claude is called
+  directly. A model that answers that reasoning is mandatory is now called without an effort, with a warning.
+- Failures say why. A reply that is cut off, refused, empty, or not the JSON asked for now says which, with how the
+  reply began, and ``NoOutputError`` lists each model's reason (also in its new ``reasons``).
+- Claude through OpenRouter caches a long shared prompt. The OpenAI-compatible adapter marks the prefix with
+  ``cache_control``, as the Anthropic adapter already did, so repeated calls read it from the cache.
+- ``think_reason_learn.testing``: a fake's text reply to a structured request is parsed as JSON, as a real model's
+  is.
 - The one-line package description on PyPI now opens with the website's headline and says what the library is.
 - ``ChoiceQuestion`` takes optional ``descriptions``, by label, of what each option means. System One models get
   them in ``criteria`` (``null`` used to be sent for every option), OpenAI's Decisions API on each choice, and

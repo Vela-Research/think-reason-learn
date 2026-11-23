@@ -67,15 +67,13 @@ def answer_output_tokens(endpoint: Endpoint, n_questions: int) -> int:
     return n_questions * ANSWER_OUTPUT_TOKENS + (THINKING_TOKENS if thinks else 0)
 
 
-def generate_output_tokens(
-    endpoint: Endpoint, reply_tokens: int = GENERATE_OUTPUT_TOKENS
-) -> int:
-    """Output tokens of one writing call: any thinking, then a reply this long.
+def generate_output_tokens(endpoint: Endpoint) -> int:
+    """Output tokens of one writing call: any thinking, then the reply.
 
     At most the model's ``max_output_tokens``, if set.
     """
     effort = endpoint.settings.reasoning_effort
-    tokens = WRITING_THINKING_TOKENS[effort] + reply_tokens
+    tokens = WRITING_THINKING_TOKENS[effort] + GENERATE_OUTPUT_TOKENS
     cap = endpoint.settings.max_output_tokens
     return tokens if cap is None else min(tokens, cap)
 
@@ -108,17 +106,15 @@ def estimate_generations(
     *,
     calls: int = 1,
     role: str = "generator",
-    reply_tokens: int = GENERATE_OUTPUT_TOKENS,
 ) -> UsageRecord:
     """``calls`` writing calls with about ``input_tokens`` of text each.
 
     Each is sized by ``generate_output_tokens``, so a writer set to think
-    longer is estimated to cost more. ``reply_tokens`` is the most a reply
-    writes, thinking aside: less for a short structured reply.
+    longer is estimated to cost more.
     """
     tokens = TokenCounts(
         input=round(calls * (FRAMING_TOKENS + input_tokens)),
-        output=calls * generate_output_tokens(models[0], reply_tokens),
+        output=calls * generate_output_tokens(models[0]),
     )
     return _planned(models[0], role, calls, tokens)
 

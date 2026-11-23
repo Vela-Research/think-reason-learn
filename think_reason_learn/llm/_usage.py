@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import dataclasses
 import json
 import logging
@@ -218,8 +217,6 @@ class Budget:
         self.max_cost_usd = max_cost_usd
         self.spent_usd = 0.0
         self._reserved_usd = 0.0
-        self._holding = 0
-        self._settled: asyncio.Event | None = None
 
     @property
     def remaining_usd(self) -> float:
@@ -237,29 +234,14 @@ class Budget:
                 "it with think_reason_learn.config_context(max_cost_usd=...)."
             )
 
-    async def hold(self, estimate_usd: float | None) -> float:
-        """Hold the estimate of one call; returns what was held.
-
-        A call that fits under the cap only once calls in flight settle waits
-        for them: each holds its worst case and most spend far less, so many
-        at once can hold the whole cap with nothing spent. It is refused only
-        when spending so far plus its estimate passes the cap, which no
-        settling call can undo.
-
-        Raises:
-            BudgetExceededError: The call cannot fit under the cap.
-        """
+    def reserve(self, estimate_usd: float | None) -> float:
+        """Hold the estimate of one call; returns what was held."""
         held = estimate_usd or 0.0
-        while self.max_cost_usd is not None and held > self.remaining_usd:
-            if self.spent_usd + held > self.max_cost_usd or not self._holding:
-                raise BudgetExceededError(
-                    self._stopped(f"the next call ({format_usd(held)})")
-                )
-            if self._settled is None:
-                self._settled = asyncio.Event()
-            await self._settled.wait()
+        if self.max_cost_usd is not None and held > self.remaining_usd:
+            raise BudgetExceededError(
+                self._stopped(f"the next call ({format_usd(held)})")
+            )
         self._reserved_usd += held
-        self._holding += 1
         return held
 
     def admit(self, held: float) -> None:
@@ -274,13 +256,9 @@ class Budget:
             )
 
     def settle(self, held: float, cost_usd: float | None) -> None:
-        """Replace a held estimate with the call's cost; wake calls waiting to hold."""
+        """Replace a held estimate with the call's cost."""
         self._reserved_usd -= held
-        self._holding -= 1
         self.spent_usd += cost_usd or 0.0
-        if self._settled is not None:
-            self._settled.set()
-            self._settled = None  # those waiting check again; later ones wait anew
 
     def check(self) -> None:
         """Stop the run once spending has passed the cap."""

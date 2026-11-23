@@ -10,25 +10,21 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Final, TypedDict, cast
+from typing import Final, TypedDict
 
 import openai
 from openai import Omit, omit
 from openai.lib import type_to_response_format_param
 from openai.types import CompletionUsage
-from openai.types.chat import (
-    ChatCompletion,
-    ChatCompletionContentPartTextParam,
-    ChatCompletionMessageParam,
-)
+from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 from openai.types.chat.completion_create_params import ResponseFormat
 from openai.types.shared import ReasoningEffort
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from .._config import get_config
 from .._spec import Endpoint
 from .._usage import TokenCounts
-from ._base import GenerateRequest, Reply, classify, parsed, read_reply
+from ._base import GenerateRequest, Reply, classify, read_reply
 from ._http import cached, http_client
 from ._prompted import ReasoningAdapter
 
@@ -56,19 +52,17 @@ class OpenAICompatAdapter(ReasoningAdapter):
             raise classify(exc.status_code, exc.message, exc.response.headers) from exc
         except openai.APIConnectionError as exc:
             raise classify(None, str(exc), {}) from exc
-
-        def read(completion: ChatCompletion) -> Reply[str | BaseModel | None]:
-            output, unusable = _output(completion, request.schema)
-            return Reply(
-                output,
+        return await read_reply(
+            raw.parse,
+            ChatCompletion,
+            lambda completion: Reply(
+                _output(completion, request.schema),
                 _tokens(completion.usage),
                 completion.model,
                 _provider_cost(completion.usage),
                 dict(raw.headers),
-                unusable=unusable,
-            )
-
-        return await read_reply(raw.parse, ChatCompletion, read)
+            ),
+        )
 
 
 def openai_client(endpoint: Endpoint) -> openai.AsyncOpenAI:
@@ -112,7 +106,8 @@ def _params(
     messages: list[ChatCompletionMessageParam] = []
     if instructions:
         messages.append({"role": "system", "content": instructions})
-    messages.append({"role": "user", "content": _user_content(endpoint, request)})
+    user = f"{request.prefix}\n\n{request.prompt}" if request.prefix else request.prompt
+    messages.append({"role": "user", "content": user})
     cache_key = (
         hashlib.sha256(request.prefix.encode()).hexdigest()[:32]
         if request.prefix and endpoint.provider == "openai"
@@ -123,56 +118,11 @@ def _params(
         model=endpoint.model_id,
         messages=messages,
         temperature=kept("temperature", settings.temperature),
-        reasoning_effort=kept("reasoning_effort", _effort(endpoint)),
+        reasoning_effort=kept("reasoning_effort", settings.reasoning_effort),
         max_completion_tokens=kept("max_completion_tokens", settings.max_output_tokens),
         prompt_cache_key=kept("prompt_cache_key", cache_key),
         extra_body=None if isinstance(tier, Omit) else {"service_tier": tier},
     )
-
-
-def _claude_via_openrouter(endpoint: Endpoint) -> bool:
-    return endpoint.provider == "openrouter" and endpoint.model_id.startswith(
-        "anthropic/"
-    )
-
-
-def _user_content(
-    endpoint: Endpoint, request: GenerateRequest
-) -> str | list[ChatCompletionContentPartTextParam]:
-    """The prefix, then the prompt.
-
-    Claude through OpenRouter caches only up to an explicit breakpoint, so the
-    prefix (a policy every call repeats) goes in its own part, marked as the
-    breakpoint: later calls read it from the cache at a tenth of the input
-    price. Other providers cache a repeated prefix by themselves (OpenAI with
-    ``prompt_cache_key``), so they get one plain string.
-    """
-    if not request.prefix:
-        return request.prompt
-    if not _claude_via_openrouter(endpoint):
-        return f"{request.prefix}\n\n{request.prompt}"
-    # cache_control is OpenRouter's (and Anthropic's), not in the OpenAI SDK's types.
-    prefix = cast(
-        ChatCompletionContentPartTextParam,
-        {
-            "type": "text",
-            "text": request.prefix,
-            "cache_control": {"type": "ephemeral"},
-        },
-    )
-    return [prefix, {"type": "text", "text": request.prompt}]
-
-
-def _effort(endpoint: Endpoint) -> ReasoningEffort | None:
-    """The reasoning effort to send.
-
-    Claude's lowest is ``"low"``: through OpenRouter, ``"none"`` is refused with
-    "Reasoning is mandatory for this endpoint", so ``"none"`` and ``"minimal"``
-    ask for ``"low"``, as they do when Claude is called directly.
-    """
-    effort = endpoint.settings.reasoning_effort
-    claude = _claude_via_openrouter(endpoint)
-    return "low" if claude and effort in ("none", "minimal") else effort
 
 
 def _response_format(
@@ -187,22 +137,20 @@ def _response_format(
 
 def _output(
     completion: ChatCompletion, schema: type[BaseModel] | None
-) -> tuple[str | BaseModel | None, str | None]:
-    """The reply as text or ``schema``; else ``None`` and why it is unusable."""
+) -> str | BaseModel | None:
+    """The reply as text or ``schema``; ``None`` if truncated, refused or invalid."""
     if not completion.choices:
-        return None, "the reply has no choices"
+        return None
     choice = completion.choices[0]
     content = choice.message.content
-    if choice.finish_reason == "length":
-        return None, "the reply was cut off at the output limit"
-    if content is None or not content.strip():
-        refusal = choice.message.refusal
-        if refusal:
-            return None, f"the model refused: {refusal[:200]}"
-        return None, f"the reply was empty (finish_reason={choice.finish_reason})"
+    if choice.finish_reason == "length" or content is None:
+        return None
     if schema is None:
-        return content, None
-    return parsed(schema, content)
+        return content
+    try:
+        return schema.model_validate_json(content)
+    except ValidationError:
+        return None
 
 
 def _tokens(usage: CompletionUsage | None) -> TokenCounts:

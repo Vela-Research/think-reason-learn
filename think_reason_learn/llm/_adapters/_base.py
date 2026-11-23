@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from email.utils import parsedate_to_datetime
 from typing import TYPE_CHECKING, Final, Literal, Protocol
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
 from .._usage import TokenCounts
 
@@ -62,36 +62,13 @@ class ProviderError(Exception):
 
 @dataclass(frozen=True, slots=True)
 class Reply[T]:
-    """A provider's reply: the output, its tokens and the rate-limit headers.
-
-    ``unusable`` says why there is no output (cut off, refused, empty, not the
-    schema asked for), so the caller can say why a call failed.
-    """
+    """A provider's reply: the output, its tokens and the rate-limit headers."""
 
     output: T
     tokens: TokenCounts
     served_model: str | None = None
     provider_cost: float | None = None
     headers: Mapping[str, str] = field(default_factory=dict[str, str])
-    unusable: str | None = None
-
-
-_SHOWN_CHARS: Final = 80
-"""Characters of an unusable reply shown in the reason, enough to recognise it."""
-
-
-def parsed(schema: type[BaseModel], text: str) -> tuple[BaseModel | None, str | None]:
-    """``text`` as ``schema``, or ``None`` and why it is not one."""
-    try:
-        return schema.model_validate_json(text), None
-    except ValidationError as error:
-        first = error.errors(include_url=False)[0]
-        where = ".".join(str(part) for part in first["loc"])
-        problem = f"{where}: {first['msg']}" if where else first["msg"]
-        return None, (
-            f"the reply is not a valid {schema.__name__} ({problem}); it began "
-            f"{text[:_SHOWN_CHARS]!r}"
-        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -235,8 +212,6 @@ _QUOTA_WORDS: Final = (
     "spend limit",
 )
 _PARAM_RE: Final = re.compile("|".join([*OPTIONAL_PARAMS, "effort"]))
-_MANDATORY_REASONING: Final = ("reasoning is mandatory",)
-"""A model that refuses to have reasoning turned off, as OpenRouter's 400 says."""
 _REJECTION_WORDS: Final = (
     "unsupported",
     "not supported",
@@ -251,8 +226,6 @@ _REJECTION_WORDS: Final = (
 
 def _rejected_param(message: str) -> str | None:
     """The setting a 400 says the model does not support, if it says so."""
-    if _mentions(message, _MANDATORY_REASONING):
-        return "reasoning_effort"  # it reasons anyway: call it with its default
     if not _mentions(message, _REJECTION_WORDS):
         return None
     match = _PARAM_RE.search(message)

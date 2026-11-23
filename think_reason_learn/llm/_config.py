@@ -30,11 +30,9 @@ class Config:
         max_cost_usd: Cost cap for each ``fit`` or ``predict`` run, in US dollars.
             ``None`` for no cap. A call is sent only if spending plus its
             estimate stays within the cap, checked right before sending, so no
-            call starts once spending passes it. Each call in flight holds its
-            estimate; a call that would fit but for what others hold waits for
-            them to finish. Calls already sent finish and may cost more than
-            estimated, so the bill can pass the cap by at most what the calls
-            in flight when it was crossed cost.
+            call starts once spending passes it. Calls already sent finish and
+            may cost more than estimated, so the bill can pass the cap by at
+            most what the calls in flight when it was crossed cost.
         max_retries: Retries of a call after a rate limit, server error or
             timeout.
         timeout: Seconds before a call times out (then it is retried).

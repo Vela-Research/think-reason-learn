@@ -368,20 +368,6 @@ def test_writing_calls_hold_what_earlier_ones_wrote() -> None:
     assert session._engine.writing_output(models[0]) > 15_000
 
 
-def test_short_and_long_replies_are_sized_apart() -> None:
-    writer = FakeLLM(generate=lambda r: "ok", tokens=(10, 80))
-    with fake_llms(writer=writer):
-        models = resolve_models(
-            LLM("fake:writer", reasoning_effort="none"), param="g", task="generate"
-        )
-        session = LLMSession()
-        assert session._engine.writing_output(models[0], 400) == 400
-        run_sync(session.generate(models, "p", role="g", reply_tokens=400))
-    assert session._engine.writing_output(models[0], 400) == math.ceil(80 * 1.25)
-    # A long reply is not held at what short ones wrote.
-    assert session._engine.writing_output(models[0], 2_000) == 2_000
-
-
 def test_usage_records_cost_and_roles() -> None:
     judge = FakeLLM(answer=_answer, tokens=(1_000, 100))
     with fake_llms(judge=judge):

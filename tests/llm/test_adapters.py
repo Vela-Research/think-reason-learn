@@ -9,9 +9,8 @@ from collections.abc import Callable, Mapping
 
 import httpx2
 import pytest
-from pydantic import BaseModel
 
-from think_reason_learn.exceptions import LLMError, NoOutputError, ProviderAuthError
+from think_reason_learn.exceptions import LLMError, ProviderAuthError
 from think_reason_learn.llm import (
     LLM,
     Answers,
@@ -19,7 +18,6 @@ from think_reason_learn.llm import (
     Endpoint,
     LLMSession,
     Model,
-    ReasoningEffort,
     YesNoQuestion,
     resolve_models,
     run_sync,
@@ -627,122 +625,3 @@ def test_claude_gets_the_service_tier(wire: Wire) -> None:
     sent = wire(lambda r: _message('{"a1": "YES"}'))
     _answer(LLM("anthropic:claude-haiku-4-5", api_key="k", service_tier="auto"))
     assert json.loads(sent[0].content)["service_tier"] == "auto"
-
-
-class _Gift(BaseModel):
-    outcome: str
-
-
-@pytest.mark.parametrize(
-    ("content", "finish", "reason"),
-    [
-        ('```json\n{"outcome": "YES"}\n```', "stop", "is not a valid _Gift"),
-        ('{"verdict": "YES"}', "stop", "outcome: Field required"),
-        ('{"outcome": "YE', "length", "cut off at the output limit"),
-        ("", "stop", "the reply was empty (finish_reason=stop)"),
-    ],
-)
-def test_an_unusable_reply_says_why(
-    wire: Wire, content: str, finish: str, reason: str
-) -> None:
-    def reply(request: httpx2.Request) -> httpx2.Response:
-        response = _chat(content)
-        body = json.loads(response.content)
-        body["choices"][0]["finish_reason"] = finish
-        return httpx2.Response(200, json=body)
-
-    wire(reply)
-    models = resolve_models(
-        LLM("openrouter:anthropic/a-model", api_key="k"), param="g", task="generate"
-    )
-    with pytest.raises(NoOutputError) as raised:
-        run_sync(LLMSession().generate(models, "p", role="g", schema=_Gift))
-    [why] = raised.value.reasons
-    assert why.startswith("openrouter:anthropic/a-model: no usable output (")
-    assert reason in why and reason in str(raised.value)
-
-
-def _verdict_reply(request: httpx2.Request) -> httpx2.Response:
-    return _chat('{"outcome": "YES"}')
-
-
-@pytest.mark.parametrize(
-    ("model", "effort", "sent"),
-    [
-        ("openrouter:anthropic/claude-opus-5.5", "none", "low"),
-        ("openrouter:anthropic/claude-opus-5.5", "minimal", "low"),
-        ("openrouter:anthropic/claude-opus-5.5", "high", "high"),
-        ("openrouter:openai/gpt-5-mini", "none", "none"),
-    ],
-)
-def test_claude_through_openrouter_gets_its_lowest_effort(
-    wire: Wire, model: str, effort: ReasoningEffort, sent: str
-) -> None:
-    requests = wire(_verdict_reply)
-    llm = LLM(model, api_key="k", reasoning_effort=effort, kind="reasoning")
-    models = resolve_models(llm, param="g", task="generate")
-    run_sync(LLMSession().generate(models, "p", role="g", schema=_Gift))
-    assert json.loads(requests[0].content)["reasoning_effort"] == sent
-
-
-def test_a_model_that_must_reason_is_called_without_an_effort(wire: Wire) -> None:
-    def must_reason(request: httpx2.Request) -> httpx2.Response:
-        if "reasoning_effort" in json.loads(request.content):
-            return _error(
-                400, "Reasoning is mandatory for this endpoint and cannot be disabled."
-            )
-        return _verdict_reply(request)
-
-    requests = wire(must_reason)
-    llm = LLM("openrouter:some/thinker", api_key="k", reasoning_effort="none")
-    models = resolve_models(llm, param="g", task="generate")
-    reply = run_sync(LLMSession().generate(models, "p", role="g", schema=_Gift))
-    assert reply.outcome == "YES" and len(requests) == 2
-    assert "reasoning_effort" not in json.loads(requests[1].content)
-    assert classify(400, "Reasoning is mandatory for this endpoint.", {}).param == (
-        "reasoning_effort"
-    )
-
-
-def test_claude_through_openrouter_caches_the_prefix(wire: Wire) -> None:
-    """Claude through OpenRouter caches only up to a breakpoint.
-
-    The prefix goes in its own part, marked as the breakpoint.
-    """
-    requests = wire(_verdict_reply)
-    llm = LLM("openrouter:anthropic/claude-opus-5.5", api_key="k", kind="reasoning")
-    models = resolve_models(llm, param="g", task="generate")
-    run_sync(
-        LLMSession().generate(
-            models, "the case", role="g", schema=_Gift, prefix="the policy"
-        )
-    )
-    [user] = [
-        m for m in json.loads(requests[0].content)["messages"] if m["role"] == "user"
-    ]
-    assert user["content"] == [
-        {"type": "text", "text": "the policy", "cache_control": {"type": "ephemeral"}},
-        {"type": "text", "text": "the case"},
-    ]
-
-
-@pytest.mark.parametrize(
-    ("model", "prefix"),
-    [
-        ("openrouter:openai/gpt-5-mini", "the policy"),
-        ("openrouter:anthropic/claude-opus-5.5", None),
-    ],
-)
-def test_other_models_and_no_prefix_get_one_plain_string(
-    wire: Wire, model: str, prefix: str | None
-) -> None:
-    requests = wire(_verdict_reply)
-    llm = LLM(model, api_key="k", kind="reasoning")
-    models = resolve_models(llm, param="g", task="generate")
-    run_sync(
-        LLMSession().generate(models, "the case", role="g", schema=_Gift, prefix=prefix)
-    )
-    [user] = [
-        m for m in json.loads(requests[0].content)["messages"] if m["role"] == "user"
-    ]
-    assert user["content"] == ("the policy\n\nthe case" if prefix else "the case")
